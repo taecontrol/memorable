@@ -1,5 +1,3 @@
-# Agent Guide
-
 Memorable is a project-scoped memory system for agents. Before changing the product model, read the core docs in this order:
 
 1. `docs/product.md` - product promise, principles, scope, and non-goals.
@@ -15,10 +13,3 @@ Memorable is a project-scoped memory system for agents. Before changing the prod
 - Treat Markdown summaries, reports, plans, and reviews as generated views unless their contents are intentionally written back as structured memory.
 - Preserve temporal semantics: current truth, point-in-time truth, provenance, lifecycle transitions, correction, supersession, and append-first history are core product concerns.
 - Add or update an ADR when a decision changes architecture, storage strategy, core temporal behavior, profile semantics, or agent-facing interfaces.
-
-## Current Direction
-
-- Build Memorable Core directly on Neo4j first, behind a storage adapter boundary.
-- Expose the first agent interface through MCP over the reusable core library.
-- Use project memory profiles to specialize the universal memory kernel per workspace.
-- Keep Graphiti as an optional future adapter or comparison spike, not the source of the domain model.
