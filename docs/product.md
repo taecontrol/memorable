@@ -4,9 +4,9 @@ Date: 2026-05-23
 
 ## Core Promise
 
-Memorable is a project-scoped memory system for agents.
+Memorable is a project-scoped GraphRAG memory system for agents.
 
-Its purpose is to let agents remember decisions, facts, tasks, evidence, events, and context so humans do not have to repeat themselves or maintain Markdown files as the source of truth.
+Its purpose is to let agents remember and reliably retrieve decisions, facts, tasks, evidence, events, and context so humans do not have to repeat themselves or maintain Markdown files as the source of truth.
 
 Markdown, chat summaries, plans, reports, reviews, and documents are outputs or views of memory. They are not the canonical memory store.
 
@@ -21,6 +21,7 @@ Memorable's primary users are agents. Humans are the owners, reviewers, and bene
 Memorable is:
 
 - a structured, queryable, temporal memory layer for agents;
+- a GraphRAG retrieval system that combines semantic search, graph context, temporal filtering, and provenance;
 - scoped by workspace or project by default;
 - local-first by default, with cloud storage as an explicit choice;
 - built around agent-owned writes and human inspectability;
@@ -83,6 +84,8 @@ Memorable should have a small universal memory kernel that works across projects
 
 Project memory profiles specialize that kernel for a specific workspace. They should let a software project, work folder, or training notebook define the memory shape that fits its domain without losing shared temporal and provenance semantics.
 
+Retrieval is part of the product model, not a later convenience layer. Memorable should use GraphRAG retrieval: embeddings over derived indexable text, graph expansion from retrieved records, temporal filtering for current truth and point-in-time truth, and provenance-aware context assembly. Embeddings are retrieval indexes, not canonical memory.
+
 ## Temporal Semantics
 
 Memorable must support both current-state and point-in-time questions. Agents should be able to ask what is true now, what was true before, what changed, and why.
@@ -106,6 +109,8 @@ Profiles should evolve. Agents can propose additions when they repeatedly see th
 Agents should interact with Memorable through explicit tools for writing, searching, reviewing, correcting, and generating views of memory.
 
 Agents may write memory automatically when something is worth remembering, subject to the project's write policy. Sensitive categories can require suggestion or confirmation.
+
+Agent retrieval should combine semantic similarity, graph context, temporal semantics, and provenance so returned context is both relevant and explainable.
 
 ## Review And Correction
 

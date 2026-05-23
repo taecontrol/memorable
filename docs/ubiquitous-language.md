@@ -23,12 +23,13 @@ Memorable Core owns the language for:
 - provenance and sources;
 - temporal validity and lifecycle transitions;
 - review, correction, supersession, invalidation, and generated views;
-- retrieval contracts such as current truth and point-in-time truth.
+- retrieval contracts such as current truth, point-in-time truth, and GraphRAG retrieval.
 
 Supporting contexts include:
 
 - MCP agent interface;
 - Neo4j storage adapter;
+- embedding providers and retrieval indexes;
 - optional Graphiti adapter or comparison spike;
 - Markdown, reports, summaries, reviews, and other generated views.
 
@@ -268,6 +269,42 @@ Point-In-Time Truth is what Memorable believed or what was valid at a specific t
 
 Use Point-In-Time Truth for historical reconstruction and "as of" questions.
 
+### GraphRAG Retrieval
+
+GraphRAG Retrieval is retrieval that combines semantic similarity, graph context, temporal filtering, and provenance to assemble useful memory context for agents.
+
+Use GraphRAG Retrieval when discussing Memorable's retrieval model as a whole. It should preserve the distinction between finding relevant candidates and deciding what is current or historically valid.
+
+Do not use GraphRAG Retrieval to imply hidden extraction, hidden contradiction handling, or LLM-owned write policy. Agents still write structured memory intentionally.
+
+### Hybrid Retrieval
+
+Hybrid Retrieval is the retrieval strategy that combines multiple signals such as embeddings, text search, graph traversal, temporal filters, provenance, recency, and ranking.
+
+Use Hybrid Retrieval when discussing the mechanics of finding and ranking memory. GraphRAG Retrieval is the product retrieval model; Hybrid Retrieval is one implementation strategy for that model.
+
+### Indexable Text
+
+Indexable Text is a derived text representation of a memory item used for search and embeddings.
+
+Use Indexable Text for the text generated from MemoryRecords, Entities, Relations, Events, or other retrievable memory items. It should include enough domain language to support retrieval without exposing storage details.
+
+Indexable Text is not canonical memory. If the source memory changes, Indexable Text can be regenerated.
+
+### Embedding
+
+An Embedding is a vector representation derived from Indexable Text for semantic retrieval.
+
+Use Embedding for retrieval index data that can be refreshed or rebuilt from canonical memory. Embeddings should preserve metadata such as MemorySpace identity, source record identity, Indexable Text hash or version, provider, model, dimensions, and creation time.
+
+Do not treat an Embedding as a MemoryRecord or as evidence of truth. Semantic similarity finds candidates; Temporal Semantics decide whether memory is current, historical, superseded, completed, or invalidated.
+
+### Embedding Provider
+
+An Embedding Provider is the local or remote service or library that creates Embeddings from Indexable Text.
+
+Use Embedding Provider for provider configuration, runtime diagnostics, and retrieval adapter behavior. Local providers are preferred by default. Remote providers require explicit configuration because memory content may leave the machine.
+
 ### Append-First History
 
 Append-First History is the rule that meaningful changes normally create a new event, correction, or replacement record instead of erasing the previous state.
@@ -401,6 +438,14 @@ Neo4j is the first storage adapter.
 Neo4j nodes and relationships may store Memorable Entities, MemoryRecords, Relations, provenance links, and lifecycle transitions. However, Neo4j Node and Relationship are storage vocabulary, not Memorable Core language.
 
 Use storage-specific terms inside adapter implementation and translation docs. Use core language in product docs, schemas, and agent-facing tools.
+
+### Retrieval Indexes And Embeddings
+
+Retrieval indexes and Embeddings are derived retrieval infrastructure.
+
+They may be stored in Neo4j vector indexes, local files, external vector stores, or provider-specific caches. Those storage choices do not define Memorable Core language.
+
+Use Indexable Text, Embedding, Embedding Provider, GraphRAG Retrieval, and Hybrid Retrieval in product docs, schemas, specs, and agent-facing behavior. Keep provider-specific vocabulary inside retrieval adapter implementation unless it affects user-facing configuration or behavior.
 
 ### Graphiti
 
