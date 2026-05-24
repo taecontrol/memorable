@@ -6,13 +6,16 @@ import sys
 from pathlib import Path
 
 from memorable.core.application import (
+    CompleteTaskService,
     CurrentTruthService,
     InitService,
     InspectDecisionHistoryService,
     InspectProvenanceService,
+    InspectTaskService,
     PointInTimeTruthService,
     RememberDecisionService,
     RememberEntityService,
+    RememberTaskService,
     build_status_payload,
 )
 from memorable.core.context import default_context
@@ -263,6 +266,121 @@ def _cmd_inspect_history(args: argparse.Namespace) -> int:
     return 0
 
 
+def _cmd_remember_task(args: argparse.Namespace) -> int:
+    """Remember a Task with provenance."""
+    try:
+        profile = default_context.load_profile(args.space)
+    except ProfileValidationError as e:
+        print(f"Error: {e}", file=sys.stderr)
+        return 1
+
+    service = RememberTaskService(
+        repository=default_context.task_repo, profile=profile
+    )
+
+    at = parse_iso_timestamp(args.at)
+
+    try:
+        result = service.remember(
+            space=args.space,
+            task_id=args.id,
+            title=args.title,
+            source_id=args.source,
+            at=at,
+            writer=getattr(args, "writer", "agent:memorable"),
+            reason=getattr(args, "reason", ""),
+        )
+    except ValueError as e:
+        print(f"Error: {e}", file=sys.stderr)
+        return 1
+
+    print(
+        json.dumps(
+            {
+                "task_id": result.task.id,
+                "title": result.task.title,
+                "space": result.task.space,
+                "lifecycle_state": result.task.lifecycle_state,
+                "source": result.provenance.source_id,
+                "episode": result.provenance.episode_id,
+                "creation_time": result.provenance.creation_time.isoformat(),
+                "validity_time": result.provenance.validity_time.isoformat(),
+            },
+            sort_keys=True,
+        )
+    )
+    return 0
+
+
+def _cmd_complete_task(args: argparse.Namespace) -> int:
+    """Complete a Task."""
+    service = CompleteTaskService(repository=default_context.task_repo)
+
+    at = parse_iso_timestamp(args.at)
+
+    try:
+        result = service.complete(
+            space=args.space,
+            task_id=args.id,
+            at=at,
+        )
+    except ValueError as e:
+        print(f"Error: {e}", file=sys.stderr)
+        return 1
+
+    print(
+        json.dumps(
+            {
+                "task_id": result.task.id,
+                "lifecycle_state": result.task.lifecycle_state,
+                "event_id": result.event_id,
+                "completion_time": result.completion_time.isoformat(),
+            },
+            sort_keys=True,
+        )
+    )
+    return 0
+
+
+def _cmd_task_inspect(args: argparse.Namespace) -> int:
+    """Inspect task lifecycle."""
+    service = InspectTaskService(repository=default_context.task_repo)
+
+    as_of = None
+    if hasattr(args, "as_of") and args.as_of is not None:
+        as_of = parse_iso_timestamp(args.as_of)
+
+    task = service.inspect(space=args.space, task_id=args.id, as_of=as_of)
+
+    if task is None:
+        print(
+            f"Error: No Task found for '{args.id}' "
+            f"in MemorySpace '{args.space}'.",
+            file=sys.stderr,
+        )
+        return 1
+
+    print(
+        json.dumps(
+            {
+                "task_id": task.id,
+                "title": task.title,
+                "space": task.space,
+                "lifecycle_state": task.lifecycle_state,
+                "validity_time": task.validity_time.isoformat(),
+                "completion_time": (
+                    task.completion_time.isoformat()
+                    if task.completion_time
+                    else None
+                ),
+                "completion_event_id": task.completion_event_id,
+            },
+            sort_keys=True,
+        )
+    )
+    return 0
+
+
 def main(argv: list[str] | None = None) -> int:
     parser = argparse.ArgumentParser(prog="memorable")
     subparsers = parser.add_subparsers(dest="command", required=True)
@@ -296,6 +414,18 @@ def main(argv: list[str] | None = None) -> int:
     entity_parser.add_argument("--writer", default="agent:memorable")
     entity_parser.add_argument("--reason", default="")
 
+    # remember task subcommand
+    task_rem_parser = remember_sub.add_parser(
+        "task", help="Remember a Task with provenance."
+    )
+    task_rem_parser.add_argument("--space", required=True)
+    task_rem_parser.add_argument("--id", required=True)
+    task_rem_parser.add_argument("--title", required=True)
+    task_rem_parser.add_argument("--source", required=True)
+    task_rem_parser.add_argument("--at", required=True)
+    task_rem_parser.add_argument("--writer", default="agent:memorable")
+    task_rem_parser.add_argument("--reason", default="")
+
     # remember decision subcommand
     decision_parser = remember_sub.add_parser(
         "decision", help="Remember a Decision with provenance."
@@ -308,6 +438,37 @@ def main(argv: list[str] | None = None) -> int:
     decision_parser.add_argument("--supersedes", default=None)
     decision_parser.add_argument("--writer", default="agent:memorable")
     decision_parser.add_argument("--reason", default="")
+
+    # complete subcommand
+    complete_parser = subparsers.add_parser(
+        "complete", help="Complete a lifecycle transition."
+    )
+    complete_sub = complete_parser.add_subparsers(
+        dest="complete_type", required=True
+    )
+    complete_task_parser = complete_sub.add_parser(
+        "task", help="Complete a Task."
+    )
+    complete_task_parser.add_argument("--space", required=True)
+    complete_task_parser.add_argument("--id", required=True)
+    complete_task_parser.add_argument("--at", required=True)
+    complete_task_parser.add_argument("--source", default="")
+    complete_task_parser.add_argument("--writer", default="agent:memorable")
+    complete_task_parser.add_argument("--reason", default="")
+
+    # task subcommand
+    task_parser = subparsers.add_parser(
+        "task", help="Task lifecycle operations."
+    )
+    task_sub = task_parser.add_subparsers(
+        dest="task_type", required=True
+    )
+    task_inspect_parser = task_sub.add_parser(
+        "inspect", help="Inspect task lifecycle."
+    )
+    task_inspect_parser.add_argument("--space", required=True)
+    task_inspect_parser.add_argument("--id", required=True)
+    task_inspect_parser.add_argument("--as-of", default=None)
 
     # truth subcommands
     truth_parser = subparsers.add_parser(
@@ -360,6 +521,14 @@ def main(argv: list[str] | None = None) -> int:
             return _cmd_remember_entity(args)
         elif args.remember_type == "decision":
             return _cmd_remember_decision(args)
+        elif args.remember_type == "task":
+            return _cmd_remember_task(args)
+    elif args.command == "complete":
+        if args.complete_type == "task":
+            return _cmd_complete_task(args)
+    elif args.command == "task":
+        if args.task_type == "inspect":
+            return _cmd_task_inspect(args)
     elif args.command == "truth":
         if args.truth_type == "current":
             return _cmd_truth_current(args)

@@ -10,6 +10,8 @@ from memorable.core.models import (
     Entity,
     MemorySpace,
     Provenance,
+    Task,
+    TaskProvenance,
 )
 from memorable.core.ports import (
     DecisionRepository,
@@ -298,3 +300,152 @@ class InspectProvenanceService:
     def inspect(self, *, space: str, entity_id: str) -> Provenance | None:
         """Return the provenance for an Entity, or None if not found."""
         return self._repository.get_provenance(space=space, entity_id=entity_id)
+
+
+@dataclass(frozen=True)
+class RememberTaskResult:
+    """Result of remembering a Task with provenance."""
+
+    task: Task
+    provenance: TaskProvenance
+
+
+class RememberTaskService:
+    """Application service that validates and persists a Task with provenance.
+
+    Validates that the MemoryProfile has at least one record that extends Task.
+    """
+
+    def __init__(
+        self, repository: object, profile: MemoryProfile
+    ) -> None:
+        self._repository = repository
+        self._profile = profile
+
+    def remember(
+        self,
+        *,
+        space: str,
+        task_id: str,
+        title: str,
+        source_id: str,
+        at: datetime,
+        writer: str = "agent:memorable",
+        reason: str = "",
+    ) -> RememberTaskResult:
+        """Validate record type against MemoryProfile, create provenance, persist.
+
+        Raises ValueError if the profile has no record type extending Task.
+        """
+        has_task_record = any(
+            r.extends == "Task" for r in self._profile.records
+        )
+        if not has_task_record:
+            raise ValueError(
+                f"No record type extending Task is declared in the "
+                f"MemoryProfile for space '{self._profile.space.name}'. "
+                f"Add a record with 'extends: Task' to your profile."
+            )
+
+        task = Task(
+            id=task_id,
+            title=title,
+            space=space,
+            lifecycle_state="open",
+            validity_time=at,
+            completion_time=None,
+            completion_event_id=None,
+        )
+
+        episode_id = make_episode_id(source_id, at)
+
+        provenance = TaskProvenance(
+            task_id=task_id,
+            source_id=source_id,
+            episode_id=episode_id,
+            writer=writer,
+            reason=reason,
+            creation_time=at,
+            validity_time=at,
+        )
+
+        self._repository.save(task, provenance)
+
+        return RememberTaskResult(task=task, provenance=provenance)
+
+
+@dataclass(frozen=True)
+class CompleteTaskResult:
+    """Result of completing a Task."""
+
+    task: Task
+    event_id: str
+    completion_time: datetime
+
+
+class CompleteTaskService:
+    """Application service that completes a Task by appending a completion event.
+
+    Uses append-first semantics: the original task is updated, not deleted.
+    """
+
+    def __init__(self, repository: object) -> None:
+        self._repository = repository
+
+    def complete(
+        self,
+        *,
+        space: str,
+        task_id: str,
+        at: datetime,
+        source_id: str = "",
+        writer: str = "agent:memorable",
+        reason: str = "",
+    ) -> CompleteTaskResult:
+        """Complete a Task. Raises ValueError if not found or already completed."""
+        task = self._repository.get(space=space, task_id=task_id)
+        if task is None:
+            raise ValueError(
+                f"Task '{task_id}' not found in MemorySpace '{space}'."
+            )
+        if task.lifecycle_state == "completed":
+            raise ValueError(
+                f"Task '{task_id}' is already completed."
+            )
+
+        # Build event id from task id suffix
+        task_suffix = task_id.split(":", 1)[-1] if ":" in task_id else task_id
+        event_id = f"event:complete-task:{task_suffix}"
+
+        self._repository.complete(
+            space=space,
+            task_id=task_id,
+            completion_time=at,
+            completion_event_id=event_id,
+        )
+
+        completed = self._repository.get(space=space, task_id=task_id)
+        return CompleteTaskResult(
+            task=completed, event_id=event_id, completion_time=at
+        )
+
+
+class InspectTaskService:
+    """Application service that inspects task lifecycle at current or as-of time."""
+
+    def __init__(self, repository: object) -> None:
+        self._repository = repository
+
+    def inspect(
+        self,
+        *,
+        space: str,
+        task_id: str,
+        as_of: datetime | None = None,
+    ) -> Task | None:
+        """Return the Task state, optionally at a specific point in time."""
+        if as_of is not None:
+            return self._repository.get_at(
+                space=space, task_id=task_id, at=as_of
+            )
+        return self._repository.get(space=space, task_id=task_id)

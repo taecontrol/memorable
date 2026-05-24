@@ -13,6 +13,8 @@ from memorable.core.models import (
     Entity,
     MemorySpace,
     Provenance,
+    Task,
+    TaskProvenance,
 )
 from memorable.core.ports import MemorySpaceRepository
 
@@ -138,6 +140,71 @@ class InMemoryDecisionRepository:
             superseded_by=superseded_by,
         )
         self._decisions[key] = updated
+
+
+class InMemoryTaskRepository:
+    """In-memory implementation of TaskRepository."""
+
+    def __init__(self) -> None:
+        self._tasks: dict[tuple[str, str], Task] = {}
+        self._provenance: dict[tuple[str, str], TaskProvenance] = {}
+
+    def save(self, task: Task, provenance: TaskProvenance) -> None:
+        key = (task.space, task.id)
+        self._tasks[key] = task
+        self._provenance[key] = provenance
+
+    def get(self, *, space: str, task_id: str) -> Task | None:
+        return self._tasks.get((space, task_id))
+
+    def get_provenance(self, *, space: str, task_id: str) -> TaskProvenance | None:
+        return self._provenance.get((space, task_id))
+
+    def complete(
+        self,
+        *,
+        space: str,
+        task_id: str,
+        completion_time: datetime,
+        completion_event_id: str,
+    ) -> None:
+        key = (space, task_id)
+        old = self._tasks.get(key)
+        if old is None:
+            return
+        updated = Task(
+            id=old.id,
+            title=old.title,
+            space=old.space,
+            lifecycle_state="completed",
+            validity_time=old.validity_time,
+            completion_time=completion_time,
+            completion_event_id=completion_event_id,
+        )
+        self._tasks[key] = updated
+
+    def get_at(self, *, space: str, task_id: str, at: datetime) -> Task | None:
+        task = self._tasks.get((space, task_id))
+        if task is None:
+            return None
+        if at < task.validity_time:
+            return None
+        # If task is completed and as-of time is before completion, return as open
+        if (
+            task.lifecycle_state == "completed"
+            and task.completion_time
+            and at < task.completion_time
+        ):
+            return Task(
+                id=task.id,
+                title=task.title,
+                space=task.space,
+                lifecycle_state="open",
+                validity_time=task.validity_time,
+                completion_time=None,
+                completion_event_id=None,
+            )
+        return task
 
 
 def make_memory_space_repository() -> MemorySpaceRepository:

@@ -121,3 +121,42 @@ class DecisionProvenance:
     reason: str
     creation_time: datetime
     validity_time: datetime
+
+
+@dataclass(frozen=True)
+class Task:
+    """A remembered work item with lifecycle state and temporal validity.
+
+    Tasks track open/completed lifecycle transitions with append-first
+    completion events rather than deletion.
+    """
+
+    id: str
+    title: str
+    space: str
+    lifecycle_state: str  # "open" or "completed"
+    validity_time: datetime
+    completion_time: datetime | None
+    completion_event_id: str | None
+
+    def __post_init__(self) -> None:
+        if not self.id:
+            raise ValueError("Task id must not be empty.")
+        if not self.title:
+            raise ValueError("Task title must not be empty.")
+
+
+@dataclass(frozen=True)
+class TaskProvenance:
+    """The recorded explanation of where a Task came from and why it is believed.
+
+    Every Task write preserves provenance.
+    """
+
+    task_id: str
+    source_id: str
+    episode_id: str
+    writer: str
+    reason: str
+    creation_time: datetime
+    validity_time: datetime

@@ -3,13 +3,16 @@ from __future__ import annotations
 from pathlib import Path
 
 from memorable.core.application import (
+    CompleteTaskService,
     CurrentTruthService,
     InitService,
     InspectDecisionHistoryService,
     InspectProvenanceService,
+    InspectTaskService,
     PointInTimeTruthService,
     RememberDecisionService,
     RememberEntityService,
+    RememberTaskService,
     build_status_payload,
 )
 from memorable.core.context import default_context
@@ -305,4 +308,126 @@ def inspect_provenance_tool(
         "reason": provenance.reason,
         "creation_time": provenance.creation_time.isoformat(),
         "validity_time": provenance.validity_time.isoformat(),
+    }
+
+
+def remember_task_tool(
+    space: str,
+    task_id: str,
+    title: str,
+    source: str,
+    at: str,
+    writer: str = "agent:memorable",
+    reason: str = "",
+) -> dict[str, object]:
+    """Remember a Task with provenance in a MemorySpace.
+
+    Returns a dict with task and provenance info on success,
+    or an error dict on failure.
+    """
+    try:
+        profile = default_context.load_profile(space)
+    except ProfileValidationError as e:
+        return {"error": str(e)}
+
+    service = RememberTaskService(
+        repository=default_context.task_repo, profile=profile
+    )
+
+    timestamp = parse_iso_timestamp(at)
+
+    try:
+        result = service.remember(
+            space=space,
+            task_id=task_id,
+            title=title,
+            source_id=source,
+            at=timestamp,
+            writer=writer,
+            reason=reason,
+        )
+    except ValueError as e:
+        return {"error": str(e)}
+
+    return {
+        "task_id": result.task.id,
+        "title": result.task.title,
+        "space": result.task.space,
+        "lifecycle_state": result.task.lifecycle_state,
+        "source": result.provenance.source_id,
+        "episode": result.provenance.episode_id,
+        "creation_time": result.provenance.creation_time.isoformat(),
+        "validity_time": result.provenance.validity_time.isoformat(),
+    }
+
+
+def complete_task_tool(
+    space: str,
+    task_id: str,
+    at: str,
+    source: str = "",
+    writer: str = "agent:memorable",
+    reason: str = "",
+) -> dict[str, object]:
+    """Complete a Task in a MemorySpace.
+
+    Returns a dict with completion info on success,
+    or an error dict on failure.
+    """
+    service = CompleteTaskService(repository=default_context.task_repo)
+
+    timestamp = parse_iso_timestamp(at)
+
+    try:
+        result = service.complete(
+            space=space,
+            task_id=task_id,
+            at=timestamp,
+        )
+    except ValueError as e:
+        return {"error": str(e)}
+
+    return {
+        "task_id": result.task.id,
+        "lifecycle_state": result.task.lifecycle_state,
+        "event_id": result.event_id,
+        "completion_time": result.completion_time.isoformat(),
+    }
+
+
+def inspect_task_tool(
+    space: str,
+    task_id: str,
+    as_of: str | None = None,
+) -> dict[str, object]:
+    """Inspect task lifecycle at current time or as-of a point in time.
+
+    Returns task details on success, or an error dict on failure.
+    """
+    service = InspectTaskService(repository=default_context.task_repo)
+
+    as_of_dt = None
+    if as_of is not None:
+        as_of_dt = parse_iso_timestamp(as_of)
+
+    task = service.inspect(space=space, task_id=task_id, as_of=as_of_dt)
+
+    if task is None:
+        return {
+            "error": f"No Task found for '{task_id}' "
+            f"in MemorySpace '{space}'."
+        }
+
+    return {
+        "task_id": task.id,
+        "title": task.title,
+        "space": task.space,
+        "lifecycle_state": task.lifecycle_state,
+        "validity_time": task.validity_time.isoformat(),
+        "completion_time": (
+            task.completion_time.isoformat()
+            if task.completion_time
+            else None
+        ),
+        "completion_event_id": task.completion_event_id,
     }

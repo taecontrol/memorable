@@ -13,6 +13,7 @@ from memorable.core.profile import MemoryProfile, load_profile_from_yaml
 from memorable.core.repositories import (
     InMemoryDecisionRepository,
     InMemoryEntityRepository,
+    InMemoryTaskRepository,
 )
 
 # Default profile YAML used when no .memorable/memory.yaml is found.
@@ -29,6 +30,8 @@ entities:
 records:
   - name: ArchitectureDecision
     extends: Decision
+  - name: FollowUp
+    extends: Task
 """
 
 
@@ -44,9 +47,11 @@ class ApplicationContext:
         self,
         entity_repo: InMemoryEntityRepository | None = None,
         decision_repo: InMemoryDecisionRepository | None = None,
+        task_repo: InMemoryTaskRepository | None = None,
     ) -> None:
         self.entity_repo = entity_repo or InMemoryEntityRepository()
         self.decision_repo = decision_repo or InMemoryDecisionRepository()
+        self.task_repo = task_repo or InMemoryTaskRepository()
         self._profiles: dict[str, MemoryProfile] = {}
 
     def load_profile(self, space: str) -> MemoryProfile:
@@ -72,6 +77,7 @@ class ApplicationContext:
         """Clear all cached state. Useful for test isolation."""
         self.entity_repo = InMemoryEntityRepository()
         self.decision_repo = InMemoryDecisionRepository()
+        self.task_repo = InMemoryTaskRepository()
         self._profiles.clear()
 
 
