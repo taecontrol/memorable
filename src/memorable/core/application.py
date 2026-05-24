@@ -4,8 +4,18 @@ from dataclasses import asdict, dataclass
 from datetime import datetime
 from typing import Protocol
 
-from memorable.core.models import Entity, MemorySpace, Provenance
-from memorable.core.ports import EntityRepository, MemorySpaceRepository
+from memorable.core.models import (
+    Decision,
+    DecisionProvenance,
+    Entity,
+    MemorySpace,
+    Provenance,
+)
+from memorable.core.ports import (
+    DecisionRepository,
+    EntityRepository,
+    MemorySpaceRepository,
+)
 from memorable.core.profile import MemoryProfile, load_profile_from_yaml
 from memorable.core.temporal import make_episode_id
 
@@ -158,6 +168,122 @@ class RememberEntityService:
         self._repository.save(entity, provenance)
 
         return RememberEntityResult(entity=entity, provenance=provenance)
+
+
+@dataclass(frozen=True)
+class RememberDecisionResult:
+    """Result of remembering a Decision with provenance."""
+
+    decision: Decision
+    provenance: DecisionProvenance
+
+
+class RememberDecisionService:
+    """Application service that validates and persists a Decision with provenance.
+
+    Validates that the MemoryProfile has at least one record that extends Decision.
+    When supersedes is provided, marks the old decision as superseded.
+    """
+
+    def __init__(
+        self, repository: DecisionRepository, profile: MemoryProfile
+    ) -> None:
+        self._repository = repository
+        self._profile = profile
+
+    def remember(
+        self,
+        *,
+        space: str,
+        decision_id: str,
+        statement: str,
+        source_id: str,
+        at: datetime,
+        writer: str = "agent:memorable",
+        reason: str = "",
+        supersedes: str | None = None,
+    ) -> RememberDecisionResult:
+        """Validate record type against MemoryProfile, create provenance, persist.
+
+        Raises ValueError if the profile has no record type extending Decision.
+        """
+        has_decision_record = any(
+            r.extends == "Decision" for r in self._profile.records
+        )
+        if not has_decision_record:
+            raise ValueError(
+                f"No record type extending Decision is declared in the "
+                f"MemoryProfile for space '{self._profile.space.name}'. "
+                f"Add a record with 'extends: Decision' to your profile."
+            )
+
+        decision = Decision(
+            id=decision_id,
+            statement=statement,
+            space=space,
+            validity_time=at,
+            invalidation_time=None,
+            lifecycle_state="current",
+            supersedes=supersedes,
+            superseded_by=None,
+        )
+
+        episode_id = make_episode_id(source_id, at)
+
+        provenance = DecisionProvenance(
+            decision_id=decision_id,
+            source_id=source_id,
+            episode_id=episode_id,
+            writer=writer,
+            reason=reason,
+            creation_time=at,
+            validity_time=at,
+        )
+
+        self._repository.save(decision, provenance)
+
+        if supersedes is not None:
+            self._repository.mark_superseded(
+                space=space,
+                decision_id=supersedes,
+                superseded_by=decision_id,
+                invalidation_time=at,
+            )
+
+        return RememberDecisionResult(decision=decision, provenance=provenance)
+
+
+class CurrentTruthService:
+    """Application service that follows supersession chain to find current Decision."""
+
+    def __init__(self, repository: DecisionRepository) -> None:
+        self._repository = repository
+
+    def current(self, *, space: str, decision_id: str) -> Decision | None:
+        """Return the current Decision, following supersession chain."""
+        return self._repository.get_current(space=space, decision_id=decision_id)
+
+
+class PointInTimeTruthService:
+    """Application service that returns the Decision valid at a specific time."""
+
+    def __init__(self, repository: DecisionRepository) -> None:
+        self._repository = repository
+
+    def at(self, *, space: str, decision_id: str, at: datetime) -> Decision | None:
+        """Return the Decision that was valid at the given time."""
+        return self._repository.get_at(space=space, decision_id=decision_id, at=at)
+
+
+class InspectDecisionHistoryService:
+    """Application service that returns the full supersession chain for a Decision."""
+
+    def __init__(self, repository: DecisionRepository) -> None:
+        self._repository = repository
+
+    def history(self, *, space: str, decision_id: str) -> list[Decision]:
+        """Return the supersession chain starting from the given Decision."""
+        return self._repository.get_history(space=space, decision_id=decision_id)
 
 
 class InspectProvenanceService:

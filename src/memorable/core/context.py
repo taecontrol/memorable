@@ -10,7 +10,10 @@ from __future__ import annotations
 from pathlib import Path
 
 from memorable.core.profile import MemoryProfile, load_profile_from_yaml
-from memorable.core.repositories import InMemoryEntityRepository
+from memorable.core.repositories import (
+    InMemoryDecisionRepository,
+    InMemoryEntityRepository,
+)
 
 # Default profile YAML used when no .memorable/memory.yaml is found.
 # This supports the tracer fixture and tests that call remember/inspect
@@ -23,7 +26,9 @@ space:
 entities:
   - name: Project
   - name: Component
-records: []
+records:
+  - name: ArchitectureDecision
+    extends: Decision
 """
 
 
@@ -38,8 +43,10 @@ class ApplicationContext:
     def __init__(
         self,
         entity_repo: InMemoryEntityRepository | None = None,
+        decision_repo: InMemoryDecisionRepository | None = None,
     ) -> None:
         self.entity_repo = entity_repo or InMemoryEntityRepository()
+        self.decision_repo = decision_repo or InMemoryDecisionRepository()
         self._profiles: dict[str, MemoryProfile] = {}
 
     def load_profile(self, space: str) -> MemoryProfile:
@@ -64,6 +71,7 @@ class ApplicationContext:
     def reset(self) -> None:
         """Clear all cached state. Useful for test isolation."""
         self.entity_repo = InMemoryEntityRepository()
+        self.decision_repo = InMemoryDecisionRepository()
         self._profiles.clear()
 
 

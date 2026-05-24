@@ -81,3 +81,43 @@ class Provenance:
     reason: str
     creation_time: datetime
     validity_time: datetime
+
+
+@dataclass(frozen=True)
+class Decision:
+    """A remembered choice with temporal validity and supersession links.
+
+    Decisions preserve rationale, provenance, temporal validity,
+    and explicit supersession relationships.
+    """
+
+    id: str
+    statement: str
+    space: str
+    validity_time: datetime
+    invalidation_time: datetime | None
+    lifecycle_state: str
+    supersedes: str | None
+    superseded_by: str | None
+
+    def __post_init__(self) -> None:
+        if not self.id:
+            raise ValueError("Decision id must not be empty")
+        if not self.statement:
+            raise ValueError("Decision statement must not be empty")
+
+
+@dataclass(frozen=True)
+class DecisionProvenance:
+    """The recorded explanation of where a Decision came from and why it is believed.
+
+    Every Decision write preserves provenance.
+    """
+
+    decision_id: str
+    source_id: str
+    episode_id: str
+    writer: str
+    reason: str
+    creation_time: datetime
+    validity_time: datetime
