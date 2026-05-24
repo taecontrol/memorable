@@ -216,9 +216,7 @@ class TestMCPInit:
         assert result["status"] == "initialized"
         assert result["profile_version"] == 1
 
-    def test_mcp_init_space_returns_error_for_invalid_profile(
-        self, tmp_path
-    ) -> None:
+    def test_mcp_init_space_returns_error_for_invalid_profile(self, tmp_path) -> None:
         """MCP init_space_tool returns error info for invalid profiles."""
         from memorable.mcp.server import init_space_tool
 

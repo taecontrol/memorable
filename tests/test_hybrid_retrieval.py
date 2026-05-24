@@ -55,10 +55,7 @@ VALID_PROFILE_YAML = textwrap.dedent("""\
         extends: Task
 """)
 
-STATEMENT_V1 = (
-    "Graphiti is the first implementation path"
-    " for Memorable storage."
-)
+STATEMENT_V1 = "Graphiti is the first implementation path for Memorable storage."
 STATEMENT_V2 = (
     "Direct Neo4j is the first implementation path;"
     " Graphiti remains optional behind the"
@@ -263,9 +260,7 @@ class TestEmbeddingIndex:
         index.store(record)
 
         query_vector = provider.embed("storage implementation")
-        results = index.search(
-            space="memorable", query_vector=query_vector, top_k=5
-        )
+        results = index.search(space="memorable", query_vector=query_vector, top_k=5)
 
         assert len(results) >= 1
         assert results[0].source_id == "decision:storage-path:v2"
@@ -491,9 +486,7 @@ def _build_fixture():
     )
 
     # Step 4: Remember initial Decision
-    decision_svc = RememberDecisionService(
-        repository=decision_repo, profile=profile
-    )
+    decision_svc = RememberDecisionService(repository=decision_repo, profile=profile)
     decision_svc.remember(
         space="memorable",
         decision_id="decision:storage-path:v1",
@@ -573,9 +566,7 @@ class TestTemporalFiltering:
             mode="current",
         )
 
-        task_results = [
-            r for r in results if r.source_id == "task:mcp-smoke-path"
-        ]
+        task_results = [r for r in results if r.source_id == "task:mcp-smoke-path"]
         assert len(task_results) == 1
         assert task_results[0].lifecycle_state == "completed"
 
@@ -609,9 +600,7 @@ class TestTemporalFiltering:
             as_of=at_before,
         )
 
-        task_results = [
-            r for r in results if r.source_id == "task:mcp-smoke-path"
-        ]
+        task_results = [r for r in results if r.source_id == "task:mcp-smoke-path"]
         assert len(task_results) == 1
         assert task_results[0].lifecycle_state == "open"
 
@@ -743,8 +732,7 @@ class TestProvenanceAwareExplanation:
         # Explanation should mention supersession history
         explanations_joined = " ".join(result.explanation).lower()
         has_supersession = (
-            "supersession" in explanations_joined
-            or "supersed" in explanations_joined
+            "supersession" in explanations_joined or "supersed" in explanations_joined
         )
         assert has_supersession
 
@@ -772,9 +760,7 @@ class TestContractQuery:
         )
 
         # decision:storage-path:v2 should be the top-ranked decision
-        decision_results = [
-            r for r in results if r.source_kind == "Decision"
-        ]
+        decision_results = [r for r in results if r.source_kind == "Decision"]
         assert len(decision_results) >= 1
         assert decision_results[0].source_id == "decision:storage-path:v2"
         assert decision_results[0].lifecycle_state == "current"
@@ -849,51 +835,82 @@ class TestCLISearch:
 
     def setup_method(self) -> None:
         from memorable.core.context import default_context
+
         default_context.reset()
 
     def _setup_fixture_via_cli(self) -> None:
         from memorable.cli import main
 
         # Entity
-        main([
-            "remember", "entity",
-            "--space", "memorable",
-            "--id", "entity:memorable",
-            "--type", "Project",
-            "--name", "Memorable",
-            "--source", SOURCE_ID,
-            "--at", "2026-05-23T10:10:00Z",
-        ])
+        main(
+            [
+                "remember",
+                "entity",
+                "--space",
+                "memorable",
+                "--id",
+                "entity:memorable",
+                "--type",
+                "Project",
+                "--name",
+                "Memorable",
+                "--source",
+                SOURCE_ID,
+                "--at",
+                "2026-05-23T10:10:00Z",
+            ]
+        )
         # Decision v1
-        main([
-            "remember", "decision",
-            "--space", "memorable",
-            "--id", "decision:storage-path:v1",
-            "--statement", STATEMENT_V1,
-            "--source", SOURCE_ID,
-            "--at", "2026-05-23T10:15:00Z",
-        ])
+        main(
+            [
+                "remember",
+                "decision",
+                "--space",
+                "memorable",
+                "--id",
+                "decision:storage-path:v1",
+                "--statement",
+                STATEMENT_V1,
+                "--source",
+                SOURCE_ID,
+                "--at",
+                "2026-05-23T10:15:00Z",
+            ]
+        )
         # Decision v2
-        main([
-            "remember", "decision",
-            "--space", "memorable",
-            "--id", "decision:storage-path:v2",
-            "--statement", STATEMENT_V2,
-            "--supersedes", "decision:storage-path:v1",
-            "--source", SOURCE_ID,
-            "--at", "2026-05-23T10:20:00Z",
-        ])
+        main(
+            [
+                "remember",
+                "decision",
+                "--space",
+                "memorable",
+                "--id",
+                "decision:storage-path:v2",
+                "--statement",
+                STATEMENT_V2,
+                "--supersedes",
+                "decision:storage-path:v1",
+                "--source",
+                SOURCE_ID,
+                "--at",
+                "2026-05-23T10:20:00Z",
+            ]
+        )
 
     def test_search_command(self, capsys) -> None:
         from memorable.cli import main
 
         self._setup_fixture_via_cli()
 
-        exit_code = main([
-            "search",
-            "--space", "memorable",
-            "--query", "storage implementation decision",
-        ])
+        exit_code = main(
+            [
+                "search",
+                "--space",
+                "memorable",
+                "--query",
+                "storage implementation decision",
+            ]
+        )
 
         assert exit_code == 0
         output = capsys.readouterr().out
@@ -908,12 +925,17 @@ class TestCLISearch:
         # Clear capsys from setup commands
         capsys.readouterr()
 
-        exit_code = main([
-            "search",
-            "--space", "memorable",
-            "--query", "storage implementation",
-            "--mode", "current",
-        ])
+        exit_code = main(
+            [
+                "search",
+                "--space",
+                "memorable",
+                "--query",
+                "storage implementation",
+                "--mode",
+                "current",
+            ]
+        )
 
         assert exit_code == 0
         output = capsys.readouterr().out
@@ -934,6 +956,7 @@ class TestMCPSearchTool:
 
     def setup_method(self) -> None:
         from memorable.core.context import default_context
+
         default_context.reset()
 
     def _setup_fixture_via_mcp(self) -> None:
@@ -1018,8 +1041,13 @@ class TestLanguageBoundary:
         # not storage vocabulary, so we exclude "index" only when it
         # appears as a standalone storage term, not inside "Indexable".
         storage_terms = {
-            "node", "edge", "vertex", "database",
-            "table", "row", "column",
+            "node",
+            "edge",
+            "vertex",
+            "database",
+            "table",
+            "row",
+            "column",
         }
 
         for result in results:

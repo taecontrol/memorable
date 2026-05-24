@@ -118,9 +118,7 @@ class RememberEntityService:
     persistence logic.
     """
 
-    def __init__(
-        self, repository: EntityRepository, profile: MemoryProfile
-    ) -> None:
+    def __init__(self, repository: EntityRepository, profile: MemoryProfile) -> None:
         self._repository = repository
         self._profile = profile
 
@@ -187,9 +185,7 @@ class RememberDecisionService:
     When supersedes is provided, marks the old decision as superseded.
     """
 
-    def __init__(
-        self, repository: DecisionRepository, profile: MemoryProfile
-    ) -> None:
+    def __init__(self, repository: DecisionRepository, profile: MemoryProfile) -> None:
         self._repository = repository
         self._profile = profile
 
@@ -316,9 +312,7 @@ class RememberTaskService:
     Validates that the MemoryProfile has at least one record that extends Task.
     """
 
-    def __init__(
-        self, repository: object, profile: MemoryProfile
-    ) -> None:
+    def __init__(self, repository: object, profile: MemoryProfile) -> None:
         self._repository = repository
         self._profile = profile
 
@@ -337,9 +331,7 @@ class RememberTaskService:
 
         Raises ValueError if the profile has no record type extending Task.
         """
-        has_task_record = any(
-            r.extends == "Task" for r in self._profile.records
-        )
+        has_task_record = any(r.extends == "Task" for r in self._profile.records)
         if not has_task_record:
             raise ValueError(
                 f"No record type extending Task is declared in the "
@@ -405,13 +397,9 @@ class CompleteTaskService:
         """Complete a Task. Raises ValueError if not found or already completed."""
         task = self._repository.get(space=space, task_id=task_id)
         if task is None:
-            raise ValueError(
-                f"Task '{task_id}' not found in MemorySpace '{space}'."
-            )
+            raise ValueError(f"Task '{task_id}' not found in MemorySpace '{space}'.")
         if task.lifecycle_state == "completed":
-            raise ValueError(
-                f"Task '{task_id}' is already completed."
-            )
+            raise ValueError(f"Task '{task_id}' is already completed.")
 
         # Build event id from task id suffix
         task_suffix = task_id.split(":", 1)[-1] if ":" in task_id else task_id
@@ -425,9 +413,7 @@ class CompleteTaskService:
         )
 
         completed = self._repository.get(space=space, task_id=task_id)
-        return CompleteTaskResult(
-            task=completed, event_id=event_id, completion_time=at
-        )
+        return CompleteTaskResult(task=completed, event_id=event_id, completion_time=at)
 
 
 class InspectTaskService:
@@ -445,7 +431,5 @@ class InspectTaskService:
     ) -> Task | None:
         """Return the Task state, optionally at a specific point in time."""
         if as_of is not None:
-            return self._repository.get_at(
-                space=space, task_id=task_id, at=as_of
-            )
+            return self._repository.get_at(space=space, task_id=task_id, at=as_of)
         return self._repository.get(space=space, task_id=task_id)

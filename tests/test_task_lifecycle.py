@@ -17,12 +17,8 @@ import pytest
 
 # --- Fixture data ---
 
-FIXTURE_TIMESTAMP_REMEMBER = datetime(
-    2026, 5, 23, 10, 25, 0, tzinfo=timezone.utc
-)
-FIXTURE_TIMESTAMP_COMPLETE = datetime(
-    2026, 5, 23, 10, 30, 0, tzinfo=timezone.utc
-)
+FIXTURE_TIMESTAMP_REMEMBER = datetime(2026, 5, 23, 10, 25, 0, tzinfo=timezone.utc)
+FIXTURE_TIMESTAMP_COMPLETE = datetime(2026, 5, 23, 10, 30, 0, tzinfo=timezone.utc)
 
 TASK_ID = "task:mcp-smoke-path"
 TASK_TITLE = "Build the MCP smoke path over shared core behavior."
@@ -213,10 +209,7 @@ class TestTaskRepositoryPort:
         from memorable.core.repositories import InMemoryTaskRepository
 
         repo = InMemoryTaskRepository()
-        assert (
-            repo.get_provenance(space="memorable", task_id="task:missing")
-            is None
-        )
+        assert repo.get_provenance(space="memorable", task_id="task:missing") is None
 
     def test_complete_updates_task(self) -> None:
         from memorable.core.repositories import InMemoryTaskRepository
@@ -367,9 +360,7 @@ class TestRememberTaskService:
             at=FIXTURE_TIMESTAMP_REMEMBER,
         )
 
-        expected_episode = (
-            "episode:tracer-fixture:2026-05-23T10:25:00+00:00"
-        )
+        expected_episode = "episode:tracer-fixture:2026-05-23T10:25:00+00:00"
         assert result.provenance.episode_id == expected_episode
 
     def test_rejects_profile_without_task_record(self) -> None:
@@ -545,9 +536,7 @@ class TestInspectTaskService:
         service, _repo = self._setup_completed_task()
 
         at_1027 = datetime(2026, 5, 23, 10, 27, 0, tzinfo=timezone.utc)
-        result = service.inspect(
-            space="memorable", task_id=TASK_ID, as_of=at_1027
-        )
+        result = service.inspect(space="memorable", task_id=TASK_ID, as_of=at_1027)
 
         assert result is not None
         assert result.lifecycle_state == "open"
@@ -556,9 +545,7 @@ class TestInspectTaskService:
         service, _repo = self._setup_completed_task()
 
         at_1031 = datetime(2026, 5, 23, 10, 31, 0, tzinfo=timezone.utc)
-        result = service.inspect(
-            space="memorable", task_id=TASK_ID, as_of=at_1031
-        )
+        result = service.inspect(space="memorable", task_id=TASK_ID, as_of=at_1031)
 
         assert result is not None
         assert result.lifecycle_state == "completed"
@@ -590,14 +577,22 @@ class TestCLIRememberTask:
     def test_remember_task_command(self, capsys) -> None:
         from memorable.cli import main
 
-        exit_code = main([
-            "remember", "task",
-            "--space", "memorable",
-            "--id", TASK_ID,
-            "--title", TASK_TITLE,
-            "--source", SOURCE_ID,
-            "--at", "2026-05-23T10:25:00Z",
-        ])
+        exit_code = main(
+            [
+                "remember",
+                "task",
+                "--space",
+                "memorable",
+                "--id",
+                TASK_ID,
+                "--title",
+                TASK_TITLE,
+                "--source",
+                SOURCE_ID,
+                "--at",
+                "2026-05-23T10:25:00Z",
+            ]
+        )
 
         assert exit_code == 0
         output = capsys.readouterr().out
@@ -617,22 +612,36 @@ class TestCLICompleteTask:
         from memorable.cli import main
 
         # Remember first
-        main([
-            "remember", "task",
-            "--space", "memorable",
-            "--id", TASK_ID,
-            "--title", TASK_TITLE,
-            "--source", SOURCE_ID,
-            "--at", "2026-05-23T10:25:00Z",
-        ])
+        main(
+            [
+                "remember",
+                "task",
+                "--space",
+                "memorable",
+                "--id",
+                TASK_ID,
+                "--title",
+                TASK_TITLE,
+                "--source",
+                SOURCE_ID,
+                "--at",
+                "2026-05-23T10:25:00Z",
+            ]
+        )
 
         # Complete
-        exit_code = main([
-            "complete", "task",
-            "--space", "memorable",
-            "--id", TASK_ID,
-            "--at", "2026-05-23T10:30:00Z",
-        ])
+        exit_code = main(
+            [
+                "complete",
+                "task",
+                "--space",
+                "memorable",
+                "--id",
+                TASK_ID,
+                "--at",
+                "2026-05-23T10:30:00Z",
+            ]
+        )
 
         assert exit_code == 0
         output = capsys.readouterr().out
@@ -652,26 +661,45 @@ class TestCLITaskInspect:
         from memorable.cli import main
 
         # Remember and complete
-        main([
-            "remember", "task",
-            "--space", "memorable",
-            "--id", TASK_ID,
-            "--title", TASK_TITLE,
-            "--source", SOURCE_ID,
-            "--at", "2026-05-23T10:25:00Z",
-        ])
-        main([
-            "complete", "task",
-            "--space", "memorable",
-            "--id", TASK_ID,
-            "--at", "2026-05-23T10:30:00Z",
-        ])
+        main(
+            [
+                "remember",
+                "task",
+                "--space",
+                "memorable",
+                "--id",
+                TASK_ID,
+                "--title",
+                TASK_TITLE,
+                "--source",
+                SOURCE_ID,
+                "--at",
+                "2026-05-23T10:25:00Z",
+            ]
+        )
+        main(
+            [
+                "complete",
+                "task",
+                "--space",
+                "memorable",
+                "--id",
+                TASK_ID,
+                "--at",
+                "2026-05-23T10:30:00Z",
+            ]
+        )
 
-        exit_code = main([
-            "task", "inspect",
-            "--space", "memorable",
-            "--id", TASK_ID,
-        ])
+        exit_code = main(
+            [
+                "task",
+                "inspect",
+                "--space",
+                "memorable",
+                "--id",
+                TASK_ID,
+            ]
+        )
 
         assert exit_code == 0
         output = capsys.readouterr().out
@@ -681,27 +709,47 @@ class TestCLITaskInspect:
     def test_task_inspect_as_of_before_completion(self, capsys) -> None:
         from memorable.cli import main
 
-        main([
-            "remember", "task",
-            "--space", "memorable",
-            "--id", TASK_ID,
-            "--title", TASK_TITLE,
-            "--source", SOURCE_ID,
-            "--at", "2026-05-23T10:25:00Z",
-        ])
-        main([
-            "complete", "task",
-            "--space", "memorable",
-            "--id", TASK_ID,
-            "--at", "2026-05-23T10:30:00Z",
-        ])
+        main(
+            [
+                "remember",
+                "task",
+                "--space",
+                "memorable",
+                "--id",
+                TASK_ID,
+                "--title",
+                TASK_TITLE,
+                "--source",
+                SOURCE_ID,
+                "--at",
+                "2026-05-23T10:25:00Z",
+            ]
+        )
+        main(
+            [
+                "complete",
+                "task",
+                "--space",
+                "memorable",
+                "--id",
+                TASK_ID,
+                "--at",
+                "2026-05-23T10:30:00Z",
+            ]
+        )
 
-        exit_code = main([
-            "task", "inspect",
-            "--space", "memorable",
-            "--id", TASK_ID,
-            "--as-of", "2026-05-23T10:27:00Z",
-        ])
+        exit_code = main(
+            [
+                "task",
+                "inspect",
+                "--space",
+                "memorable",
+                "--id",
+                TASK_ID,
+                "--as-of",
+                "2026-05-23T10:27:00Z",
+            ]
+        )
 
         assert exit_code == 0
         output = capsys.readouterr().out
@@ -885,8 +933,13 @@ class TestLanguageBoundary:
         service = RememberTaskService(repository=repo, profile=profile)
 
         storage_terms = {
-            "node", "edge", "index", "vertex",
-            "graph", "database", "table",
+            "node",
+            "edge",
+            "index",
+            "vertex",
+            "graph",
+            "database",
+            "table",
         }
 
         with pytest.raises(ValueError) as exc_info:
@@ -900,6 +953,5 @@ class TestLanguageBoundary:
         message_lower = str(exc_info.value).lower()
         for term in storage_terms:
             assert term not in message_lower, (
-                f"Storage vocabulary '{term}' found"
-                f" in error: {exc_info.value}"
+                f"Storage vocabulary '{term}' found in error: {exc_info.value}"
             )

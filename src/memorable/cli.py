@@ -189,8 +189,7 @@ def _cmd_truth_current(args: argparse.Namespace) -> int:
 
     if decision is None:
         print(
-            f"Error: No Decision found for '{args.id}' "
-            f"in MemorySpace '{args.space}'.",
+            f"Error: No Decision found for '{args.id}' in MemorySpace '{args.space}'.",
             file=sys.stderr,
         )
         return 1
@@ -246,8 +245,7 @@ def _cmd_inspect_history(args: argparse.Namespace) -> int:
 
     if not history:
         print(
-            f"Error: No Decision found for '{args.id}' "
-            f"in MemorySpace '{args.space}'.",
+            f"Error: No Decision found for '{args.id}' in MemorySpace '{args.space}'.",
             file=sys.stderr,
         )
         return 1
@@ -275,9 +273,7 @@ def _cmd_remember_task(args: argparse.Namespace) -> int:
         print(f"Error: {e}", file=sys.stderr)
         return 1
 
-    service = RememberTaskService(
-        repository=default_context.task_repo, profile=profile
-    )
+    service = RememberTaskService(repository=default_context.task_repo, profile=profile)
 
     at = parse_iso_timestamp(args.at)
 
@@ -355,8 +351,7 @@ def _cmd_task_inspect(args: argparse.Namespace) -> int:
 
     if task is None:
         print(
-            f"Error: No Task found for '{args.id}' "
-            f"in MemorySpace '{args.space}'.",
+            f"Error: No Task found for '{args.id}' in MemorySpace '{args.space}'.",
             file=sys.stderr,
         )
         return 1
@@ -370,9 +365,7 @@ def _cmd_task_inspect(args: argparse.Namespace) -> int:
                 "lifecycle_state": task.lifecycle_state,
                 "validity_time": task.validity_time.isoformat(),
                 "completion_time": (
-                    task.completion_time.isoformat()
-                    if task.completion_time
-                    else None
+                    task.completion_time.isoformat() if task.completion_time else None
                 ),
                 "completion_event_id": task.completion_event_id,
             },
@@ -445,9 +438,7 @@ def main(argv: list[str] | None = None) -> int:
     remember_parser = subparsers.add_parser(
         "remember", help="Remember structured memory."
     )
-    remember_sub = remember_parser.add_subparsers(
-        dest="remember_type", required=True
-    )
+    remember_sub = remember_parser.add_subparsers(dest="remember_type", required=True)
     entity_parser = remember_sub.add_parser(
         "entity", help="Remember an Entity with provenance."
     )
@@ -489,12 +480,8 @@ def main(argv: list[str] | None = None) -> int:
     complete_parser = subparsers.add_parser(
         "complete", help="Complete a lifecycle transition."
     )
-    complete_sub = complete_parser.add_subparsers(
-        dest="complete_type", required=True
-    )
-    complete_task_parser = complete_sub.add_parser(
-        "task", help="Complete a Task."
-    )
+    complete_sub = complete_parser.add_subparsers(dest="complete_type", required=True)
+    complete_task_parser = complete_sub.add_parser("task", help="Complete a Task.")
     complete_task_parser.add_argument("--space", required=True)
     complete_task_parser.add_argument("--id", required=True)
     complete_task_parser.add_argument("--at", required=True)
@@ -503,26 +490,16 @@ def main(argv: list[str] | None = None) -> int:
     complete_task_parser.add_argument("--reason", default="")
 
     # task subcommand
-    task_parser = subparsers.add_parser(
-        "task", help="Task lifecycle operations."
-    )
-    task_sub = task_parser.add_subparsers(
-        dest="task_type", required=True
-    )
-    task_inspect_parser = task_sub.add_parser(
-        "inspect", help="Inspect task lifecycle."
-    )
+    task_parser = subparsers.add_parser("task", help="Task lifecycle operations.")
+    task_sub = task_parser.add_subparsers(dest="task_type", required=True)
+    task_inspect_parser = task_sub.add_parser("inspect", help="Inspect task lifecycle.")
     task_inspect_parser.add_argument("--space", required=True)
     task_inspect_parser.add_argument("--id", required=True)
     task_inspect_parser.add_argument("--as-of", default=None)
 
     # truth subcommands
-    truth_parser = subparsers.add_parser(
-        "truth", help="Query temporal truth."
-    )
-    truth_sub = truth_parser.add_subparsers(
-        dest="truth_type", required=True
-    )
+    truth_parser = subparsers.add_parser("truth", help="Query temporal truth.")
+    truth_sub = truth_parser.add_subparsers(dest="truth_type", required=True)
     current_parser = truth_sub.add_parser(
         "current", help="Show current truth for a Decision."
     )
@@ -537,12 +514,8 @@ def main(argv: list[str] | None = None) -> int:
     as_of_parser.add_argument("--at", required=True)
 
     # inspect provenance subcommand
-    inspect_parser = subparsers.add_parser(
-        "inspect", help="Inspect memory metadata."
-    )
-    inspect_sub = inspect_parser.add_subparsers(
-        dest="inspect_type", required=True
-    )
+    inspect_parser = subparsers.add_parser("inspect", help="Inspect memory metadata.")
+    inspect_sub = inspect_parser.add_subparsers(dest="inspect_type", required=True)
     prov_parser = inspect_sub.add_parser(
         "provenance", help="Inspect provenance for a remembered Entity."
     )
@@ -556,12 +529,8 @@ def main(argv: list[str] | None = None) -> int:
     history_parser.add_argument("--id", required=True)
 
     # tracer subcommand
-    tracer_parser = subparsers.add_parser(
-        "tracer", help="Tracer-bullet operations."
-    )
-    tracer_sub = tracer_parser.add_subparsers(
-        dest="tracer_type", required=True
-    )
+    tracer_parser = subparsers.add_parser("tracer", help="Tracer-bullet operations.")
+    tracer_sub = tracer_parser.add_subparsers(dest="tracer_type", required=True)
     tracer_sub.add_parser(
         "run", help="Run the tracer-bullet fixture and verify end-to-end."
     )

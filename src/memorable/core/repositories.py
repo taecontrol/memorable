@@ -57,11 +57,7 @@ class InMemoryEntityRepository:
 
     def list_by_space(self, space: str) -> list[Entity]:
         """Return all entities in the given space."""
-        return [
-            entity
-            for (s, _), entity in self._entities.items()
-            if s == space
-        ]
+        return [entity for (s, _), entity in self._entities.items() if s == space]
 
 
 class InMemoryDecisionRepository:
@@ -84,11 +80,7 @@ class InMemoryDecisionRepository:
 
     def list_by_space(self, space: str) -> list[Decision]:
         """Return all decisions in the given space."""
-        return [
-            decision
-            for (s, _), decision in self._decisions.items()
-            if s == space
-        ]
+        return [decision for (s, _), decision in self._decisions.items() if s == space]
 
     def get_current(self, space: str, decision_id: str) -> Decision | None:
         decision = self.get(space, decision_id)
@@ -172,11 +164,7 @@ class InMemoryTaskRepository:
 
     def list_by_space(self, space: str) -> list[Task]:
         """Return all tasks in the given space."""
-        return [
-            task
-            for (s, _), task in self._tasks.items()
-            if s == space
-        ]
+        return [task for (s, _), task in self._tasks.items() if s == space]
 
     def get(self, *, space: str, task_id: str) -> Task | None:
         return self._tasks.get((space, task_id))

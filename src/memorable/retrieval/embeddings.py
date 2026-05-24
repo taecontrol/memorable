@@ -127,9 +127,7 @@ class OpenRouterEmbeddingProvider:
             "MEMORABLE_EMBEDDING_MODEL",
             "google/gemini-embedding-2-preview",
         )
-        dimensions = int(
-            os.environ.get("MEMORABLE_EMBEDDING_DIMENSIONS", "768")
-        )
+        dimensions = int(os.environ.get("MEMORABLE_EMBEDDING_DIMENSIONS", "768"))
         return cls(api_key=api_key, model=model, dimensions=dimensions)
 
 

@@ -130,8 +130,7 @@ def load_profile_from_yaml(yaml_text: str) -> MemoryProfile:
 def _validate_version(data: dict) -> None:
     if "version" not in data:
         raise ProfileValidationError(
-            "MemoryProfile requires a 'version' field. "
-            "Currently supported: version 1."
+            "MemoryProfile requires a 'version' field. Currently supported: version 1."
         )
     version = data["version"]
     if version not in SUPPORTED_VERSIONS:

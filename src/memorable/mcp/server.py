@@ -204,8 +204,7 @@ def current_truth_tool(
 
     if decision is None:
         return {
-            "error": f"No Decision found for '{decision_id}' "
-            f"in MemorySpace '{space}'."
+            "error": f"No Decision found for '{decision_id}' in MemorySpace '{space}'."
         }
 
     return {
@@ -258,8 +257,7 @@ def inspect_decision_history_tool(
 
     if not history:
         return {
-            "error": f"No Decision found for '{decision_id}' "
-            f"in MemorySpace '{space}'."
+            "error": f"No Decision found for '{decision_id}' in MemorySpace '{space}'."
         }
 
     return {
@@ -271,9 +269,7 @@ def inspect_decision_history_tool(
                 "lifecycle_state": d.lifecycle_state,
                 "validity_time": d.validity_time.isoformat(),
                 "invalidation_time": (
-                    d.invalidation_time.isoformat()
-                    if d.invalidation_time
-                    else None
+                    d.invalidation_time.isoformat() if d.invalidation_time else None
                 ),
                 "supersedes": d.supersedes,
                 "superseded_by": d.superseded_by,
@@ -296,8 +292,7 @@ def inspect_provenance_tool(
 
     if provenance is None:
         return {
-            "error": f"No provenance found for '{entity_id}' "
-            f"in MemorySpace '{space}'."
+            "error": f"No provenance found for '{entity_id}' in MemorySpace '{space}'."
         }
 
     return {
@@ -330,9 +325,7 @@ def remember_task_tool(
     except ProfileValidationError as e:
         return {"error": str(e)}
 
-    service = RememberTaskService(
-        repository=default_context.task_repo, profile=profile
-    )
+    service = RememberTaskService(repository=default_context.task_repo, profile=profile)
 
     timestamp = parse_iso_timestamp(at)
 
@@ -474,10 +467,7 @@ def inspect_task_tool(
     task = service.inspect(space=space, task_id=task_id, as_of=as_of_dt)
 
     if task is None:
-        return {
-            "error": f"No Task found for '{task_id}' "
-            f"in MemorySpace '{space}'."
-        }
+        return {"error": f"No Task found for '{task_id}' in MemorySpace '{space}'."}
 
     return {
         "task_id": task.id,
@@ -486,9 +476,7 @@ def inspect_task_tool(
         "lifecycle_state": task.lifecycle_state,
         "validity_time": task.validity_time.isoformat(),
         "completion_time": (
-            task.completion_time.isoformat()
-            if task.completion_time
-            else None
+            task.completion_time.isoformat() if task.completion_time else None
         ),
         "completion_event_id": task.completion_event_id,
     }

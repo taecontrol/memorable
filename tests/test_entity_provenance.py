@@ -65,9 +65,7 @@ class TestEntityModel:
     def test_entity_is_frozen(self) -> None:
         from memorable.core.models import Entity
 
-        entity = Entity(
-            id="entity:x", entity_type="Project", name="X", space="s"
-        )
+        entity = Entity(id="entity:x", entity_type="Project", name="X", space="s")
         with pytest.raises(AttributeError):
             entity.name = "Y"  # type: ignore[misc]
 
@@ -363,15 +361,24 @@ class TestCLIRememberEntity:
     def test_remember_entity_command(self, capsys) -> None:
         from memorable.cli import main
 
-        exit_code = main([
-            "remember", "entity",
-            "--space", "memorable",
-            "--id", "entity:memorable",
-            "--type", "Project",
-            "--name", "Memorable",
-            "--source", "source:tracer-fixture",
-            "--at", "2026-05-23T10:10:00Z",
-        ])
+        exit_code = main(
+            [
+                "remember",
+                "entity",
+                "--space",
+                "memorable",
+                "--id",
+                "entity:memorable",
+                "--type",
+                "Project",
+                "--name",
+                "Memorable",
+                "--source",
+                "source:tracer-fixture",
+                "--at",
+                "2026-05-23T10:10:00Z",
+            ]
+        )
 
         assert exit_code == 0
         output = capsys.readouterr().out
@@ -381,15 +388,24 @@ class TestCLIRememberEntity:
     def test_remember_entity_rejects_undeclared_type(self, capsys) -> None:
         from memorable.cli import main
 
-        exit_code = main([
-            "remember", "entity",
-            "--space", "memorable",
-            "--id", "entity:x",
-            "--type", "UnknownType",
-            "--name", "X",
-            "--source", "source:test",
-            "--at", "2026-05-23T10:10:00Z",
-        ])
+        exit_code = main(
+            [
+                "remember",
+                "entity",
+                "--space",
+                "memorable",
+                "--id",
+                "entity:x",
+                "--type",
+                "UnknownType",
+                "--name",
+                "X",
+                "--source",
+                "source:test",
+                "--at",
+                "2026-05-23T10:10:00Z",
+            ]
+        )
 
         assert exit_code == 1
         err = capsys.readouterr().err
@@ -404,22 +420,36 @@ class TestCLIInspectProvenance:
         from memorable.cli import main
 
         # First remember an entity
-        main([
-            "remember", "entity",
-            "--space", "memorable",
-            "--id", "entity:memorable",
-            "--type", "Project",
-            "--name", "Memorable",
-            "--source", "source:tracer-fixture",
-            "--at", "2026-05-23T10:10:00Z",
-        ])
+        main(
+            [
+                "remember",
+                "entity",
+                "--space",
+                "memorable",
+                "--id",
+                "entity:memorable",
+                "--type",
+                "Project",
+                "--name",
+                "Memorable",
+                "--source",
+                "source:tracer-fixture",
+                "--at",
+                "2026-05-23T10:10:00Z",
+            ]
+        )
 
         # Then inspect its provenance
-        exit_code = main([
-            "inspect", "provenance",
-            "--space", "memorable",
-            "--id", "entity:memorable",
-        ])
+        exit_code = main(
+            [
+                "inspect",
+                "provenance",
+                "--space",
+                "memorable",
+                "--id",
+                "entity:memorable",
+            ]
+        )
 
         assert exit_code == 0
         output = capsys.readouterr().out
@@ -522,7 +552,13 @@ class TestLanguageBoundary:
         service = RememberEntityService(repository=repo, profile=profile)
 
         storage_terms = {
-            "node", "edge", "index", "vertex", "graph", "database", "table",
+            "node",
+            "edge",
+            "index",
+            "vertex",
+            "graph",
+            "database",
+            "table",
         }
 
         with pytest.raises(ValueError) as exc_info:

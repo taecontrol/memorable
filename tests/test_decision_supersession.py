@@ -19,17 +19,10 @@ import pytest
 
 # --- Fixture data ---
 
-FIXTURE_TIMESTAMP_V1 = datetime(
-    2026, 5, 23, 10, 15, 0, tzinfo=timezone.utc
-)
-FIXTURE_TIMESTAMP_V2 = datetime(
-    2026, 5, 23, 10, 20, 0, tzinfo=timezone.utc
-)
+FIXTURE_TIMESTAMP_V1 = datetime(2026, 5, 23, 10, 15, 0, tzinfo=timezone.utc)
+FIXTURE_TIMESTAMP_V2 = datetime(2026, 5, 23, 10, 20, 0, tzinfo=timezone.utc)
 
-STATEMENT_V1 = (
-    "Graphiti is the first implementation path"
-    " for Memorable storage."
-)
+STATEMENT_V1 = "Graphiti is the first implementation path for Memorable storage."
 STATEMENT_V2 = (
     "Direct Neo4j is the first implementation path;"
     " Graphiti remains optional behind the"
@@ -227,9 +220,7 @@ class TestDecisionRepositoryPort:
         decision, provenance = self._make_decision_v1()
 
         repo.save(decision, provenance)
-        retrieved = repo.get(
-            space="memorable", decision_id=V1_ID
-        )
+        retrieved = repo.get(space="memorable", decision_id=V1_ID)
 
         assert retrieved is not None
         assert retrieved.id == V1_ID
@@ -244,9 +235,7 @@ class TestDecisionRepositoryPort:
         decision, provenance = self._make_decision_v1()
 
         repo.save(decision, provenance)
-        prov = repo.get_provenance(
-            space="memorable", decision_id=V1_ID
-        )
+        prov = repo.get_provenance(space="memorable", decision_id=V1_ID)
 
         assert prov is not None
         assert prov.source_id == SOURCE_ID
@@ -258,9 +247,7 @@ class TestDecisionRepositoryPort:
         )
 
         repo = InMemoryDecisionRepository()
-        assert repo.get(
-            space="memorable", decision_id="decision:missing"
-        ) is None
+        assert repo.get(space="memorable", decision_id="decision:missing") is None
 
     def test_get_provenance_returns_none_for_missing(self) -> None:
         from memorable.core.repositories import (
@@ -268,9 +255,10 @@ class TestDecisionRepositoryPort:
         )
 
         repo = InMemoryDecisionRepository()
-        assert repo.get_provenance(
-            space="memorable", decision_id="decision:missing"
-        ) is None
+        assert (
+            repo.get_provenance(space="memorable", decision_id="decision:missing")
+            is None
+        )
 
     def test_get_current_follows_supersession_chain(self) -> None:
         from memorable.core.repositories import (
@@ -290,9 +278,7 @@ class TestDecisionRepositoryPort:
             invalidation_time=FIXTURE_TIMESTAMP_V2,
         )
 
-        current = repo.get_current(
-            space="memorable", decision_id=V1_ID
-        )
+        current = repo.get_current(space="memorable", decision_id=V1_ID)
         assert current is not None
         assert current.id == V2_ID
 
@@ -315,22 +301,14 @@ class TestDecisionRepositoryPort:
         )
 
         # Before supersession: v1 was current
-        at_1017 = datetime(
-            2026, 5, 23, 10, 17, 0, tzinfo=timezone.utc
-        )
-        result = repo.get_at(
-            space="memorable", decision_id=V1_ID, at=at_1017
-        )
+        at_1017 = datetime(2026, 5, 23, 10, 17, 0, tzinfo=timezone.utc)
+        result = repo.get_at(space="memorable", decision_id=V1_ID, at=at_1017)
         assert result is not None
         assert result.id == V1_ID
 
         # After supersession: v2 is current
-        at_1021 = datetime(
-            2026, 5, 23, 10, 21, 0, tzinfo=timezone.utc
-        )
-        result = repo.get_at(
-            space="memorable", decision_id=V1_ID, at=at_1021
-        )
+        at_1021 = datetime(2026, 5, 23, 10, 21, 0, tzinfo=timezone.utc)
+        result = repo.get_at(space="memorable", decision_id=V1_ID, at=at_1021)
         assert result is not None
         assert result.id == V2_ID
 
@@ -352,9 +330,7 @@ class TestDecisionRepositoryPort:
             invalidation_time=FIXTURE_TIMESTAMP_V2,
         )
 
-        history = repo.get_history(
-            space="memorable", decision_id=V1_ID
-        )
+        history = repo.get_history(space="memorable", decision_id=V1_ID)
         assert len(history) == 2
         assert history[0].id == V1_ID
         assert history[1].id == V2_ID
@@ -375,9 +351,7 @@ class TestDecisionRepositoryPort:
             invalidation_time=FIXTURE_TIMESTAMP_V2,
         )
 
-        updated = repo.get(
-            space="memorable", decision_id=V1_ID
-        )
+        updated = repo.get(space="memorable", decision_id=V1_ID)
         assert updated is not None
         assert updated.lifecycle_state == "superseded"
         assert updated.invalidation_time == FIXTURE_TIMESTAMP_V2
@@ -403,16 +377,12 @@ class TestDecisionRepositoryPort:
         )
 
         # v1 still exists
-        v1_stored = repo.get(
-            space="memorable", decision_id=V1_ID
-        )
+        v1_stored = repo.get(space="memorable", decision_id=V1_ID)
         assert v1_stored is not None
         assert v1_stored.lifecycle_state == "superseded"
 
         # v2 also exists
-        v2_stored = repo.get(
-            space="memorable", decision_id=V2_ID
-        )
+        v2_stored = repo.get(space="memorable", decision_id=V2_ID)
         assert v2_stored is not None
         assert v2_stored.lifecycle_state == "current"
 
@@ -437,9 +407,7 @@ class TestRememberDecisionService:
         repo = InMemoryDecisionRepository()
         profile = load_profile_from_yaml(VALID_PROFILE_YAML)
         return (
-            RememberDecisionService(
-                repository=repo, profile=profile
-            ),
+            RememberDecisionService(repository=repo, profile=profile),
             repo,
         )
 
@@ -457,13 +425,9 @@ class TestRememberDecisionService:
         assert result.decision.id == V1_ID
         assert result.decision.lifecycle_state == "current"
         assert result.provenance.source_id == SOURCE_ID
-        assert (
-            result.provenance.creation_time == FIXTURE_TIMESTAMP_V1
-        )
+        assert result.provenance.creation_time == FIXTURE_TIMESTAMP_V1
 
-        stored = repo.get(
-            space="memorable", decision_id=V1_ID
-        )
+        stored = repo.get(space="memorable", decision_id=V1_ID)
         assert stored is not None
 
     def test_remember_decision_with_supersession(self) -> None:
@@ -493,9 +457,7 @@ class TestRememberDecisionService:
         assert result.decision.lifecycle_state == "current"
 
         # v1 should now be marked superseded
-        v1 = repo.get(
-            space="memorable", decision_id=V1_ID
-        )
+        v1 = repo.get(space="memorable", decision_id=V1_ID)
         assert v1 is not None
         assert v1.lifecycle_state == "superseded"
         assert v1.invalidation_time == FIXTURE_TIMESTAMP_V2
@@ -523,9 +485,7 @@ class TestRememberDecisionService:
         repo = InMemoryDecisionRepository()
         profile = load_profile_from_yaml(no_decision_yaml)
 
-        service = RememberDecisionService(
-            repository=repo, profile=profile
-        )
+        service = RememberDecisionService(repository=repo, profile=profile)
 
         with pytest.raises(ValueError, match="Decision"):
             service.remember(
@@ -566,9 +526,7 @@ class TestCurrentTruthService:
 
         repo = InMemoryDecisionRepository()
         profile = load_profile_from_yaml(VALID_PROFILE_YAML)
-        remember = RememberDecisionService(
-            repository=repo, profile=profile
-        )
+        remember = RememberDecisionService(repository=repo, profile=profile)
 
         remember.remember(
             space="memorable",
@@ -591,9 +549,7 @@ class TestCurrentTruthService:
     def test_current_truth_returns_superseding(self) -> None:
         service, _repo = self._setup_chain()
 
-        result = service.current(
-            space="memorable", decision_id=V1_ID
-        )
+        result = service.current(space="memorable", decision_id=V1_ID)
 
         assert result is not None
         assert result.id == V2_ID
@@ -612,9 +568,7 @@ class TestCurrentTruthService:
 
         repo = InMemoryDecisionRepository()
         profile = load_profile_from_yaml(VALID_PROFILE_YAML)
-        remember = RememberDecisionService(
-            repository=repo, profile=profile
-        )
+        remember = RememberDecisionService(repository=repo, profile=profile)
 
         remember.remember(
             space="memorable",
@@ -625,9 +579,7 @@ class TestCurrentTruthService:
         )
 
         service = CurrentTruthService(repository=repo)
-        result = service.current(
-            space="memorable", decision_id=V1_ID
-        )
+        result = service.current(space="memorable", decision_id=V1_ID)
 
         assert result is not None
         assert result.id == V1_ID
@@ -641,9 +593,7 @@ class TestCurrentTruthService:
         repo = InMemoryDecisionRepository()
         service = CurrentTruthService(repository=repo)
 
-        result = service.current(
-            space="memorable", decision_id="decision:missing"
-        )
+        result = service.current(space="memorable", decision_id="decision:missing")
         assert result is None
 
 
@@ -662,9 +612,7 @@ class TestPointInTimeTruthService:
 
         repo = InMemoryDecisionRepository()
         profile = load_profile_from_yaml(VALID_PROFILE_YAML)
-        remember = RememberDecisionService(
-            repository=repo, profile=profile
-        )
+        remember = RememberDecisionService(repository=repo, profile=profile)
 
         remember.remember(
             space="memorable",
@@ -687,12 +635,8 @@ class TestPointInTimeTruthService:
     def test_before_supersession_returns_v1(self) -> None:
         service, _repo = self._setup_chain()
 
-        at_1017 = datetime(
-            2026, 5, 23, 10, 17, 0, tzinfo=timezone.utc
-        )
-        result = service.at(
-            space="memorable", decision_id=V1_ID, at=at_1017
-        )
+        at_1017 = datetime(2026, 5, 23, 10, 17, 0, tzinfo=timezone.utc)
+        result = service.at(space="memorable", decision_id=V1_ID, at=at_1017)
 
         assert result is not None
         assert result.id == V1_ID
@@ -700,12 +644,8 @@ class TestPointInTimeTruthService:
     def test_after_supersession_returns_v2(self) -> None:
         service, _repo = self._setup_chain()
 
-        at_1021 = datetime(
-            2026, 5, 23, 10, 21, 0, tzinfo=timezone.utc
-        )
-        result = service.at(
-            space="memorable", decision_id=V1_ID, at=at_1021
-        )
+        at_1021 = datetime(2026, 5, 23, 10, 21, 0, tzinfo=timezone.utc)
+        result = service.at(space="memorable", decision_id=V1_ID, at=at_1021)
 
         assert result is not None
         assert result.id == V2_ID
@@ -744,9 +684,7 @@ class TestInspectDecisionHistoryService:
 
         repo = InMemoryDecisionRepository()
         profile = load_profile_from_yaml(VALID_PROFILE_YAML)
-        remember = RememberDecisionService(
-            repository=repo, profile=profile
-        )
+        remember = RememberDecisionService(repository=repo, profile=profile)
 
         remember.remember(
             space="memorable",
@@ -769,9 +707,7 @@ class TestInspectDecisionHistoryService:
     def test_history_returns_full_chain(self) -> None:
         service, _repo = self._setup_chain()
 
-        history = service.history(
-            space="memorable", decision_id=V1_ID
-        )
+        history = service.history(space="memorable", decision_id=V1_ID)
 
         assert len(history) == 2
         assert history[0].id == V1_ID
@@ -789,9 +725,7 @@ class TestInspectDecisionHistoryService:
 
         repo = InMemoryDecisionRepository()
         profile = load_profile_from_yaml(VALID_PROFILE_YAML)
-        remember = RememberDecisionService(
-            repository=repo, profile=profile
-        )
+        remember = RememberDecisionService(repository=repo, profile=profile)
 
         remember.remember(
             space="memorable",
@@ -802,9 +736,7 @@ class TestInspectDecisionHistoryService:
         )
 
         service = InspectDecisionHistoryService(repository=repo)
-        history = service.history(
-            space="memorable", decision_id=V1_ID
-        )
+        history = service.history(space="memorable", decision_id=V1_ID)
 
         assert len(history) == 1
         assert history[0].id == V1_ID
@@ -820,9 +752,7 @@ class TestInspectDecisionHistoryService:
         repo = InMemoryDecisionRepository()
         service = InspectDecisionHistoryService(repository=repo)
 
-        history = service.history(
-            space="memorable", decision_id="decision:missing"
-        )
+        history = service.history(space="memorable", decision_id="decision:missing")
         assert history == []
 
 
@@ -836,50 +766,74 @@ class TestCLIRememberDecision:
 
     def setup_method(self) -> None:
         from memorable.core.context import default_context
+
         default_context.reset()
 
     def test_remember_decision_command(self, capsys) -> None:
         from memorable.cli import main
 
-        exit_code = main([
-            "remember", "decision",
-            "--space", "memorable",
-            "--id", V1_ID,
-            "--statement", STATEMENT_V1,
-            "--source", SOURCE_ID,
-            "--at", "2026-05-23T10:15:00Z",
-        ])
+        exit_code = main(
+            [
+                "remember",
+                "decision",
+                "--space",
+                "memorable",
+                "--id",
+                V1_ID,
+                "--statement",
+                STATEMENT_V1,
+                "--source",
+                SOURCE_ID,
+                "--at",
+                "2026-05-23T10:15:00Z",
+            ]
+        )
 
         assert exit_code == 0
         output = capsys.readouterr().out
         assert V1_ID in output
         assert SOURCE_ID in output
 
-    def test_remember_decision_with_supersession(
-        self, capsys
-    ) -> None:
+    def test_remember_decision_with_supersession(self, capsys) -> None:
         from memorable.cli import main
 
         # Remember v1
-        main([
-            "remember", "decision",
-            "--space", "memorable",
-            "--id", V1_ID,
-            "--statement", STATEMENT_V1,
-            "--source", SOURCE_ID,
-            "--at", "2026-05-23T10:15:00Z",
-        ])
+        main(
+            [
+                "remember",
+                "decision",
+                "--space",
+                "memorable",
+                "--id",
+                V1_ID,
+                "--statement",
+                STATEMENT_V1,
+                "--source",
+                SOURCE_ID,
+                "--at",
+                "2026-05-23T10:15:00Z",
+            ]
+        )
 
         # Remember v2 superseding v1
-        exit_code = main([
-            "remember", "decision",
-            "--space", "memorable",
-            "--id", V2_ID,
-            "--statement", "Direct Neo4j first.",
-            "--supersedes", V1_ID,
-            "--source", SOURCE_ID,
-            "--at", "2026-05-23T10:20:00Z",
-        ])
+        exit_code = main(
+            [
+                "remember",
+                "decision",
+                "--space",
+                "memorable",
+                "--id",
+                V2_ID,
+                "--statement",
+                "Direct Neo4j first.",
+                "--supersedes",
+                V1_ID,
+                "--source",
+                SOURCE_ID,
+                "--at",
+                "2026-05-23T10:20:00Z",
+            ]
+        )
 
         assert exit_code == 0
         output = capsys.readouterr().out
@@ -891,34 +845,57 @@ class TestCLITruthCurrent:
 
     def setup_method(self) -> None:
         from memorable.core.context import default_context
+
         default_context.reset()
 
     def test_truth_current_command(self, capsys) -> None:
         from memorable.cli import main
 
-        main([
-            "remember", "decision",
-            "--space", "memorable",
-            "--id", V1_ID,
-            "--statement", "Graphiti first.",
-            "--source", SOURCE_ID,
-            "--at", "2026-05-23T10:15:00Z",
-        ])
-        main([
-            "remember", "decision",
-            "--space", "memorable",
-            "--id", V2_ID,
-            "--statement", "Direct Neo4j first.",
-            "--supersedes", V1_ID,
-            "--source", SOURCE_ID,
-            "--at", "2026-05-23T10:20:00Z",
-        ])
+        main(
+            [
+                "remember",
+                "decision",
+                "--space",
+                "memorable",
+                "--id",
+                V1_ID,
+                "--statement",
+                "Graphiti first.",
+                "--source",
+                SOURCE_ID,
+                "--at",
+                "2026-05-23T10:15:00Z",
+            ]
+        )
+        main(
+            [
+                "remember",
+                "decision",
+                "--space",
+                "memorable",
+                "--id",
+                V2_ID,
+                "--statement",
+                "Direct Neo4j first.",
+                "--supersedes",
+                V1_ID,
+                "--source",
+                SOURCE_ID,
+                "--at",
+                "2026-05-23T10:20:00Z",
+            ]
+        )
 
-        exit_code = main([
-            "truth", "current",
-            "--space", "memorable",
-            "--id", V1_ID,
-        ])
+        exit_code = main(
+            [
+                "truth",
+                "current",
+                "--space",
+                "memorable",
+                "--id",
+                V1_ID,
+            ]
+        )
 
         assert exit_code == 0
         output = capsys.readouterr().out
@@ -930,37 +907,59 @@ class TestCLITruthAsOf:
 
     def setup_method(self) -> None:
         from memorable.core.context import default_context
+
         default_context.reset()
 
-    def test_truth_as_of_before_supersession(
-        self, capsys
-    ) -> None:
+    def test_truth_as_of_before_supersession(self, capsys) -> None:
         from memorable.cli import main
 
-        main([
-            "remember", "decision",
-            "--space", "memorable",
-            "--id", V1_ID,
-            "--statement", "Graphiti first.",
-            "--source", SOURCE_ID,
-            "--at", "2026-05-23T10:15:00Z",
-        ])
-        main([
-            "remember", "decision",
-            "--space", "memorable",
-            "--id", V2_ID,
-            "--statement", "Direct Neo4j first.",
-            "--supersedes", V1_ID,
-            "--source", SOURCE_ID,
-            "--at", "2026-05-23T10:20:00Z",
-        ])
+        main(
+            [
+                "remember",
+                "decision",
+                "--space",
+                "memorable",
+                "--id",
+                V1_ID,
+                "--statement",
+                "Graphiti first.",
+                "--source",
+                SOURCE_ID,
+                "--at",
+                "2026-05-23T10:15:00Z",
+            ]
+        )
+        main(
+            [
+                "remember",
+                "decision",
+                "--space",
+                "memorable",
+                "--id",
+                V2_ID,
+                "--statement",
+                "Direct Neo4j first.",
+                "--supersedes",
+                V1_ID,
+                "--source",
+                SOURCE_ID,
+                "--at",
+                "2026-05-23T10:20:00Z",
+            ]
+        )
 
-        exit_code = main([
-            "truth", "as-of",
-            "--space", "memorable",
-            "--id", V1_ID,
-            "--at", "2026-05-23T10:17:00Z",
-        ])
+        exit_code = main(
+            [
+                "truth",
+                "as-of",
+                "--space",
+                "memorable",
+                "--id",
+                V1_ID,
+                "--at",
+                "2026-05-23T10:17:00Z",
+            ]
+        )
 
         assert exit_code == 0
         output = capsys.readouterr().out
@@ -972,34 +971,57 @@ class TestCLIInspectHistory:
 
     def setup_method(self) -> None:
         from memorable.core.context import default_context
+
         default_context.reset()
 
     def test_inspect_history_command(self, capsys) -> None:
         from memorable.cli import main
 
-        main([
-            "remember", "decision",
-            "--space", "memorable",
-            "--id", V1_ID,
-            "--statement", "Graphiti first.",
-            "--source", SOURCE_ID,
-            "--at", "2026-05-23T10:15:00Z",
-        ])
-        main([
-            "remember", "decision",
-            "--space", "memorable",
-            "--id", V2_ID,
-            "--statement", "Direct Neo4j first.",
-            "--supersedes", V1_ID,
-            "--source", SOURCE_ID,
-            "--at", "2026-05-23T10:20:00Z",
-        ])
+        main(
+            [
+                "remember",
+                "decision",
+                "--space",
+                "memorable",
+                "--id",
+                V1_ID,
+                "--statement",
+                "Graphiti first.",
+                "--source",
+                SOURCE_ID,
+                "--at",
+                "2026-05-23T10:15:00Z",
+            ]
+        )
+        main(
+            [
+                "remember",
+                "decision",
+                "--space",
+                "memorable",
+                "--id",
+                V2_ID,
+                "--statement",
+                "Direct Neo4j first.",
+                "--supersedes",
+                V1_ID,
+                "--source",
+                SOURCE_ID,
+                "--at",
+                "2026-05-23T10:20:00Z",
+            ]
+        )
 
-        exit_code = main([
-            "inspect", "history",
-            "--space", "memorable",
-            "--id", V1_ID,
-        ])
+        exit_code = main(
+            [
+                "inspect",
+                "history",
+                "--space",
+                "memorable",
+                "--id",
+                V1_ID,
+            ]
+        )
 
         assert exit_code == 0
         output = capsys.readouterr().out
@@ -1017,6 +1039,7 @@ class TestMCPRememberDecision:
 
     def setup_method(self) -> None:
         from memorable.core.context import default_context
+
         default_context.reset()
 
     def test_remember_decision_tool(self) -> None:
@@ -1063,6 +1086,7 @@ class TestMCPCurrentTruth:
 
     def setup_method(self) -> None:
         from memorable.core.context import default_context
+
         default_context.reset()
 
     def test_current_truth_tool(self) -> None:
@@ -1101,6 +1125,7 @@ class TestMCPPointInTimeTruth:
 
     def setup_method(self) -> None:
         from memorable.core.context import default_context
+
         default_context.reset()
 
     def test_point_in_time_truth_tool(self) -> None:
@@ -1140,6 +1165,7 @@ class TestMCPInspectDecisionHistory:
 
     def setup_method(self) -> None:
         from memorable.core.context import default_context
+
         default_context.reset()
 
     def test_inspect_decision_history_tool(self) -> None:
@@ -1204,13 +1230,16 @@ class TestLanguageBoundary:
         """)
         repo = InMemoryDecisionRepository()
         profile = load_profile_from_yaml(no_decision_yaml)
-        service = RememberDecisionService(
-            repository=repo, profile=profile
-        )
+        service = RememberDecisionService(repository=repo, profile=profile)
 
         storage_terms = {
-            "node", "edge", "index", "vertex",
-            "graph", "database", "table",
+            "node",
+            "edge",
+            "index",
+            "vertex",
+            "graph",
+            "database",
+            "table",
         }
 
         with pytest.raises(ValueError) as exc_info:
@@ -1224,6 +1253,5 @@ class TestLanguageBoundary:
         message_lower = str(exc_info.value).lower()
         for term in storage_terms:
             assert term not in message_lower, (
-                f"Storage vocabulary '{term}' found"
-                f" in error: {exc_info.value}"
+                f"Storage vocabulary '{term}' found in error: {exc_info.value}"
             )

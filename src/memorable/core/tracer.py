@@ -35,9 +35,7 @@ FIXTURE_TIMESTAMPS = {
 SOURCE_ID = "source:tracer-fixture"
 WRITER = "agent:tracer-fixture"
 
-STATEMENT_V1 = (
-    "Graphiti is the first implementation path for Memorable storage."
-)
+STATEMENT_V1 = "Graphiti is the first implementation path for Memorable storage."
 STATEMENT_V2 = (
     "Direct Neo4j is the first implementation path;"
     " Graphiti remains optional behind the storage adapter."
@@ -96,9 +94,7 @@ class TracerService:
     def _run_fixture(self, ctx: ApplicationContext, profile: MemoryProfile) -> None:
         """Run the 7-step fixed fixture."""
         # Step 3: Remember Entity
-        entity_svc = RememberEntityService(
-            repository=ctx.entity_repo, profile=profile
-        )
+        entity_svc = RememberEntityService(repository=ctx.entity_repo, profile=profile)
         entity_svc.remember(
             space="memorable",
             entity_id="entity:memorable",
@@ -137,9 +133,7 @@ class TracerService:
         )
 
         # Step 6: Remember Task
-        task_svc = RememberTaskService(
-            repository=ctx.task_repo, profile=profile
-        )
+        task_svc = RememberTaskService(repository=ctx.task_repo, profile=profile)
         task_svc.remember(
             space="memorable",
             task_id="task:mcp-smoke-path",

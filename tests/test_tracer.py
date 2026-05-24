@@ -50,10 +50,7 @@ class TestTracerCurrentTruth:
 
         assert ct["decision_id"] == "decision:storage-path:v2"
         assert ct["lifecycle_state"] == "current"
-        assert (
-            "Direct Neo4j is the first implementation path"
-            in ct["statement"]
-        )
+        assert "Direct Neo4j is the first implementation path" in ct["statement"]
 
 
 class TestTracerPointInTimeTruth:
@@ -66,10 +63,7 @@ class TestTracerPointInTimeTruth:
         pit_before = result["point_in_time_before"]
 
         assert pit_before["decision_id"] == "decision:storage-path:v1"
-        assert (
-            "Graphiti is the first implementation path"
-            in pit_before["statement"]
-        )
+        assert "Graphiti is the first implementation path" in pit_before["statement"]
 
     def test_tracer_point_in_time_after_supersession(self) -> None:
         from memorable.core.tracer import TracerService
@@ -100,10 +94,7 @@ class TestTracerTaskLifecycle:
 
         assert task_after["task_id"] == "task:mcp-smoke-path"
         assert task_after["lifecycle_state"] == "completed"
-        assert (
-            task_after["completion_event_id"]
-            == "event:complete-task:mcp-smoke-path"
-        )
+        assert task_after["completion_event_id"] == "event:complete-task:mcp-smoke-path"
 
 
 class TestTracerProvenance:
