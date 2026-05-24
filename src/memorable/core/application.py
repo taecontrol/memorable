@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 from dataclasses import asdict, dataclass
+from typing import Protocol
 
 
 @dataclass(frozen=True)
@@ -14,6 +15,20 @@ class DiagnosticStatus:
         payload = asdict(self)
         payload["core_language"] = list(self.core_language)
         return payload
+
+
+class StatusService(Protocol):
+    """Contract for any service that returns a Memorable Core diagnostic payload."""
+
+    def status(self) -> dict[str, object]: ...
+
+
+def build_status_payload(
+    service: StatusService | None = None,
+) -> dict[str, object]:
+    """Build a diagnostic payload using the given service or a default."""
+    diagnostic_service = service or DiagnosticService()
+    return diagnostic_service.status()
 
 
 class DiagnosticService:

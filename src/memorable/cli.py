@@ -2,19 +2,8 @@ from __future__ import annotations
 
 import argparse
 import json
-from typing import Protocol
 
-from memorable.core.application import DiagnosticService
-
-
-class StatusService(Protocol):
-    def status(self) -> dict[str, object]:
-        """Return a Memorable Core diagnostic payload."""
-
-
-def build_status_payload(service: StatusService | None = None) -> dict[str, object]:
-    diagnostic_service = service or DiagnosticService()
-    return diagnostic_service.status()
+from memorable.core.application import build_status_payload
 
 
 def main(argv: list[str] | None = None) -> int:
@@ -34,4 +23,3 @@ def main(argv: list[str] | None = None) -> int:
 
 if __name__ == "__main__":
     raise SystemExit(main())
-

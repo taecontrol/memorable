@@ -6,7 +6,6 @@ import subprocess
 import sys
 from pathlib import Path
 
-
 PROJECT_ROOT = Path(__file__).resolve().parents[1]
 
 
@@ -14,7 +13,9 @@ def pythonpath_env() -> dict[str, str]:
     env = os.environ.copy()
     src_path = str(PROJECT_ROOT / "src")
     existing = env.get("PYTHONPATH")
-    env["PYTHONPATH"] = src_path if not existing else f"{src_path}{os.pathsep}{existing}"
+    env["PYTHONPATH"] = (
+        src_path if not existing else f"{src_path}{os.pathsep}{existing}"
+    )
     return env
 
 
@@ -55,8 +56,7 @@ def test_mcp_status_smoke_uses_core_language() -> None:
 
 
 def test_cli_and_mcp_status_share_application_service() -> None:
-    from memorable.cli import build_status_payload as build_cli_status_payload
-    from memorable.mcp.server import build_status_payload as build_mcp_status_payload
+    from memorable.core.application import build_status_payload
 
     class RecordingDiagnosticService:
         def __init__(self) -> None:
@@ -70,14 +70,13 @@ def test_cli_and_mcp_status_share_application_service() -> None:
                 "service": "diagnostics",
             }
 
-    cli_service = RecordingDiagnosticService()
-    mcp_service = RecordingDiagnosticService()
+    service = RecordingDiagnosticService()
 
-    assert build_cli_status_payload(cli_service) == {
+    expected = {
         "product": "Memorable",
         "memory_space_scope": "project",
         "service": "diagnostics",
     }
-    assert build_mcp_status_payload(mcp_service) == build_cli_status_payload(cli_service)
-    assert cli_service.calls == 2
-    assert mcp_service.calls == 1
+    assert build_status_payload(service) == expected
+    assert build_status_payload(service) == expected
+    assert service.calls == 2
