@@ -3,6 +3,10 @@ from __future__ import annotations
 from dataclasses import asdict, dataclass
 from typing import Protocol
 
+from memorable.core.models import MemorySpace
+from memorable.core.ports import MemorySpaceRepository
+from memorable.core.profile import MemoryProfile, load_profile_from_yaml
+
 
 @dataclass(frozen=True)
 class DiagnosticStatus:
@@ -48,3 +52,38 @@ class DiagnosticService:
                 "Temporal Semantics",
             ),
         ).as_payload()
+
+
+@dataclass(frozen=True)
+class InitResult:
+    """Result of initializing a MemorySpace from a MemoryProfile."""
+
+    space: MemorySpace
+    profile: MemoryProfile
+    already_existed: bool
+
+
+class InitService:
+    """Application service that initializes a MemorySpace from a MemoryProfile.
+
+    Shared by CLI and MCP adapters — both use the same validation and
+    initialization logic.
+    """
+
+    def __init__(self, repository: MemorySpaceRepository) -> None:
+        self._repository = repository
+
+    def initialize(self, profile_yaml: str) -> InitResult:
+        """Load, validate, and initialize a MemorySpace from profile YAML.
+
+        Raises ProfileValidationError if the profile is invalid.
+        """
+        profile = load_profile_from_yaml(profile_yaml)
+        space_name = profile.space.name
+
+        existing = self._repository.get_space(space_name)
+        if existing is not None:
+            return InitResult(space=existing, profile=profile, already_existed=True)
+
+        space = self._repository.create_space(space_name)
+        return InitResult(space=space, profile=profile, already_existed=False)
