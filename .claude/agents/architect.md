@@ -75,4 +75,3 @@ For an ADR draft, use:
 2. Decision.
 3. Consequences.
 4. Alternatives considered.
-
