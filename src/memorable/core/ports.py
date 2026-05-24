@@ -8,7 +8,7 @@ from __future__ import annotations
 
 from typing import Protocol
 
-from memorable.core.models import MemorySpace
+from memorable.core.models import Entity, MemorySpace, Provenance
 
 
 class MemorySpaceRepository(Protocol):
@@ -24,4 +24,20 @@ class MemorySpaceRepository(Protocol):
 
     def exists(self, name: str) -> bool:
         """Check whether a MemorySpace with the given name exists."""
+        ...
+
+
+class EntityRepository(Protocol):
+    """Port for Entity persistence with provenance."""
+
+    def save(self, entity: Entity, provenance: Provenance) -> None:
+        """Persist an Entity with its provenance record."""
+        ...
+
+    def get(self, space: str, entity_id: str) -> Entity | None:
+        """Retrieve an Entity by space and id, or None if not found."""
+        ...
+
+    def get_provenance(self, space: str, entity_id: str) -> Provenance | None:
+        """Retrieve the provenance for an Entity, or None if not found."""
         ...

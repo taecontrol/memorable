@@ -1,11 +1,13 @@
 from __future__ import annotations
 
 from dataclasses import asdict, dataclass
+from datetime import datetime
 from typing import Protocol
 
-from memorable.core.models import MemorySpace
-from memorable.core.ports import MemorySpaceRepository
+from memorable.core.models import Entity, MemorySpace, Provenance
+from memorable.core.ports import EntityRepository, MemorySpaceRepository
 from memorable.core.profile import MemoryProfile, load_profile_from_yaml
+from memorable.core.temporal import make_episode_id
 
 
 @dataclass(frozen=True)
@@ -87,3 +89,86 @@ class InitService:
 
         space = self._repository.create_space(space_name)
         return InitResult(space=space, profile=profile, already_existed=False)
+
+
+@dataclass(frozen=True)
+class RememberEntityResult:
+    """Result of remembering an Entity with provenance."""
+
+    entity: Entity
+    provenance: Provenance
+
+
+class RememberEntityService:
+    """Application service that validates and persists an Entity with provenance.
+
+    Shared by CLI and MCP adapters — both use the same validation and
+    persistence logic.
+    """
+
+    def __init__(
+        self, repository: EntityRepository, profile: MemoryProfile
+    ) -> None:
+        self._repository = repository
+        self._profile = profile
+
+    def remember(
+        self,
+        *,
+        space: str,
+        entity_id: str,
+        entity_type: str,
+        name: str,
+        source_id: str,
+        at: datetime,
+        writer: str = "agent:memorable",
+        reason: str = "",
+    ) -> RememberEntityResult:
+        """Validate entity type against MemoryProfile, create provenance, persist.
+
+        Raises ValueError if the entity type is not declared in the profile.
+        """
+        declared_names = {e.name for e in self._profile.entities}
+        if entity_type not in declared_names:
+            raise ValueError(
+                f"Entity type '{entity_type}' is not declared in the "
+                f"MemoryProfile for space '{self._profile.space.name}'. "
+                f"Declared types: {sorted(declared_names)}."
+            )
+
+        entity = Entity(
+            id=entity_id,
+            entity_type=entity_type,
+            name=name,
+            space=space,
+        )
+
+        episode_id = make_episode_id(source_id, at)
+
+        provenance = Provenance(
+            entity_id=entity_id,
+            source_id=source_id,
+            episode_id=episode_id,
+            writer=writer,
+            reason=reason,
+            creation_time=at,
+            validity_time=at,
+        )
+
+        self._repository.save(entity, provenance)
+
+        return RememberEntityResult(entity=entity, provenance=provenance)
+
+
+class InspectProvenanceService:
+    """Application service that retrieves provenance for an Entity.
+
+    Shared by CLI and MCP adapters.
+    """
+
+    def __init__(self, repository: EntityRepository) -> None:
+        self._repository = repository
+
+    def inspect(self, *, space: str, entity_id: str) -> Provenance | None:
+        """Return the provenance for an Entity, or None if not found."""
+        return self._repository.get_provenance(space=space, entity_id=entity_id)

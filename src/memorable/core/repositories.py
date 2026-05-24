@@ -5,7 +5,7 @@ These are used as placeholders until the real storage adapters are wired.
 
 from __future__ import annotations
 
-from memorable.core.models import MemorySpace
+from memorable.core.models import Entity, MemorySpace, Provenance
 from memorable.core.ports import MemorySpaceRepository
 
 
@@ -25,6 +25,25 @@ class InMemoryMemorySpaceRepository:
 
     def exists(self, name: str) -> bool:
         return name in self._spaces
+
+
+class InMemoryEntityRepository:
+    """In-memory implementation of EntityRepository."""
+
+    def __init__(self) -> None:
+        self._entities: dict[tuple[str, str], Entity] = {}
+        self._provenance: dict[tuple[str, str], Provenance] = {}
+
+    def save(self, entity: Entity, provenance: Provenance) -> None:
+        key = (entity.space, entity.id)
+        self._entities[key] = entity
+        self._provenance[key] = provenance
+
+    def get(self, space: str, entity_id: str) -> Entity | None:
+        return self._entities.get((space, entity_id))
+
+    def get_provenance(self, space: str, entity_id: str) -> Provenance | None:
+        return self._provenance.get((space, entity_id))
 
 
 def make_memory_space_repository() -> MemorySpaceRepository:
