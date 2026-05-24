@@ -383,16 +383,7 @@ def _cmd_task_inspect(args: argparse.Namespace) -> int:
 
 def _cmd_search(args: argparse.Namespace) -> int:
     """Search memory using hybrid GraphRAG retrieval."""
-    from memorable.retrieval.embeddings import FakeEmbeddingProvider
-    from memorable.retrieval.service import HybridRetrievalService
-
-    provider = FakeEmbeddingProvider(dimensions=32)
-    service = HybridRetrievalService(
-        entity_repo=default_context.entity_repo,
-        decision_repo=default_context.decision_repo,
-        task_repo=default_context.task_repo,
-        embedding_provider=provider,
-    )
+    service = default_context.build_retrieval_service()
 
     mode = getattr(args, "mode", "current") or "current"
     as_of = None

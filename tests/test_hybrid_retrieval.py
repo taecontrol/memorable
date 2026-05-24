@@ -669,7 +669,11 @@ class TestProvenanceAwareExplanation:
 
         results = service.search(
             space="memorable",
-            query="How should agents retrieve the current storage implementation decision?",
+            query=(
+                "How should agents retrieve the"
+                " current storage implementation"
+                " decision?"
+            ),
             mode="current",
         )
 
@@ -722,7 +726,11 @@ class TestProvenanceAwareExplanation:
 
         results = service.search(
             space="memorable",
-            query="How should agents retrieve the current storage implementation decision?",
+            query=(
+                "How should agents retrieve the"
+                " current storage implementation"
+                " decision?"
+            ),
             mode="current",
         )
 
@@ -734,7 +742,11 @@ class TestProvenanceAwareExplanation:
         result = decision_results[0]
         # Explanation should mention supersession history
         explanations_joined = " ".join(result.explanation).lower()
-        assert "supersession" in explanations_joined or "supersed" in explanations_joined
+        has_supersession = (
+            "supersession" in explanations_joined
+            or "supersed" in explanations_joined
+        )
+        assert has_supersession
 
 
 # =====================================================================
@@ -751,7 +763,11 @@ class TestContractQuery:
 
         results = service.search(
             space="memorable",
-            query="How should agents retrieve the current storage implementation decision?",
+            query=(
+                "How should agents retrieve the"
+                " current storage implementation"
+                " decision?"
+            ),
             mode="current",
         )
 
@@ -769,7 +785,11 @@ class TestContractQuery:
 
         results = service.search(
             space="memorable",
-            query="How should agents retrieve the current storage implementation decision?",
+            query=(
+                "How should agents retrieve the"
+                " current storage implementation"
+                " decision?"
+            ),
             mode="current",
         )
 
@@ -782,7 +802,11 @@ class TestContractQuery:
 
         results = service.search(
             space="memorable",
-            query="How should agents retrieve the current storage implementation decision?",
+            query=(
+                "How should agents retrieve the"
+                " current storage implementation"
+                " decision?"
+            ),
             mode="current",
         )
 

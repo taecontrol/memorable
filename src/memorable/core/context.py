@@ -73,6 +73,27 @@ class ApplicationContext:
         self._profiles[space] = profile
         return profile
 
+    def build_retrieval_service(self):
+        """Build a HybridRetrievalService wired to this context's repos.
+
+        Uses FakeEmbeddingProvider for the tracer bullet. A production
+        system would accept an EmbeddingProvider parameter.
+        """
+        from memorable.retrieval.embeddings import (
+            FakeEmbeddingProvider,
+        )
+        from memorable.retrieval.service import (
+            HybridRetrievalService,
+        )
+
+        provider = FakeEmbeddingProvider(dimensions=32)
+        return HybridRetrievalService(
+            entity_repo=self.entity_repo,
+            decision_repo=self.decision_repo,
+            task_repo=self.task_repo,
+            embedding_provider=provider,
+        )
+
     def reset(self) -> None:
         """Clear all cached state. Useful for test isolation."""
         self.entity_repo = InMemoryEntityRepository()

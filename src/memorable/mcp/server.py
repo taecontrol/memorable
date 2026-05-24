@@ -412,16 +412,7 @@ def search_memory_tool(
         mode: "current" for Current Truth, "as-of" for Point-In-Time Truth
         as_of: ISO timestamp, required when mode is "as-of"
     """
-    from memorable.retrieval.embeddings import FakeEmbeddingProvider
-    from memorable.retrieval.service import HybridRetrievalService
-
-    provider = FakeEmbeddingProvider(dimensions=32)
-    service = HybridRetrievalService(
-        entity_repo=default_context.entity_repo,
-        decision_repo=default_context.decision_repo,
-        task_repo=default_context.task_repo,
-        embedding_provider=provider,
-    )
+    service = default_context.build_retrieval_service()
 
     as_of_dt = None
     if as_of is not None:

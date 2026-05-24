@@ -7,6 +7,7 @@ and provenance-aware explanation into ranked retrieval results.
 from __future__ import annotations
 
 from datetime import datetime
+from typing import Literal
 
 from memorable.core.models import Decision, Entity, Task
 from memorable.core.repositories import (
@@ -56,10 +57,7 @@ class HybridRetrievalService:
         """
         self._index = InMemoryEmbeddingIndex()
 
-        # Index all entities
-        for (s, _), entity in self._entity_repo._entities.items():
-            if s != space:
-                continue
+        for entity in self._entity_repo.list_by_space(space):
             text = indexable_text_for_entity(entity)
             vector = self._provider.embed(text)
             self._index.store(
@@ -75,10 +73,7 @@ class HybridRetrievalService:
                 )
             )
 
-        # Index all decisions (including superseded, for point-in-time)
-        for (s, _), decision in self._decision_repo._decisions.items():
-            if s != space:
-                continue
+        for decision in self._decision_repo.list_by_space(space):
             text = indexable_text_for_decision(decision)
             vector = self._provider.embed(text)
             self._index.store(
@@ -94,10 +89,7 @@ class HybridRetrievalService:
                 )
             )
 
-        # Index all tasks
-        for (s, _), task in self._task_repo._tasks.items():
-            if s != space:
-                continue
+        for task in self._task_repo.list_by_space(space):
             text = indexable_text_for_task(task)
             vector = self._provider.embed(text)
             self._index.store(
@@ -117,7 +109,7 @@ class HybridRetrievalService:
         self,
         space: str,
         query: str,
-        mode: str = "current",
+        mode: Literal["current", "as-of"] = "current",
         as_of: datetime | None = None,
         top_k: int = 10,
     ) -> list[RetrievalResult]:
@@ -134,7 +126,8 @@ class HybridRetrievalService:
         Args:
             space: MemorySpace to search
             query: Natural language query
-            mode: "current" for Current Truth, "as-of" for Point-In-Time Truth
+            mode: "current" for Current Truth,
+                  "as-of" for Point-In-Time Truth
             as_of: Required when mode is "as-of"
             top_k: Maximum number of results to return
         """
@@ -160,11 +153,14 @@ class HybridRetrievalService:
 
         graph_expanded_ids: set[str] = set()
         for candidate in candidates:
-            related = self._graph_expand(space, candidate.source_id, candidate.source_kind)
-            for related_id, related_kind in related:
+            related = self._graph_expand(
+                space, candidate.source_id, candidate.source_kind
+            )
+            for related_id, _related_kind in related:
                 if related_id not in expanded_ids:
-                    # Use a reduced score for graph-expanded items
-                    expanded_ids[related_id] = candidate.score * 0.8
+                    expanded_ids[related_id] = (
+                        candidate.score * 0.8
+                    )
                     graph_expanded_ids.add(related_id)
 
         # Step 4: Temporal filtering and result building
@@ -206,31 +202,25 @@ class HybridRetrievalService:
         related: list[tuple[str, str]] = []
 
         if source_kind == "Entity":
-            # Entity connects to decisions and tasks in the same space
-            for (s, _), decision in self._decision_repo._decisions.items():
-                if s == space:
-                    related.append((decision.id, "Decision"))
-            for (s, _), task in self._task_repo._tasks.items():
-                if s == space:
-                    related.append((task.id, "Task"))
+            for decision in self._decision_repo.list_by_space(space):
+                related.append((decision.id, "Decision"))
+            for task in self._task_repo.list_by_space(space):
+                related.append((task.id, "Task"))
 
         elif source_kind == "Decision":
-            # Decision connects to entities in the same space
-            for (s, _), entity in self._entity_repo._entities.items():
-                if s == space:
-                    related.append((entity.id, "Entity"))
-            # Also connect to supersession chain
+            for entity in self._entity_repo.list_by_space(space):
+                related.append((entity.id, "Entity"))
             decision = self._decision_repo.get(space, source_id)
             if decision and decision.supersedes:
                 related.append((decision.supersedes, "Decision"))
             if decision and decision.superseded_by:
-                related.append((decision.superseded_by, "Decision"))
+                related.append(
+                    (decision.superseded_by, "Decision")
+                )
 
         elif source_kind == "Task":
-            # Task connects to entities in the same space
-            for (s, _), entity in self._entity_repo._entities.items():
-                if s == space:
-                    related.append((entity.id, "Entity"))
+            for entity in self._entity_repo.list_by_space(space):
+                related.append((entity.id, "Entity"))
 
         return related
 
@@ -239,17 +229,16 @@ class HybridRetrievalService:
         space: str,
         source_id: str,
         score: float,
-        mode: str,
+        mode: Literal["current", "as-of"],
         as_of: datetime | None,
         is_semantic: bool,
         is_graph_expanded: bool,
     ) -> RetrievalResult | None:
-        """Build a RetrievalResult with temporal filtering and explanation.
+        """Build a RetrievalResult with temporal filtering.
 
-        Returns None if the record should be excluded by temporal filtering.
+        Returns None if the record should be excluded
+        by temporal filtering.
         """
-        explanation: list[str] = []
-
         # Try to find the record
         entity = self._entity_repo.get(space, source_id)
         decision = self._decision_repo.get(space, source_id)
@@ -257,7 +246,8 @@ class HybridRetrievalService:
 
         if entity is not None:
             return self._build_entity_result(
-                space, entity, score, is_semantic, is_graph_expanded
+                space, entity, score,
+                is_semantic, is_graph_expanded,
             )
         elif decision is not None:
             return self._build_decision_result(
@@ -283,14 +273,18 @@ class HybridRetrievalService:
         explanation: list[str] = []
         if is_semantic:
             explanation.append(
-                f"semantic candidate from Indexable Text for {entity.name}"
+                "semantic candidate from Indexable Text"
+                f" for {entity.name}"
             )
         if is_graph_expanded:
             explanation.append(
-                "graph expansion connected it to related records"
+                "graph expansion connected it"
+                " to related records"
             )
 
-        provenance = self._entity_repo.get_provenance(space, entity.id)
+        provenance = self._entity_repo.get_provenance(
+            space, entity.id
+        )
         prov_summary: dict[str, str] = {}
         if provenance:
             prov_summary = {
@@ -298,7 +292,9 @@ class HybridRetrievalService:
                 "episode_id": provenance.episode_id,
             }
             explanation.append(
-                f"provenance is available from {provenance.source_id} / {provenance.episode_id}"
+                "provenance is available from"
+                f" {provenance.source_id}"
+                f" / {provenance.episode_id}"
             )
 
         return RetrievalResult(
@@ -315,7 +311,7 @@ class HybridRetrievalService:
         space: str,
         decision: Decision,
         score: float,
-        mode: str,
+        mode: Literal["current", "as-of"],
         as_of: datetime | None,
         is_semantic: bool,
         is_graph_expanded: bool,
@@ -323,62 +319,75 @@ class HybridRetrievalService:
         explanation: list[str] = []
 
         if mode == "current":
-            # Exclude superseded decisions in current mode
             if decision.lifecycle_state == "superseded":
                 return None
             lifecycle_state = decision.lifecycle_state
         elif mode == "as-of" and as_of is not None:
-            # Use point-in-time truth
-            pit_decision = self._decision_repo.get_at(space, decision.id, as_of)
+            pit_decision = self._decision_repo.get_at(
+                space, decision.id, as_of
+            )
             if pit_decision is None:
                 return None
-            # If the point-in-time result is different from what we found,
-            # it means we should use the PIT version
             if pit_decision.id != decision.id:
                 return None
             lifecycle_state = pit_decision.lifecycle_state
-            # Check if this decision was valid at the given time
             if pit_decision.validity_time > as_of:
                 return None
         else:
             lifecycle_state = decision.lifecycle_state
 
         if is_semantic:
+            stmt_preview = decision.statement[:60]
             explanation.append(
-                f"semantic candidate from Indexable Text for {decision.statement[:60]}"
+                "semantic candidate from Indexable Text"
+                f" for {stmt_preview}"
             )
         if is_graph_expanded:
             explanation.append(
-                "graph expansion connected it to related records and supersession history"
+                "graph expansion connected it to related"
+                " records and supersession history"
             )
 
-        # Temporal filter explanation
         if mode == "current":
             explanation.append(
-                "temporal filter kept it because it is current at query time"
+                "temporal filter kept it because"
+                " it is current at query time"
             )
         elif mode == "as-of" and as_of is not None:
             explanation.append(
-                f"temporal filter kept it because it was valid at {as_of.isoformat()}"
+                "temporal filter kept it because"
+                f" it was valid at {as_of.isoformat()}"
             )
 
         # Supersession history context
-        history = self._decision_repo.get_history(space, decision.id)
+        history = self._decision_repo.get_history(
+            space, decision.id
+        )
         if len(history) > 1 or decision.supersedes:
             supersession_parts = []
             if decision.supersedes:
-                old = self._decision_repo.get(space, decision.supersedes)
+                old = self._decision_repo.get(
+                    space, decision.supersedes
+                )
                 if old:
+                    inv_time = (
+                        old.invalidation_time.isoformat()
+                        if old.invalidation_time
+                        else "unknown"
+                    )
                     supersession_parts.append(
-                        f"{old.id} was superseded at "
-                        f"{old.invalidation_time.isoformat() if old.invalidation_time else 'unknown'}"
+                        f"{old.id} was superseded"
+                        f" at {inv_time}"
                     )
             if supersession_parts:
                 explanation.append(
-                    "supersession history: " + "; ".join(supersession_parts)
+                    "supersession history: "
+                    + "; ".join(supersession_parts)
                 )
 
-        provenance = self._decision_repo.get_provenance(space, decision.id)
+        provenance = self._decision_repo.get_provenance(
+            space, decision.id
+        )
         prov_summary: dict[str, str] = {}
         if provenance:
             prov_summary = {
@@ -386,7 +395,9 @@ class HybridRetrievalService:
                 "episode_id": provenance.episode_id,
             }
             explanation.append(
-                f"provenance is available from {provenance.source_id} / {provenance.episode_id}"
+                "provenance is available from"
+                f" {provenance.source_id}"
+                f" / {provenance.episode_id}"
             )
 
         return RetrievalResult(
@@ -403,7 +414,7 @@ class HybridRetrievalService:
         space: str,
         task: Task,
         score: float,
-        mode: str,
+        mode: Literal["current", "as-of"],
         as_of: datetime | None,
         is_semantic: bool,
         is_graph_expanded: bool,
@@ -422,20 +433,25 @@ class HybridRetrievalService:
 
         if is_semantic:
             explanation.append(
-                f"semantic candidate from Indexable Text for {task.title[:60]}"
+                "semantic candidate from Indexable Text"
+                f" for {task.title[:60]}"
             )
         if is_graph_expanded:
             explanation.append(
-                "graph expansion connected it to related records"
+                "graph expansion connected it"
+                " to related records"
             )
 
         if mode == "current":
             explanation.append(
-                f"temporal filter kept it with lifecycle state: {lifecycle_state}"
+                "temporal filter kept it with"
+                f" lifecycle state: {lifecycle_state}"
             )
         elif mode == "as-of" and as_of is not None:
             explanation.append(
-                f"temporal filter shows lifecycle state at {as_of.isoformat()}: {lifecycle_state}"
+                "temporal filter shows lifecycle state"
+                f" at {as_of.isoformat()}:"
+                f" {lifecycle_state}"
             )
 
         provenance = self._task_repo.get_provenance(
@@ -448,7 +464,9 @@ class HybridRetrievalService:
                 "episode_id": provenance.episode_id,
             }
             explanation.append(
-                f"provenance is available from {provenance.source_id} / {provenance.episode_id}"
+                "provenance is available from"
+                f" {provenance.source_id}"
+                f" / {provenance.episode_id}"
             )
 
         return RetrievalResult(
