@@ -15,10 +15,8 @@ def main(argv: list[str] | None = None) -> int:
 
     if args.command == "status":
         print(json.dumps(build_status_payload(), sort_keys=True))
-        return 0
 
-    parser.error(f"unknown command: {args.command}")
-    return 2
+    return 0
 
 
 if __name__ == "__main__":
