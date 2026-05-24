@@ -22,6 +22,7 @@ from memorable.core.context import default_context
 from memorable.core.profile import ProfileValidationError
 from memorable.core.repositories import make_memory_space_repository
 from memorable.core.temporal import parse_iso_timestamp
+from memorable.core.tracer import TracerService
 
 
 def _cmd_init(args: argparse.Namespace) -> int:
@@ -381,6 +382,15 @@ def _cmd_task_inspect(args: argparse.Namespace) -> int:
     return 0
 
 
+def _cmd_tracer_run(args: argparse.Namespace) -> int:
+    """Run the tracer-bullet fixture and output verification results."""
+    default_context.reset()
+    service = TracerService()
+    result = service.run()
+    print(json.dumps(result, sort_keys=True, indent=2))
+    return 0
+
+
 def _cmd_search(args: argparse.Namespace) -> int:
     """Search memory using hybrid GraphRAG retrieval."""
     service = default_context.build_retrieval_service()
@@ -545,6 +555,17 @@ def main(argv: list[str] | None = None) -> int:
     history_parser.add_argument("--space", required=True)
     history_parser.add_argument("--id", required=True)
 
+    # tracer subcommand
+    tracer_parser = subparsers.add_parser(
+        "tracer", help="Tracer-bullet operations."
+    )
+    tracer_sub = tracer_parser.add_subparsers(
+        dest="tracer_type", required=True
+    )
+    tracer_sub.add_parser(
+        "run", help="Run the tracer-bullet fixture and verify end-to-end."
+    )
+
     # search subcommand
     search_parser = subparsers.add_parser(
         "search", help="Search memory using hybrid GraphRAG retrieval."
@@ -584,6 +605,9 @@ def main(argv: list[str] | None = None) -> int:
             return _cmd_inspect_provenance(args)
         elif args.inspect_type == "history":
             return _cmd_inspect_history(args)
+    elif args.command == "tracer":
+        if args.tracer_type == "run":
+            return _cmd_tracer_run(args)
     elif args.command == "search":
         return _cmd_search(args)
 

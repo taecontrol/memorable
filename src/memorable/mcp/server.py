@@ -443,6 +443,19 @@ def search_memory_tool(
     }
 
 
+def tracer_run_tool() -> dict[str, object]:
+    """Run the tracer-bullet fixture and return structured verification results.
+
+    Resets the default context, runs the full fixture with fixed timestamps,
+    and returns all verification sections proving end-to-end composition.
+    """
+    from memorable.core.tracer import TracerService
+
+    default_context.reset()
+    service = TracerService()
+    return service.run()
+
+
 def inspect_task_tool(
     space: str,
     task_id: str,
