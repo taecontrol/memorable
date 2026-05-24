@@ -76,8 +76,8 @@ class ApplicationContext:
     def build_retrieval_service(self):
         """Build a HybridRetrievalService wired to this context's repos.
 
-        Uses FakeEmbeddingProvider for the tracer bullet. A production
-        system would accept an EmbeddingProvider parameter.
+        Uses FakeEmbeddingProvider by default. Use build_embedding_provider()
+        to select a real provider via environment configuration.
         """
         from memorable.retrieval.embeddings import (
             FakeEmbeddingProvider,

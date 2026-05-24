@@ -15,7 +15,6 @@ from unittest.mock import MagicMock, patch
 
 import pytest
 
-
 # =====================================================================
 # Helpers
 # =====================================================================
@@ -162,7 +161,7 @@ class TestProviderConfiguration:
     def test_missing_api_key_raises_configuration_error(
         self, monkeypatch: pytest.MonkeyPatch
     ) -> None:
-        """Creating provider without MEMORABLE_OPENROUTER_API_KEY raises a clear error."""
+        """Missing API key raises a clear error."""
         from memorable.retrieval.embeddings import OpenRouterEmbeddingProvider
 
         monkeypatch.delenv("MEMORABLE_OPENROUTER_API_KEY", raising=False)
@@ -235,7 +234,7 @@ class TestProviderFactory:
     def test_build_embedding_provider_returns_openrouter_when_configured(
         self, monkeypatch: pytest.MonkeyPatch
     ) -> None:
-        """When MEMORABLE_OPENROUTER_API_KEY is set, returns OpenRouterEmbeddingProvider."""
+        """When API key is set, returns OpenRouterEmbeddingProvider."""
         from memorable.retrieval.embeddings import (
             OpenRouterEmbeddingProvider,
             build_embedding_provider,

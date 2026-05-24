@@ -45,7 +45,7 @@ class HybridRetrievalService:
         self._entity_repo = entity_repo
         self._decision_repo = decision_repo
         self._task_repo = task_repo
-        self._provider = embedding_provider
+        self._embedding_provider = embedding_provider
         self._dimensions = dimensions
         self._index = InMemoryEmbeddingIndex()
 
@@ -59,7 +59,7 @@ class HybridRetrievalService:
 
         for entity in self._entity_repo.list_by_space(space):
             text = indexable_text_for_entity(entity)
-            vector = self._provider.embed(text)
+            vector = self._embedding_provider.embed(text)
             self._index.store(
                 EmbeddingRecord(
                     source_id=entity.id,
@@ -67,15 +67,15 @@ class HybridRetrievalService:
                     space=space,
                     indexable_text=text,
                     vector=vector,
-                    provider_name=self._provider.provider_name,
-                    model_name=self._provider.model_name,
+                    provider_name=self._embedding_provider.provider_name,
+                    model_name=self._embedding_provider.model_name,
                     dimensions=self._dimensions,
                 )
             )
 
         for decision in self._decision_repo.list_by_space(space):
             text = indexable_text_for_decision(decision)
-            vector = self._provider.embed(text)
+            vector = self._embedding_provider.embed(text)
             self._index.store(
                 EmbeddingRecord(
                     source_id=decision.id,
@@ -83,15 +83,15 @@ class HybridRetrievalService:
                     space=space,
                     indexable_text=text,
                     vector=vector,
-                    provider_name=self._provider.provider_name,
-                    model_name=self._provider.model_name,
+                    provider_name=self._embedding_provider.provider_name,
+                    model_name=self._embedding_provider.model_name,
                     dimensions=self._dimensions,
                 )
             )
 
         for task in self._task_repo.list_by_space(space):
             text = indexable_text_for_task(task)
-            vector = self._provider.embed(text)
+            vector = self._embedding_provider.embed(text)
             self._index.store(
                 EmbeddingRecord(
                     source_id=task.id,
@@ -99,8 +99,8 @@ class HybridRetrievalService:
                     space=space,
                     indexable_text=text,
                     vector=vector,
-                    provider_name=self._provider.provider_name,
-                    model_name=self._provider.model_name,
+                    provider_name=self._embedding_provider.provider_name,
+                    model_name=self._embedding_provider.model_name,
                     dimensions=self._dimensions,
                 )
             )
@@ -135,7 +135,7 @@ class HybridRetrievalService:
         self._rebuild_index(space)
 
         # Step 2: Semantic candidates
-        query_vector = self._provider.embed(query)
+        query_vector = self._embedding_provider.embed(query)
         candidates = self._index.search(
             space=space, query_vector=query_vector, top_k=top_k * 2
         )
