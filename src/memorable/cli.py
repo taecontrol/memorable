@@ -381,6 +381,51 @@ def _cmd_task_inspect(args: argparse.Namespace) -> int:
     return 0
 
 
+def _cmd_search(args: argparse.Namespace) -> int:
+    """Search memory using hybrid GraphRAG retrieval."""
+    from memorable.retrieval.embeddings import FakeEmbeddingProvider
+    from memorable.retrieval.service import HybridRetrievalService
+
+    provider = FakeEmbeddingProvider(dimensions=32)
+    service = HybridRetrievalService(
+        entity_repo=default_context.entity_repo,
+        decision_repo=default_context.decision_repo,
+        task_repo=default_context.task_repo,
+        embedding_provider=provider,
+    )
+
+    mode = getattr(args, "mode", "current") or "current"
+    as_of = None
+    if hasattr(args, "as_of") and args.as_of is not None:
+        as_of = parse_iso_timestamp(args.as_of)
+
+    results = service.search(
+        space=args.space,
+        query=args.query,
+        mode=mode,
+        as_of=as_of,
+    )
+
+    output = {
+        "query": args.query,
+        "space": args.space,
+        "mode": mode,
+        "results": [
+            {
+                "source_id": r.source_id,
+                "source_kind": r.source_kind,
+                "lifecycle_state": r.lifecycle_state,
+                "score": round(r.score, 4),
+                "explanation": r.explanation,
+                "provenance_summary": r.provenance_summary,
+            }
+            for r in results
+        ],
+    }
+    print(json.dumps(output, sort_keys=True, indent=2))
+    return 0
+
+
 def main(argv: list[str] | None = None) -> int:
     parser = argparse.ArgumentParser(prog="memorable")
     subparsers = parser.add_subparsers(dest="command", required=True)
@@ -509,6 +554,15 @@ def main(argv: list[str] | None = None) -> int:
     history_parser.add_argument("--space", required=True)
     history_parser.add_argument("--id", required=True)
 
+    # search subcommand
+    search_parser = subparsers.add_parser(
+        "search", help="Search memory using hybrid GraphRAG retrieval."
+    )
+    search_parser.add_argument("--space", required=True)
+    search_parser.add_argument("--query", required=True)
+    search_parser.add_argument("--mode", default="current")
+    search_parser.add_argument("--as-of", default=None)
+
     args = parser.parse_args(argv)
 
     if args.command == "status":
@@ -539,6 +593,8 @@ def main(argv: list[str] | None = None) -> int:
             return _cmd_inspect_provenance(args)
         elif args.inspect_type == "history":
             return _cmd_inspect_history(args)
+    elif args.command == "search":
+        return _cmd_search(args)
 
     return 0
 

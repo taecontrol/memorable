@@ -395,6 +395,63 @@ def complete_task_tool(
     }
 
 
+def search_memory_tool(
+    space: str,
+    query: str,
+    mode: str = "current",
+    as_of: str | None = None,
+) -> dict[str, object]:
+    """Search memory using hybrid GraphRAG retrieval.
+
+    Combines semantic similarity, graph expansion, temporal filtering,
+    and provenance-aware explanation.
+
+    Args:
+        space: MemorySpace to search
+        query: Natural language query
+        mode: "current" for Current Truth, "as-of" for Point-In-Time Truth
+        as_of: ISO timestamp, required when mode is "as-of"
+    """
+    from memorable.retrieval.embeddings import FakeEmbeddingProvider
+    from memorable.retrieval.service import HybridRetrievalService
+
+    provider = FakeEmbeddingProvider(dimensions=32)
+    service = HybridRetrievalService(
+        entity_repo=default_context.entity_repo,
+        decision_repo=default_context.decision_repo,
+        task_repo=default_context.task_repo,
+        embedding_provider=provider,
+    )
+
+    as_of_dt = None
+    if as_of is not None:
+        as_of_dt = parse_iso_timestamp(as_of)
+
+    results = service.search(
+        space=space,
+        query=query,
+        mode=mode,
+        as_of=as_of_dt,
+    )
+
+    return {
+        "query": query,
+        "space": space,
+        "mode": mode,
+        "results": [
+            {
+                "source_id": r.source_id,
+                "source_kind": r.source_kind,
+                "lifecycle_state": r.lifecycle_state,
+                "score": round(r.score, 4),
+                "explanation": r.explanation,
+                "provenance_summary": r.provenance_summary,
+            }
+            for r in results
+        ],
+    }
+
+
 def inspect_task_tool(
     space: str,
     task_id: str,
