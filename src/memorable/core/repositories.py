@@ -181,29 +181,6 @@ class InMemoryTaskRepository:
         )
         self._tasks[key] = updated
 
-    def get_at(self, *, space: str, task_id: str, at: datetime) -> Task | None:
-        task = self._tasks.get((space, task_id))
-        if task is None:
-            return None
-        if at < task.validity_time:
-            return None
-        # If task is completed and as-of time is before completion, return as open
-        if (
-            task.lifecycle_state == "completed"
-            and task.completion_time
-            and at < task.completion_time
-        ):
-            return Task(
-                id=task.id,
-                title=task.title,
-                space=task.space,
-                lifecycle_state="open",
-                validity_time=task.validity_time,
-                completion_time=None,
-                completion_event_id=None,
-            )
-        return task
-
 
 def make_memory_space_repository() -> MemorySpaceRepository:
     """Create a MemorySpaceRepository (in-memory until Neo4j adapter is wired)."""

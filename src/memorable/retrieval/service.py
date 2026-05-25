@@ -9,6 +9,7 @@ from __future__ import annotations
 from datetime import datetime
 from typing import Literal
 
+from memorable.core.application import InspectTaskService
 from memorable.core.models import Decision, Entity, Task
 from memorable.core.ports import (
     DecisionRepository,
@@ -410,7 +411,9 @@ class HybridRetrievalService:
         explanation: list[str] = []
 
         if mode == "as-of" and as_of is not None:
-            pit_task = self._task_repo.get_at(space=space, task_id=task.id, at=as_of)
+            pit_task = InspectTaskService(repository=self._task_repo).inspect(
+                space=space, task_id=task.id, as_of=as_of
+            )
             if pit_task is None:
                 return None
             lifecycle_state = pit_task.lifecycle_state

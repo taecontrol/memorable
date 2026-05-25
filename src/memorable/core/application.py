@@ -444,6 +444,26 @@ class InspectTaskService:
         as_of: datetime | None = None,
     ) -> Task | None:
         """Return the Task state, optionally at a specific point in time."""
-        if as_of is not None:
-            return self._repository.get_at(space=space, task_id=task_id, at=as_of)
-        return self._repository.get(space=space, task_id=task_id)
+        task = self._repository.get(space=space, task_id=task_id)
+        if task is None:
+            return None
+        if as_of is None:
+            return task
+        # Temporal projection: validate visibility and reconstruct state
+        if as_of < task.validity_time:
+            return None
+        if (
+            task.lifecycle_state == "completed"
+            and task.completion_time
+            and as_of < task.completion_time
+        ):
+            return Task(
+                id=task.id,
+                title=task.title,
+                space=task.space,
+                lifecycle_state="open",
+                validity_time=task.validity_time,
+                completion_time=None,
+                completion_event_id=None,
+            )
+        return task

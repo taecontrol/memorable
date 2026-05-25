@@ -93,7 +93,7 @@ class DecisionRepository(Protocol):
 
 
 class TaskRepository(Protocol):
-    """Port for Task persistence with provenance and temporal queries."""
+    """Port for Task persistence with provenance."""
 
     def save(self, task: Task, provenance: Provenance) -> None:
         """Persist a Task with its provenance record."""
@@ -122,6 +122,3 @@ class TaskRepository(Protocol):
         """Return all tasks in the given space."""
         ...
 
-    def get_at(self, *, space: str, task_id: str, at: datetime) -> Task | None:
-        """Return the Task state as it was at the given point in time."""
-        ...
