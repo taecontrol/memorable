@@ -105,3 +105,171 @@ class TestObservationModel:
                 supersedes=None,
                 superseded_by=None,
             )
+
+
+# =====================================================================
+# Repository port tests
+# =====================================================================
+
+
+class TestObservationRepositoryPort:
+    """ObservationRepository defines persistence for Observations."""
+
+    def _make_observation_v1(self):
+        from memorable.core.models import Observation, Provenance
+
+        obs = Observation(
+            id=V1_ID,
+            statement=STATEMENT_V1,
+            space="memorable",
+            validity_time=FIXTURE_TIMESTAMP_V1,
+            invalidation_time=None,
+            lifecycle_state="current",
+            supersedes=None,
+            superseded_by=None,
+        )
+        provenance = Provenance(
+            record_id=V1_ID,
+            record_kind="observation",
+            source_id=SOURCE_ID,
+            episode_id="episode:agent-session:2026-05-25T09:00:00+00:00",
+            writer="agent:test",
+            reason="initial observation",
+            creation_time=FIXTURE_TIMESTAMP_V1,
+            validity_time=FIXTURE_TIMESTAMP_V1,
+        )
+        return obs, provenance
+
+    def _make_observation_v2(self):
+        from memorable.core.models import Observation, Provenance
+
+        obs = Observation(
+            id=V2_ID,
+            statement=STATEMENT_V2,
+            space="memorable",
+            validity_time=FIXTURE_TIMESTAMP_V2,
+            invalidation_time=None,
+            lifecycle_state="current",
+            supersedes=V1_ID,
+            superseded_by=None,
+        )
+        provenance = Provenance(
+            record_id=V2_ID,
+            record_kind="observation",
+            source_id=SOURCE_ID,
+            episode_id="episode:agent-session:2026-05-25T09:10:00+00:00",
+            writer="agent:test",
+            reason="superseding observation",
+            creation_time=FIXTURE_TIMESTAMP_V2,
+            validity_time=FIXTURE_TIMESTAMP_V2,
+        )
+        return obs, provenance
+
+    def test_save_and_retrieve_observation(self) -> None:
+        from memorable.core.repositories import InMemoryObservationRepository
+
+        repo = InMemoryObservationRepository()
+        obs, provenance = self._make_observation_v1()
+
+        repo.save(obs, provenance)
+        retrieved = repo.get(space="memorable", observation_id=V1_ID)
+
+        assert retrieved is not None
+        assert retrieved.id == V1_ID
+        assert retrieved.statement == STATEMENT_V1
+
+    def test_retrieve_provenance(self) -> None:
+        from memorable.core.repositories import InMemoryObservationRepository
+
+        repo = InMemoryObservationRepository()
+        obs, provenance = self._make_observation_v1()
+
+        repo.save(obs, provenance)
+        prov = repo.get_provenance(space="memorable", observation_id=V1_ID)
+
+        assert prov is not None
+        assert prov.source_id == SOURCE_ID
+        assert prov.record_kind == "observation"
+
+    def test_get_returns_none_for_missing(self) -> None:
+        from memorable.core.repositories import InMemoryObservationRepository
+
+        repo = InMemoryObservationRepository()
+        assert repo.get(space="memorable", observation_id="observation:missing") is None
+
+    def test_get_provenance_returns_none_for_missing(self) -> None:
+        from memorable.core.repositories import InMemoryObservationRepository
+
+        repo = InMemoryObservationRepository()
+        assert (
+            repo.get_provenance(space="memorable", observation_id="observation:missing")
+            is None
+        )
+
+    def test_list_by_space(self) -> None:
+        from memorable.core.repositories import InMemoryObservationRepository
+
+        repo = InMemoryObservationRepository()
+        v1, prov1 = self._make_observation_v1()
+        v2, prov2 = self._make_observation_v2()
+
+        repo.save(v1, prov1)
+        repo.save(v2, prov2)
+
+        observations = repo.list_by_space("memorable")
+        assert len(observations) == 2
+        ids = {o.id for o in observations}
+        assert ids == {V1_ID, V2_ID}
+
+    def test_mark_superseded_updates_old_observation(self) -> None:
+        from memorable.core.repositories import InMemoryObservationRepository
+
+        repo = InMemoryObservationRepository()
+        v1, prov1 = self._make_observation_v1()
+
+        repo.save(v1, prov1)
+        repo.mark_superseded(
+            space="memorable",
+            observation_id=V1_ID,
+            superseded_by=V2_ID,
+            invalidation_time=FIXTURE_TIMESTAMP_V2,
+        )
+
+        updated = repo.get(space="memorable", observation_id=V1_ID)
+        assert updated is not None
+        assert updated.lifecycle_state == "superseded"
+        assert updated.invalidation_time == FIXTURE_TIMESTAMP_V2
+        assert updated.superseded_by == V2_ID
+
+    def test_append_first_v1_not_deleted(self) -> None:
+        """Append-first: v1 not deleted, just marked superseded."""
+        from memorable.core.repositories import InMemoryObservationRepository
+
+        repo = InMemoryObservationRepository()
+        v1, prov1 = self._make_observation_v1()
+        v2, prov2 = self._make_observation_v2()
+
+        repo.save(v1, prov1)
+        repo.save(v2, prov2)
+        repo.mark_superseded(
+            space="memorable",
+            observation_id=V1_ID,
+            superseded_by=V2_ID,
+            invalidation_time=FIXTURE_TIMESTAMP_V2,
+        )
+
+        v1_stored = repo.get(space="memorable", observation_id=V1_ID)
+        assert v1_stored is not None
+        assert v1_stored.lifecycle_state == "superseded"
+
+        v2_stored = repo.get(space="memorable", observation_id=V2_ID)
+        assert v2_stored is not None
+        assert v2_stored.lifecycle_state == "current"
+
+    def test_observation_repo_satisfies_temporal_record_protocol(self) -> None:
+        """InMemoryObservationRepository satisfies TemporalRecordRepository."""
+        from memorable.core.ports import TemporalRecordRepository
+        from memorable.core.repositories import InMemoryObservationRepository
+
+        repo = InMemoryObservationRepository()
+        assert isinstance(repo, TemporalRecordRepository)
