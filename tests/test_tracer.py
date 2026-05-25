@@ -119,6 +119,16 @@ class TestTracerProvenance:
         assert isinstance(prov["reason"], str)
         assert len(prov["reason"]) > 0
 
+    def test_tracer_provenance_returns_record_id_and_record_kind(self) -> None:
+        """_verify_provenance output includes unified record_id and record_kind."""
+        from memorable.core.tracer import TracerService
+
+        result = TracerService().run()
+        prov = result["provenance"]
+
+        assert prov["record_id"] == "decision:storage-path:v2"
+        assert prov["record_kind"] == "decision"
+
 
 class TestTracerHybridRetrieval:
     """Hybrid GraphRAG search returns v2 with full explanation."""
