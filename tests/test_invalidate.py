@@ -146,3 +146,69 @@ class TestInMemoryDecisionRepositoryInvalidate:
         assert updated.statement == "Use Graphiti for storage."
         assert updated.space == "memorable"
         assert updated.superseded_by is None
+
+
+# =====================================================================
+# InMemoryObservationRepository.invalidate() tests
+# =====================================================================
+
+
+class TestInMemoryObservationRepositoryInvalidate:
+    """InMemoryObservationRepository.invalidate() marks an Observation as invalidated."""
+
+    def _store_observation(self, repo):
+        from memorable.core.models import Observation, Provenance
+
+        observation = Observation(
+            id=OBSERVATION_ID,
+            statement="The team prefers async communication.",
+            space="memorable",
+            validity_time=FIXTURE_TIMESTAMP,
+            invalidation_time=None,
+            lifecycle_state="current",
+            supersedes=None,
+            superseded_by=None,
+        )
+        provenance = Provenance(
+            record_id=OBSERVATION_ID,
+            record_kind="observation",
+            source_id=SOURCE_ID,
+            episode_id="episode:agent-session:2026-05-25T09:00:00+00:00",
+            writer="agent:test",
+            reason="test observation",
+            creation_time=FIXTURE_TIMESTAMP,
+            validity_time=FIXTURE_TIMESTAMP,
+        )
+        repo.save(observation, provenance)
+
+    def test_invalidate_sets_lifecycle_state(self) -> None:
+        from memorable.core.repositories import InMemoryObservationRepository
+
+        repo = InMemoryObservationRepository()
+        self._store_observation(repo)
+
+        repo.invalidate(
+            space="memorable",
+            record_id=OBSERVATION_ID,
+            invalidation_time=INVALIDATION_TIMESTAMP,
+        )
+
+        updated = repo.get(space="memorable", observation_id=OBSERVATION_ID)
+        assert updated is not None
+        assert updated.lifecycle_state == "invalidated"
+
+    def test_invalidate_sets_invalidation_time(self) -> None:
+        from memorable.core.repositories import InMemoryObservationRepository
+
+        repo = InMemoryObservationRepository()
+        self._store_observation(repo)
+
+        repo.invalidate(
+            space="memorable",
+            record_id=OBSERVATION_ID,
+            invalidation_time=INVALIDATION_TIMESTAMP,
+        )
+
+        updated = repo.get(space="memorable", observation_id=OBSERVATION_ID)
+        assert updated is not None
+        assert updated.invalidation_time == INVALIDATION_TIMESTAMP
