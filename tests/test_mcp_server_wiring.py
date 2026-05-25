@@ -109,9 +109,7 @@ class TestToolDescriptions:
     def test_every_tool_has_a_description(self) -> None:
         tools = _list_tools()
         for tool in tools:
-            assert tool.description, (
-                f"Tool {tool.name!r} has no description"
-            )
+            assert tool.description, f"Tool {tool.name!r} has no description"
 
     def test_descriptions_use_core_domain_terms(self) -> None:
         tools = _list_tools()
@@ -119,19 +117,13 @@ class TestToolDescriptions:
         missing = {
             term for term in REQUIRED_DOMAIN_TERMS if term not in all_descriptions
         }
-        assert not missing, (
-            f"Tool descriptions missing Memorable Core terms: {missing}"
-        )
+        assert not missing, f"Tool descriptions missing Memorable Core terms: {missing}"
 
     def test_descriptions_avoid_storage_vocabulary(self) -> None:
         tools = _list_tools()
         all_descriptions = " ".join(t.description for t in tools).lower()
-        leaked = {
-            term for term in AVOIDED_STORAGE_TERMS if term in all_descriptions
-        }
-        assert not leaked, (
-            f"Tool descriptions leak storage vocabulary: {leaked}"
-        )
+        leaked = {term for term in AVOIDED_STORAGE_TERMS if term in all_descriptions}
+        assert not leaked, f"Tool descriptions leak storage vocabulary: {leaked}"
 
 
 def _call_tool(name: str, arguments: dict) -> object:

@@ -23,9 +23,9 @@ class TestPyprojectDependencies:
     def test_mcp_in_dependencies(self) -> None:
         data = _load_pyproject()
         deps = data["project"]["dependencies"]
-        assert any(
-            d.startswith("mcp") for d in deps
-        ), "mcp should be in [project.dependencies]"
+        assert any(d.startswith("mcp") for d in deps), (
+            "mcp should be in [project.dependencies]"
+        )
 
     def test_mcp_version_constraint(self) -> None:
         data = _load_pyproject()

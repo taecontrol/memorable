@@ -28,8 +28,7 @@ mcp_server = FastMCP("memorable")
 @mcp_server.tool(
     name="memorable_status",
     description=(
-        "Return Memorable service diagnostics "
-        "for the current MemorySpace scope."
+        "Return Memorable service diagnostics for the current MemorySpace scope."
     ),
 )
 def status_tool() -> dict[str, object]:
