@@ -82,20 +82,25 @@ important to test?"
 Write ONE test that confirms ONE thing about the system:
 
 ```
-RED:   Write test for first behavior → uv run pytest path/to/test.py -k test_name → FAILS
-GREEN: Write minimal code to pass   → uv run pytest path/to/test.py -k test_name → PASSES
+RED:   Write test for first behavior → uv run pytest path/to/test.py -k test_name → FAILS → COMMIT
+GREEN: Write minimal code to pass   → uv run pytest path/to/test.py -k test_name → PASSES → COMMIT
 ```
 
-Commit the RED test before writing the GREEN implementation when the issue
-requires TDD commit order.
+**Commit discipline — two commits per cycle:**
+
+1. **RED commit** — after the test fails, commit the test file(s) only.
+   Message: `red: <what behavior the test specifies>`
+2. **GREEN commit** — after the implementation makes the test pass, commit
+   everything (implementation + any test adjustments).
+   Message: `green: <what was implemented to satisfy the test>`
 
 ### 3. Incremental Loop
 
 For each remaining behavior:
 
 ```
-RED:   Write next test → fails
-GREEN: Minimal code to pass → passes
+RED:   Write next test → fails → COMMIT (red)
+GREEN: Minimal code to pass → passes → COMMIT (green)
 ```
 
 Rules:
@@ -106,6 +111,7 @@ Rules:
 - Keep tests focused on observable behavior
 - Run only the relevant test: `uv run pytest tests/path.py -k test_name -v`
 - Run the full suite periodically: `uv run pytest tests/ -v --tb=short`
+- Always commit RED before writing GREEN — the history proves tests failed first
 
 ### 4. Refactor
 

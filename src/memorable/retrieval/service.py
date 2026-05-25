@@ -9,6 +9,7 @@ from __future__ import annotations
 from datetime import datetime
 from typing import Literal
 
+from memorable.core.application import InspectTaskService, PointInTimeTruthService
 from memorable.core.models import Decision, Entity, Task
 from memorable.core.ports import (
     DecisionRepository,
@@ -41,6 +42,8 @@ class HybridRetrievalService:
         task_repo: TaskRepository,
         embedding_provider: EmbeddingProvider,
         dimensions: int = 32,
+        point_in_time_service: PointInTimeTruthService | None = None,
+        inspect_task_service: InspectTaskService | None = None,
     ) -> None:
         self._entity_repo = entity_repo
         self._decision_repo = decision_repo
@@ -48,6 +51,16 @@ class HybridRetrievalService:
         self._embedding_provider = embedding_provider
         self._dimensions = dimensions
         self._index = InMemoryEmbeddingIndex()
+        self._point_in_time_service = (
+            point_in_time_service
+            if point_in_time_service is not None
+            else PointInTimeTruthService(repository=decision_repo)
+        )
+        self._inspect_task_service = (
+            inspect_task_service
+            if inspect_task_service is not None
+            else InspectTaskService(repository=task_repo)
+        )
 
     def _rebuild_index(self, space: str) -> None:
         """Rebuild the embedding index from all records in the space.
@@ -326,7 +339,9 @@ class HybridRetrievalService:
                 return None
             lifecycle_state = decision.lifecycle_state
         elif mode == "as-of" and as_of is not None:
-            pit_decision = self._decision_repo.get_at(space, decision.id, as_of)
+            pit_decision = self._point_in_time_service.at(
+                space=space, decision_id=decision.id, at=as_of
+            )
             if pit_decision is None:
                 return None
             if pit_decision.id != decision.id:
@@ -357,9 +372,11 @@ class HybridRetrievalService:
                 f"temporal filter kept it because it was valid at {as_of.isoformat()}"
             )
 
-        # Supersession history context
-        history = self._decision_repo.get_history(space, decision.id)
-        if len(history) > 1 or decision.supersedes:
+        # Supersession history context (chain-walk via thin repo.get() calls)
+        has_chain = (
+            decision.superseded_by is not None or decision.supersedes is not None
+        )
+        if has_chain:
             supersession_parts = []
             if decision.supersedes:
                 old = self._decision_repo.get(space, decision.supersedes)
@@ -410,7 +427,9 @@ class HybridRetrievalService:
         explanation: list[str] = []
 
         if mode == "as-of" and as_of is not None:
-            pit_task = self._task_repo.get_at(space=space, task_id=task.id, at=as_of)
+            pit_task = self._inspect_task_service.inspect(
+                space=space, task_id=task.id, as_of=as_of
+            )
             if pit_task is None:
                 return None
             lifecycle_state = pit_task.lifecycle_state

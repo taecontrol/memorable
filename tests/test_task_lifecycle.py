@@ -234,60 +234,6 @@ class TestTaskRepositoryPort:
         assert completed.completion_time == FIXTURE_TIMESTAMP_COMPLETE
         assert completed.completion_event_id == EVENT_ID
 
-    def test_get_at_before_completion_returns_open(self) -> None:
-        from memorable.core.repositories import InMemoryTaskRepository
-
-        repo = InMemoryTaskRepository()
-        task, provenance = self._make_task()
-        repo.save(task, provenance)
-
-        repo.complete(
-            space="memorable",
-            task_id=TASK_ID,
-            completion_time=FIXTURE_TIMESTAMP_COMPLETE,
-            completion_event_id=EVENT_ID,
-        )
-
-        at_1027 = datetime(2026, 5, 23, 10, 27, 0, tzinfo=UTC)
-        result = repo.get_at(space="memorable", task_id=TASK_ID, at=at_1027)
-
-        assert result is not None
-        assert result.lifecycle_state == "open"
-        assert result.completion_time is None
-        assert result.completion_event_id is None
-
-    def test_get_at_after_completion_returns_completed(self) -> None:
-        from memorable.core.repositories import InMemoryTaskRepository
-
-        repo = InMemoryTaskRepository()
-        task, provenance = self._make_task()
-        repo.save(task, provenance)
-
-        repo.complete(
-            space="memorable",
-            task_id=TASK_ID,
-            completion_time=FIXTURE_TIMESTAMP_COMPLETE,
-            completion_event_id=EVENT_ID,
-        )
-
-        at_1031 = datetime(2026, 5, 23, 10, 31, 0, tzinfo=UTC)
-        result = repo.get_at(space="memorable", task_id=TASK_ID, at=at_1031)
-
-        assert result is not None
-        assert result.lifecycle_state == "completed"
-
-    def test_get_at_before_validity_returns_none(self) -> None:
-        from memorable.core.repositories import InMemoryTaskRepository
-
-        repo = InMemoryTaskRepository()
-        task, provenance = self._make_task()
-        repo.save(task, provenance)
-
-        at_1020 = datetime(2026, 5, 23, 10, 20, 0, tzinfo=UTC)
-        result = repo.get_at(space="memorable", task_id=TASK_ID, at=at_1020)
-
-        assert result is None
-
     def test_append_first_task_not_deleted(self) -> None:
         """Append-first: task not deleted after completion, just updated."""
         from memorable.core.repositories import InMemoryTaskRepository
@@ -549,6 +495,36 @@ class TestInspectTaskService:
 
         at_1031 = datetime(2026, 5, 23, 10, 31, 0, tzinfo=UTC)
         result = service.inspect(space="memorable", task_id=TASK_ID, as_of=at_1031)
+
+        assert result is not None
+        assert result.lifecycle_state == "completed"
+
+    def test_inspect_as_of_before_validity_returns_none(self) -> None:
+        service, _repo = self._setup_completed_task()
+
+        at_1020 = datetime(2026, 5, 23, 10, 20, 0, tzinfo=UTC)
+        result = service.inspect(space="memorable", task_id=TASK_ID, as_of=at_1020)
+
+        assert result is None
+
+    def test_inspect_as_of_at_exact_validity_time_returns_task(self) -> None:
+        """as_of == validity_time is visible (strict < excludes it)."""
+        service, _repo = self._setup_completed_task()
+
+        result = service.inspect(
+            space="memorable", task_id=TASK_ID, as_of=FIXTURE_TIMESTAMP_REMEMBER
+        )
+
+        assert result is not None
+        assert result.lifecycle_state == "open"
+
+    def test_inspect_as_of_at_exact_completion_time_returns_completed(self) -> None:
+        """as_of == completion_time: completion is visible (strict <)."""
+        service, _repo = self._setup_completed_task()
+
+        result = service.inspect(
+            space="memorable", task_id=TASK_ID, as_of=FIXTURE_TIMESTAMP_COMPLETE
+        )
 
         assert result is not None
         assert result.lifecycle_state == "completed"

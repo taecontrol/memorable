@@ -259,8 +259,22 @@ class CurrentTruthService:
         self._repository = repository
 
     def current(self, *, space: str, decision_id: str) -> Decision | None:
-        """Return the current Decision, following supersession chain."""
-        return self._repository.get_current(space=space, decision_id=decision_id)
+        """Return the current Decision, following the supersession chain."""
+        decision = self._repository.get(space=space, decision_id=decision_id)
+        if decision is None:
+            return None
+        visited: set[str] = {decision.id}
+        while decision.superseded_by is not None:
+            if decision.superseded_by in visited:
+                break
+            visited.add(decision.superseded_by)
+            next_decision = self._repository.get(
+                space=space, decision_id=decision.superseded_by
+            )
+            if next_decision is None:
+                break
+            decision = next_decision
+        return decision
 
 
 class PointInTimeTruthService:
@@ -271,7 +285,25 @@ class PointInTimeTruthService:
 
     def at(self, *, space: str, decision_id: str, at: datetime) -> Decision | None:
         """Return the Decision that was valid at the given time."""
-        return self._repository.get_at(space=space, decision_id=decision_id, at=at)
+        decision = self._repository.get(space=space, decision_id=decision_id)
+        if decision is None:
+            return None
+        visited: set[str] = {decision.id}
+        current = decision
+        while True:
+            if current.invalidation_time is None or at < current.invalidation_time:
+                return current
+            if current.superseded_by is None:
+                return current
+            if current.superseded_by in visited:
+                return current
+            visited.add(current.superseded_by)
+            next_decision = self._repository.get(
+                space=space, decision_id=current.superseded_by
+            )
+            if next_decision is None:
+                return current
+            current = next_decision
 
 
 class InspectDecisionHistoryService:
@@ -282,7 +314,23 @@ class InspectDecisionHistoryService:
 
     def history(self, *, space: str, decision_id: str) -> list[Decision]:
         """Return the supersession chain starting from the given Decision."""
-        return self._repository.get_history(space=space, decision_id=decision_id)
+        decision = self._repository.get(space=space, decision_id=decision_id)
+        if decision is None:
+            return []
+        chain = [decision]
+        visited: set[str] = {decision.id}
+        while decision.superseded_by is not None:
+            if decision.superseded_by in visited:
+                break
+            visited.add(decision.superseded_by)
+            next_decision = self._repository.get(
+                space=space, decision_id=decision.superseded_by
+            )
+            if next_decision is None:
+                break
+            chain.append(next_decision)
+            decision = next_decision
+        return chain
 
 
 class InspectProvenanceService:
@@ -434,6 +482,26 @@ class InspectTaskService:
         as_of: datetime | None = None,
     ) -> Task | None:
         """Return the Task state, optionally at a specific point in time."""
-        if as_of is not None:
-            return self._repository.get_at(space=space, task_id=task_id, at=as_of)
-        return self._repository.get(space=space, task_id=task_id)
+        task = self._repository.get(space=space, task_id=task_id)
+        if task is None:
+            return None
+        if as_of is None:
+            return task
+        # Temporal projection: validate visibility and reconstruct state
+        if as_of < task.validity_time:
+            return None
+        if (
+            task.lifecycle_state == "completed"
+            and task.completion_time
+            and as_of < task.completion_time
+        ):
+            return Task(
+                id=task.id,
+                title=task.title,
+                space=task.space,
+                lifecycle_state="open",
+                validity_time=task.validity_time,
+                completion_time=None,
+                completion_event_id=None,
+            )
+        return task

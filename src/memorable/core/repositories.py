@@ -14,7 +14,6 @@ from memorable.core.models import (
     Provenance,
     Task,
 )
-from memorable.core.ports import MemorySpaceRepository
 
 
 class InMemoryMemorySpaceRepository:
@@ -79,49 +78,6 @@ class InMemoryDecisionRepository:
     def list_by_space(self, space: str) -> list[Decision]:
         """Return all decisions in the given space."""
         return [decision for (s, _), decision in self._decisions.items() if s == space]
-
-    def get_current(self, space: str, decision_id: str) -> Decision | None:
-        decision = self.get(space, decision_id)
-        if decision is None:
-            return None
-        # Follow supersession chain
-        while decision.superseded_by is not None:
-            next_decision = self.get(space, decision.superseded_by)
-            if next_decision is None:
-                break
-            decision = next_decision
-        return decision
-
-    def get_at(self, space: str, decision_id: str, at: datetime) -> Decision | None:
-        decision = self.get(space, decision_id)
-        if decision is None:
-            return None
-        # Walk the chain: find the decision whose validity_time <= at
-        # and whose invalidation_time is None or > at
-        current = decision
-        while True:
-            if current.invalidation_time is None or at < current.invalidation_time:
-                return current
-            # This decision was invalidated before `at`, follow the chain
-            if current.superseded_by is None:
-                return current
-            next_decision = self.get(space, current.superseded_by)
-            if next_decision is None:
-                return current
-            current = next_decision
-
-    def get_history(self, space: str, decision_id: str) -> list[Decision]:
-        decision = self.get(space, decision_id)
-        if decision is None:
-            return []
-        chain = [decision]
-        while decision.superseded_by is not None:
-            next_decision = self.get(space, decision.superseded_by)
-            if next_decision is None:
-                break
-            chain.append(next_decision)
-            decision = next_decision
-        return chain
 
     def mark_superseded(
         self,
@@ -192,31 +148,3 @@ class InMemoryTaskRepository:
             completion_event_id=completion_event_id,
         )
         self._tasks[key] = updated
-
-    def get_at(self, *, space: str, task_id: str, at: datetime) -> Task | None:
-        task = self._tasks.get((space, task_id))
-        if task is None:
-            return None
-        if at < task.validity_time:
-            return None
-        # If task is completed and as-of time is before completion, return as open
-        if (
-            task.lifecycle_state == "completed"
-            and task.completion_time
-            and at < task.completion_time
-        ):
-            return Task(
-                id=task.id,
-                title=task.title,
-                space=task.space,
-                lifecycle_state="open",
-                validity_time=task.validity_time,
-                completion_time=None,
-                completion_event_id=None,
-            )
-        return task
-
-
-def make_memory_space_repository() -> MemorySpaceRepository:
-    """Create a MemorySpaceRepository (in-memory until Neo4j adapter is wired)."""
-    return InMemoryMemorySpaceRepository()

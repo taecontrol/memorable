@@ -120,9 +120,9 @@ class TestInitService:
     """Tests for the InitService that initializes a MemorySpace."""
 
     def _make_repo(self):
-        from memorable.core.repositories import make_memory_space_repository
+        from memorable.core.repositories import InMemoryMemorySpaceRepository
 
-        return make_memory_space_repository()
+        return InMemoryMemorySpaceRepository()
 
     def test_init_creates_memory_space_from_profile(self) -> None:
         """InitService creates a MemorySpace using the profile's space name."""
