@@ -108,11 +108,11 @@ class FakeSession:
         # --- Entity MATCH (single or list) ---
         if "Entity" in query and "MATCH" in query:
             space = str(params.get("space", ""))
-            entity_id = str(params.get("id", ""))
-            if not entity_id:
+            if "id" not in params:
                 entities = self._store.get("Entity", {})
                 results = [e for (s, _), e in entities.items() if s == space]
                 return FakeResult(results)
+            entity_id = str(params["id"])
             entities = self._store.get("Entity", {})
             entity = entities.get((space, entity_id))
             if entity:
@@ -166,11 +166,11 @@ class FakeSession:
         # --- Decision MATCH (single or list) ---
         if "Decision" in query and "MATCH" in query:
             space = str(params.get("space", ""))
-            decision_id = str(params.get("id", ""))
-            if not decision_id:
+            if "id" not in params:
                 decisions = self._store.get("Decision", {})
                 results = [d for (s, _), d in decisions.items() if s == space]
                 return FakeResult(results)
+            decision_id = str(params["id"])
             decisions = self._store.get("Decision", {})
             decision = decisions.get((space, decision_id))
             if decision:
@@ -223,11 +223,11 @@ class FakeSession:
         # --- Task MATCH (single or list) ---
         if "Task" in query and "MATCH" in query:
             space = str(params.get("space", ""))
-            task_id = str(params.get("id", ""))
-            if not task_id:
+            if "id" not in params:
                 tasks = self._store.get("Task", {})
                 results = [t for (s, _), t in tasks.items() if s == space]
                 return FakeResult(results)
+            task_id = str(params["id"])
             tasks = self._store.get("Task", {})
             task = tasks.get((space, task_id))
             if task:

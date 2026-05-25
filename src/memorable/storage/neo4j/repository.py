@@ -206,7 +206,6 @@ class Neo4jEntityRepository:
                 "RETURN e.id AS id, e.entity_type AS entity_type, "
                 "       e.name AS name, e.space AS space",
                 space=space,
-                id="",
             )
             return [
                 Entity(
@@ -345,7 +344,6 @@ class Neo4jDecisionRepository:
                 "       d.supersedes AS supersedes, "
                 "       d.superseded_by AS superseded_by",
                 space=space,
-                id="",
             )
             return [
                 Decision(
@@ -526,7 +524,6 @@ class Neo4jTaskRepository:
                 "       t.completion_time AS completion_time, "
                 "       t.completion_event_id AS completion_event_id",
                 space=space,
-                id="",
             )
             return [
                 Task(
