@@ -12,6 +12,7 @@ from memorable.core.application import (
     InspectHistoryService,
     InspectProvenanceService,
     InspectTaskService,
+    InvalidateService,
     PointInTimeTruthService,
     RememberDecisionService,
     RememberEntityService,
@@ -662,4 +663,59 @@ def inspect_task_tool(
             task.completion_time.isoformat() if task.completion_time else None
         ),
         "completion_event_id": task.completion_event_id,
+    }
+
+
+@mcp_server.tool(
+    name="memorable_invalidate",
+    description=(
+        "Mark a temporal record as invalidated in a MemorySpace. "
+        "Invalidation means a claim stopped being true without a successor. "
+        "Sets Lifecycle State to invalidated and records Invalidation Time. "
+        "Accepts record_type to select the repository (decision, observation)."
+    ),
+)
+def invalidate_tool(
+    space: str,
+    record_id: str,
+    record_type: str,
+    at: str,
+) -> dict[str, object]:
+    """Mark a temporal record as invalidated.
+
+    Args:
+        space: MemorySpace containing the record.
+        record_id: ID of the record to invalidate.
+        record_type: Type of record ("decision" or "observation").
+        at: ISO timestamp when the claim stopped being true.
+
+    Returns a dict with invalidation info on success, or an error dict.
+    """
+    if record_type == "decision":
+        repository = _context.decision_repo
+    elif record_type == "observation":
+        repository = _context.observation_repo
+    else:
+        return {
+            "error": f"Unknown record_type '{record_type}'. "
+            f"Supported types: decision, observation."
+        }
+
+    service = InvalidateService(repository=repository)
+    timestamp = parse_iso_timestamp(at)
+
+    try:
+        result = service.invalidate(
+            space=space,
+            record_id=record_id,
+            at=timestamp,
+        )
+    except ValueError as e:
+        return {"error": str(e)}
+
+    return {
+        "record_id": result.record_id,
+        "space": result.space,
+        "lifecycle_state": result.lifecycle_state,
+        "invalidation_time": result.invalidation_time.isoformat(),
     }
