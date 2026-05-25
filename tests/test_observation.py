@@ -656,3 +656,90 @@ class TestInspectHistoryServiceWithObservation:
 
         assert len(history) == 1
         assert history[0].id == V1_ID
+
+
+# =====================================================================
+# MCP adapter tests
+# =====================================================================
+
+
+class TestMCPRememberObservation:
+    """MCP remember_observation_tool writes an Observation."""
+
+    def setup_method(self) -> None:
+        from memorable.core.context import default_context
+
+        default_context.reset()
+
+    def test_remember_observation_tool(self) -> None:
+        from memorable.mcp.server import remember_observation_tool
+
+        result = remember_observation_tool(
+            space="memorable",
+            observation_id=V1_ID,
+            statement=STATEMENT_V1,
+            source=SOURCE_ID,
+            at="2026-05-25T09:00:00Z",
+        )
+
+        assert result["observation_id"] == V1_ID
+        assert result["source"] == SOURCE_ID
+        assert result["record_kind"] == "observation"
+        assert "error" not in result
+
+    def test_remember_observation_tool_with_supersession(self) -> None:
+        from memorable.mcp.server import remember_observation_tool
+
+        remember_observation_tool(
+            space="memorable",
+            observation_id=V1_ID,
+            statement=STATEMENT_V1,
+            source=SOURCE_ID,
+            at="2026-05-25T09:00:00Z",
+        )
+
+        result = remember_observation_tool(
+            space="memorable",
+            observation_id=V2_ID,
+            statement=STATEMENT_V2,
+            source=SOURCE_ID,
+            at="2026-05-25T09:10:00Z",
+            supersedes=V1_ID,
+        )
+
+        assert result["observation_id"] == V2_ID
+        assert result["lifecycle_state"] == "current"
+        assert "error" not in result
+
+    def test_inspect_history_tool_with_observation(self) -> None:
+        from memorable.mcp.server import (
+            inspect_history_tool,
+            remember_observation_tool,
+        )
+
+        remember_observation_tool(
+            space="memorable",
+            observation_id=V1_ID,
+            statement=STATEMENT_V1,
+            source=SOURCE_ID,
+            at="2026-05-25T09:00:00Z",
+        )
+        remember_observation_tool(
+            space="memorable",
+            observation_id=V2_ID,
+            statement=STATEMENT_V2,
+            source=SOURCE_ID,
+            at="2026-05-25T09:10:00Z",
+            supersedes=V1_ID,
+        )
+
+        result = inspect_history_tool(
+            space="memorable",
+            record_id=V1_ID,
+            record_type="observation",
+        )
+
+        assert "error" not in result
+        assert len(result["history"]) == 2
+        ids = [h["record_id"] for h in result["history"]]
+        assert ids == [V1_ID, V2_ID]
