@@ -439,6 +439,65 @@ class InspectHistoryService:
 InspectDecisionHistoryService = InspectHistoryService
 
 
+@dataclass(frozen=True)
+class InvalidateResult:
+    """Result of invalidating a temporal record."""
+
+    record_id: str
+    space: str
+    lifecycle_state: str
+    invalidation_time: datetime
+
+
+class InvalidateService:
+    """Generic application service that marks any temporal record as invalidated.
+
+    Invalidation means the claim stopped being true without a successor.
+    No replacement record is created. Sets lifecycle_state to "invalidated"
+    and records the invalidation_time.
+
+    Works with any repository satisfying TemporalRecordRepository.
+    """
+
+    def __init__(self, repository: TemporalRecordRepository) -> None:
+        self._repository = repository
+
+    def invalidate(
+        self,
+        *,
+        space: str,
+        record_id: str,
+        at: datetime,
+    ) -> InvalidateResult:
+        """Invalidate a temporal record.
+
+        Raises ValueError if the record is not found or already invalidated.
+        """
+        record = self._repository.get(space, record_id)
+        if record is None:
+            raise ValueError(
+                f"Record '{record_id}' not found in MemorySpace '{space}'."
+            )
+        if record.lifecycle_state == "invalidated":
+            raise ValueError(
+                f"Record '{record_id}' is already invalidated "
+                f"in MemorySpace '{space}'."
+            )
+
+        self._repository.invalidate(
+            space=space,
+            record_id=record_id,
+            invalidation_time=at,
+        )
+
+        return InvalidateResult(
+            record_id=record_id,
+            space=space,
+            lifecycle_state="invalidated",
+            invalidation_time=at,
+        )
+
+
 class InspectProvenanceService:
     """Application service that retrieves provenance for an Entity.
 
