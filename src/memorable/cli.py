@@ -20,8 +20,8 @@ from memorable.core.application import (
     RememberTaskService,
     build_status_payload,
 )
-from memorable.core.context import default_context
-from memorable.core.profile import ProfileValidationError
+from memorable.core.context import ApplicationContext, default_context
+from memorable.core.profile import ProfileValidationError, load_profile_from_yaml
 from memorable.core.temporal import parse_iso_timestamp
 from memorable.core.tracer import TracerService
 from memorable.runtime.docker import eject as docker_eject
@@ -30,6 +30,39 @@ from memorable.runtime.docker import start as docker_start
 from memorable.runtime.docker import stop as docker_stop
 from memorable.storage.neo4j.repository import ensure_all_constraints
 from memorable.storage.production import build_production_context
+
+
+def resolve_space(space_arg: str | None) -> str:
+    """Resolve the MemorySpace name from --space flag or .memorable/memory.yaml.
+
+    If *space_arg* is provided (not None), it wins immediately.
+    Otherwise, reads ``.memorable/memory.yaml`` from the current working
+    directory and returns the ``space.name`` field.
+
+    Raises:
+        SystemExit: With a helpful message when neither source is available.
+    """
+    if space_arg is not None:
+        return space_arg
+
+    profile_path = Path.cwd() / ".memorable" / "memory.yaml"
+    if profile_path.exists():
+        yaml_text = profile_path.read_text(encoding="utf-8")
+        profile = load_profile_from_yaml(yaml_text)
+        return profile.space.name
+
+    print(
+        "Error: No --space flag provided and no .memorable/memory.yaml found.\n"
+        "Either pass --space <name> or create a MemoryProfile with "
+        "'memorable init'.",
+        file=sys.stderr,
+    )
+    raise SystemExit(1)
+
+
+# =====================================================================
+# Commands that do NOT need a production context
+# =====================================================================
 
 
 def _cmd_db_status(args: argparse.Namespace) -> int:
@@ -176,23 +209,39 @@ def _cmd_init(args: argparse.Namespace) -> int:
         driver.close()
 
 
-def _cmd_remember_entity(args: argparse.Namespace) -> int:
+def _cmd_tracer_run(args: argparse.Namespace) -> int:
+    """Run the tracer-bullet fixture and output verification results."""
+    default_context.reset()
+    service = TracerService()
+    result = service.run()
+    print(json.dumps(result, sort_keys=True, indent=2))
+    return 0
+
+
+# =====================================================================
+# Commands that USE the production context
+# =====================================================================
+
+
+def _cmd_remember_entity(args: argparse.Namespace, ctx: ApplicationContext) -> int:
     """Remember an Entity with provenance."""
+    space = resolve_space(getattr(args, "space", None))
+
     try:
-        profile = default_context.load_profile(args.space)
+        profile = ctx.load_profile(space)
     except ProfileValidationError as e:
         print(f"Error: {e}", file=sys.stderr)
         return 1
 
     service = RememberEntityService(
-        repository=default_context.entity_repo, profile=profile
+        repository=ctx.entity_repo, profile=profile
     )
 
     at = parse_iso_timestamp(args.at)
 
     try:
         result = service.remember(
-            space=args.space,
+            space=space,
             entity_id=args.id,
             entity_type=args.type,
             name=args.name,
@@ -225,15 +274,17 @@ def _cmd_remember_entity(args: argparse.Namespace) -> int:
     return 0
 
 
-def _cmd_inspect_provenance(args: argparse.Namespace) -> int:
+def _cmd_inspect_provenance(args: argparse.Namespace, ctx: ApplicationContext) -> int:
     """Inspect provenance for a remembered Entity."""
-    inspector = InspectProvenanceService(repository=default_context.entity_repo)
-    provenance = inspector.inspect(space=args.space, entity_id=args.id)
+    space = resolve_space(getattr(args, "space", None))
+
+    inspector = InspectProvenanceService(repository=ctx.entity_repo)
+    provenance = inspector.inspect(space=space, entity_id=args.id)
 
     if provenance is None:
         print(
             f"Error: No provenance found for '{args.id}' "
-            f"in MemorySpace '{args.space}'.",
+            f"in MemorySpace '{space}'.",
             file=sys.stderr,
         )
         return 1
@@ -250,16 +301,18 @@ def _cmd_inspect_provenance(args: argparse.Namespace) -> int:
     return 0
 
 
-def _cmd_remember_decision(args: argparse.Namespace) -> int:
+def _cmd_remember_decision(args: argparse.Namespace, ctx: ApplicationContext) -> int:
     """Remember a Decision with provenance."""
+    space = resolve_space(getattr(args, "space", None))
+
     try:
-        profile = default_context.load_profile(args.space)
+        profile = ctx.load_profile(space)
     except ProfileValidationError as e:
         print(f"Error: {e}", file=sys.stderr)
         return 1
 
     service = RememberDecisionService(
-        repository=default_context.decision_repo, profile=profile
+        repository=ctx.decision_repo, profile=profile
     )
 
     at = parse_iso_timestamp(args.at)
@@ -267,7 +320,7 @@ def _cmd_remember_decision(args: argparse.Namespace) -> int:
 
     try:
         result = service.remember(
-            space=args.space,
+            space=space,
             decision_id=args.id,
             statement=args.statement,
             source_id=args.source,
@@ -300,14 +353,16 @@ def _cmd_remember_decision(args: argparse.Namespace) -> int:
     return 0
 
 
-def _cmd_truth_current(args: argparse.Namespace) -> int:
+def _cmd_truth_current(args: argparse.Namespace, ctx: ApplicationContext) -> int:
     """Show the current truth for a Decision, following supersession chain."""
-    service = CurrentTruthService(repository=default_context.decision_repo)
-    decision = service.current(space=args.space, decision_id=args.id)
+    space = resolve_space(getattr(args, "space", None))
+
+    service = CurrentTruthService(repository=ctx.decision_repo)
+    decision = service.current(space=space, decision_id=args.id)
 
     if decision is None:
         print(
-            f"Error: No Decision found for '{args.id}' in MemorySpace '{args.space}'.",
+            f"Error: No Decision found for '{args.id}' in MemorySpace '{space}'.",
             file=sys.stderr,
         )
         return 1
@@ -327,16 +382,18 @@ def _cmd_truth_current(args: argparse.Namespace) -> int:
     return 0
 
 
-def _cmd_truth_as_of(args: argparse.Namespace) -> int:
+def _cmd_truth_as_of(args: argparse.Namespace, ctx: ApplicationContext) -> int:
     """Show the Decision that was valid at a specific time."""
-    service = PointInTimeTruthService(repository=default_context.decision_repo)
+    space = resolve_space(getattr(args, "space", None))
+
+    service = PointInTimeTruthService(repository=ctx.decision_repo)
     at = parse_iso_timestamp(args.at)
-    decision = service.at(space=args.space, decision_id=args.id, at=at)
+    decision = service.at(space=space, decision_id=args.id, at=at)
 
     if decision is None:
         print(
             f"Error: No Decision found for '{args.id}' "
-            f"in MemorySpace '{args.space}' at {at.isoformat()}.",
+            f"in MemorySpace '{space}' at {at.isoformat()}.",
             file=sys.stderr,
         )
         return 1
@@ -356,14 +413,16 @@ def _cmd_truth_as_of(args: argparse.Namespace) -> int:
     return 0
 
 
-def _cmd_inspect_history(args: argparse.Namespace) -> int:
+def _cmd_inspect_history(args: argparse.Namespace, ctx: ApplicationContext) -> int:
     """Show the full supersession chain for a Decision."""
-    service = InspectDecisionHistoryService(repository=default_context.decision_repo)
-    history = service.history(space=args.space, decision_id=args.id)
+    space = resolve_space(getattr(args, "space", None))
+
+    service = InspectDecisionHistoryService(repository=ctx.decision_repo)
+    history = service.history(space=space, decision_id=args.id)
 
     if not history:
         print(
-            f"Error: No Decision found for '{args.id}' in MemorySpace '{args.space}'.",
+            f"Error: No Decision found for '{args.id}' in MemorySpace '{space}'.",
             file=sys.stderr,
         )
         return 1
@@ -383,21 +442,23 @@ def _cmd_inspect_history(args: argparse.Namespace) -> int:
     return 0
 
 
-def _cmd_remember_task(args: argparse.Namespace) -> int:
+def _cmd_remember_task(args: argparse.Namespace, ctx: ApplicationContext) -> int:
     """Remember a Task with provenance."""
+    space = resolve_space(getattr(args, "space", None))
+
     try:
-        profile = default_context.load_profile(args.space)
+        profile = ctx.load_profile(space)
     except ProfileValidationError as e:
         print(f"Error: {e}", file=sys.stderr)
         return 1
 
-    service = RememberTaskService(repository=default_context.task_repo, profile=profile)
+    service = RememberTaskService(repository=ctx.task_repo, profile=profile)
 
     at = parse_iso_timestamp(args.at)
 
     try:
         result = service.remember(
-            space=args.space,
+            space=space,
             task_id=args.id,
             title=args.title,
             source_id=args.source,
@@ -429,15 +490,17 @@ def _cmd_remember_task(args: argparse.Namespace) -> int:
     return 0
 
 
-def _cmd_complete_task(args: argparse.Namespace) -> int:
+def _cmd_complete_task(args: argparse.Namespace, ctx: ApplicationContext) -> int:
     """Complete a Task."""
-    service = CompleteTaskService(repository=default_context.task_repo)
+    space = resolve_space(getattr(args, "space", None))
+
+    service = CompleteTaskService(repository=ctx.task_repo)
 
     at = parse_iso_timestamp(args.at)
 
     try:
         result = service.complete(
-            space=args.space,
+            space=space,
             task_id=args.id,
             at=at,
         )
@@ -459,19 +522,21 @@ def _cmd_complete_task(args: argparse.Namespace) -> int:
     return 0
 
 
-def _cmd_task_inspect(args: argparse.Namespace) -> int:
+def _cmd_task_inspect(args: argparse.Namespace, ctx: ApplicationContext) -> int:
     """Inspect task lifecycle."""
-    service = InspectTaskService(repository=default_context.task_repo)
+    space = resolve_space(getattr(args, "space", None))
+
+    service = InspectTaskService(repository=ctx.task_repo)
 
     as_of = None
     if hasattr(args, "as_of") and args.as_of is not None:
         as_of = parse_iso_timestamp(args.as_of)
 
-    task = service.inspect(space=args.space, task_id=args.id, as_of=as_of)
+    task = service.inspect(space=space, task_id=args.id, as_of=as_of)
 
     if task is None:
         print(
-            f"Error: No Task found for '{args.id}' in MemorySpace '{args.space}'.",
+            f"Error: No Task found for '{args.id}' in MemorySpace '{space}'.",
             file=sys.stderr,
         )
         return 1
@@ -495,18 +560,11 @@ def _cmd_task_inspect(args: argparse.Namespace) -> int:
     return 0
 
 
-def _cmd_tracer_run(args: argparse.Namespace) -> int:
-    """Run the tracer-bullet fixture and output verification results."""
-    default_context.reset()
-    service = TracerService()
-    result = service.run()
-    print(json.dumps(result, sort_keys=True, indent=2))
-    return 0
-
-
-def _cmd_search(args: argparse.Namespace) -> int:
+def _cmd_search(args: argparse.Namespace, ctx: ApplicationContext) -> int:
     """Search memory using hybrid GraphRAG retrieval."""
-    service = default_context.build_retrieval_service()
+    space = resolve_space(getattr(args, "space", None))
+
+    service = ctx.build_retrieval_service()
 
     raw_mode = getattr(args, "mode", "current") or "current"
     mode = cast(Literal["current", "as-of"], raw_mode)
@@ -515,7 +573,7 @@ def _cmd_search(args: argparse.Namespace) -> int:
         as_of = parse_iso_timestamp(args.as_of)
 
     results = service.search(
-        space=args.space,
+        space=space,
         query=args.query,
         mode=mode,
         as_of=as_of,
@@ -523,7 +581,7 @@ def _cmd_search(args: argparse.Namespace) -> int:
 
     output = {
         "query": args.query,
-        "space": args.space,
+        "space": space,
         "mode": mode,
         "results": [
             {
@@ -539,6 +597,77 @@ def _cmd_search(args: argparse.Namespace) -> int:
     }
     print(json.dumps(output, sort_keys=True, indent=2))
     return 0
+
+
+# =====================================================================
+# Dispatch helpers
+# =====================================================================
+
+# Commands that need a production context (Neo4j-backed).
+# Identified by (command, subtype) tuples.
+_CONTEXT_COMMANDS: set[tuple[str, str | None]] = {
+    ("remember", "entity"),
+    ("remember", "decision"),
+    ("remember", "task"),
+    ("complete", "task"),
+    ("task", "inspect"),
+    ("truth", "current"),
+    ("truth", "as-of"),
+    ("inspect", "provenance"),
+    ("inspect", "history"),
+    ("search", None),
+}
+
+
+def _needs_production_context(args: argparse.Namespace) -> bool:
+    """Return True if the parsed command requires a production context."""
+    command = args.command
+    subtype = None
+    if command == "remember":
+        subtype = getattr(args, "remember_type", None)
+    elif command == "complete":
+        subtype = getattr(args, "complete_type", None)
+    elif command == "task":
+        subtype = getattr(args, "task_type", None)
+    elif command == "truth":
+        subtype = getattr(args, "truth_type", None)
+    elif command == "inspect":
+        subtype = getattr(args, "inspect_type", None)
+    elif command == "search":
+        return True
+
+    return (command, subtype) in _CONTEXT_COMMANDS
+
+
+def _dispatch_context_command(args: argparse.Namespace, ctx: ApplicationContext) -> int:
+    """Dispatch a command that uses the production context."""
+    if args.command == "remember":
+        if args.remember_type == "entity":
+            return _cmd_remember_entity(args, ctx)
+        elif args.remember_type == "decision":
+            return _cmd_remember_decision(args, ctx)
+        elif args.remember_type == "task":
+            return _cmd_remember_task(args, ctx)
+    elif args.command == "complete":
+        if args.complete_type == "task":
+            return _cmd_complete_task(args, ctx)
+    elif args.command == "task":
+        if args.task_type == "inspect":
+            return _cmd_task_inspect(args, ctx)
+    elif args.command == "truth":
+        if args.truth_type == "current":
+            return _cmd_truth_current(args, ctx)
+        elif args.truth_type == "as-of":
+            return _cmd_truth_as_of(args, ctx)
+    elif args.command == "inspect":
+        if args.inspect_type == "provenance":
+            return _cmd_inspect_provenance(args, ctx)
+        elif args.inspect_type == "history":
+            return _cmd_inspect_history(args, ctx)
+    elif args.command == "search":
+        return _cmd_search(args, ctx)
+
+    raise AssertionError(f"unhandled context command: {args.command}")
 
 
 def main(argv: list[str] | None = None) -> int:
@@ -599,7 +728,7 @@ def main(argv: list[str] | None = None) -> int:
     entity_parser = remember_sub.add_parser(
         "entity", help="Remember an Entity with provenance."
     )
-    entity_parser.add_argument("--space", required=True)
+    entity_parser.add_argument("--space", default=None)
     entity_parser.add_argument("--id", required=True)
     entity_parser.add_argument("--type", required=True)
     entity_parser.add_argument("--name", required=True)
@@ -612,7 +741,7 @@ def main(argv: list[str] | None = None) -> int:
     task_rem_parser = remember_sub.add_parser(
         "task", help="Remember a Task with provenance."
     )
-    task_rem_parser.add_argument("--space", required=True)
+    task_rem_parser.add_argument("--space", default=None)
     task_rem_parser.add_argument("--id", required=True)
     task_rem_parser.add_argument("--title", required=True)
     task_rem_parser.add_argument("--source", required=True)
@@ -624,7 +753,7 @@ def main(argv: list[str] | None = None) -> int:
     decision_parser = remember_sub.add_parser(
         "decision", help="Remember a Decision with provenance."
     )
-    decision_parser.add_argument("--space", required=True)
+    decision_parser.add_argument("--space", default=None)
     decision_parser.add_argument("--id", required=True)
     decision_parser.add_argument("--statement", required=True)
     decision_parser.add_argument("--source", required=True)
@@ -639,7 +768,7 @@ def main(argv: list[str] | None = None) -> int:
     )
     complete_sub = complete_parser.add_subparsers(dest="complete_type", required=True)
     complete_task_parser = complete_sub.add_parser("task", help="Complete a Task.")
-    complete_task_parser.add_argument("--space", required=True)
+    complete_task_parser.add_argument("--space", default=None)
     complete_task_parser.add_argument("--id", required=True)
     complete_task_parser.add_argument("--at", required=True)
     complete_task_parser.add_argument("--source", default="")
@@ -650,7 +779,7 @@ def main(argv: list[str] | None = None) -> int:
     task_parser = subparsers.add_parser("task", help="Task lifecycle operations.")
     task_sub = task_parser.add_subparsers(dest="task_type", required=True)
     task_inspect_parser = task_sub.add_parser("inspect", help="Inspect task lifecycle.")
-    task_inspect_parser.add_argument("--space", required=True)
+    task_inspect_parser.add_argument("--space", default=None)
     task_inspect_parser.add_argument("--id", required=True)
     task_inspect_parser.add_argument("--as-of", default=None)
 
@@ -660,13 +789,13 @@ def main(argv: list[str] | None = None) -> int:
     current_parser = truth_sub.add_parser(
         "current", help="Show current truth for a Decision."
     )
-    current_parser.add_argument("--space", required=True)
+    current_parser.add_argument("--space", default=None)
     current_parser.add_argument("--id", required=True)
 
     as_of_parser = truth_sub.add_parser(
         "as-of", help="Show truth at a specific point in time."
     )
-    as_of_parser.add_argument("--space", required=True)
+    as_of_parser.add_argument("--space", default=None)
     as_of_parser.add_argument("--id", required=True)
     as_of_parser.add_argument("--at", required=True)
 
@@ -676,13 +805,13 @@ def main(argv: list[str] | None = None) -> int:
     prov_parser = inspect_sub.add_parser(
         "provenance", help="Inspect provenance for a remembered Entity."
     )
-    prov_parser.add_argument("--space", required=True)
+    prov_parser.add_argument("--space", default=None)
     prov_parser.add_argument("--id", required=True)
 
     history_parser = inspect_sub.add_parser(
         "history", help="Inspect supersession history for a Decision."
     )
-    history_parser.add_argument("--space", required=True)
+    history_parser.add_argument("--space", default=None)
     history_parser.add_argument("--id", required=True)
 
     # tracer subcommand
@@ -696,13 +825,14 @@ def main(argv: list[str] | None = None) -> int:
     search_parser = subparsers.add_parser(
         "search", help="Search memory using hybrid GraphRAG retrieval."
     )
-    search_parser.add_argument("--space", required=True)
+    search_parser.add_argument("--space", default=None)
     search_parser.add_argument("--query", required=True)
     search_parser.add_argument("--mode", default="current")
     search_parser.add_argument("--as-of", default=None)
 
     args = parser.parse_args(argv)
 
+    # ----- Commands that do NOT need a production context -----
     if args.command == "status":
         print(json.dumps(build_status_payload(), sort_keys=True))
         return 0
@@ -715,36 +845,27 @@ def main(argv: list[str] | None = None) -> int:
             return _cmd_db_stop(args)
         elif args.db_type == "eject":
             return _cmd_db_eject(args)
+        raise AssertionError(f"unhandled db command: {args.db_type}")
     elif args.command == "init":
         return _cmd_init(args)
-    elif args.command == "remember":
-        if args.remember_type == "entity":
-            return _cmd_remember_entity(args)
-        elif args.remember_type == "decision":
-            return _cmd_remember_decision(args)
-        elif args.remember_type == "task":
-            return _cmd_remember_task(args)
-    elif args.command == "complete":
-        if args.complete_type == "task":
-            return _cmd_complete_task(args)
-    elif args.command == "task":
-        if args.task_type == "inspect":
-            return _cmd_task_inspect(args)
-    elif args.command == "truth":
-        if args.truth_type == "current":
-            return _cmd_truth_current(args)
-        elif args.truth_type == "as-of":
-            return _cmd_truth_as_of(args)
-    elif args.command == "inspect":
-        if args.inspect_type == "provenance":
-            return _cmd_inspect_provenance(args)
-        elif args.inspect_type == "history":
-            return _cmd_inspect_history(args)
     elif args.command == "tracer":
         if args.tracer_type == "run":
             return _cmd_tracer_run(args)
-    elif args.command == "search":
-        return _cmd_search(args)
+        raise AssertionError(f"unhandled tracer command: {args.tracer_type}")
+
+    # ----- Commands that USE a production context -----
+    if _needs_production_context(args):
+        config = load_runtime_config()
+        try:
+            ctx, driver = build_production_context(config)
+        except ConnectionError as e:
+            print(f"Error: {e}", file=sys.stderr)
+            return 1
+
+        try:
+            return _dispatch_context_command(args, ctx)
+        finally:
+            driver.close()
 
     # All subparsers use required=True, so argparse rejects unknown
     # commands before we reach here. Guard against future additions.

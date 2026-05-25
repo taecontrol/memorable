@@ -18,11 +18,25 @@ from memorable.core.application import (
     RememberTaskService,
     build_status_payload,
 )
-from memorable.core.context import default_context
+from memorable.core.context import ApplicationContext, default_context
 from memorable.core.profile import ProfileValidationError, load_profile_from_yaml
 from memorable.core.temporal import parse_iso_timestamp
 
 mcp_server = FastMCP("memorable")
+
+# Module-level context used by all MCP tool functions.
+# Defaults to the in-memory default_context. The MCP entry point
+# replaces this with a production context on startup via set_mcp_context().
+_context: ApplicationContext = default_context
+
+
+def set_mcp_context(ctx: ApplicationContext) -> None:
+    """Replace the module-level context used by all MCP tools.
+
+    Called by the MCP entry point after building the production context.
+    """
+    global _context  # noqa: PLW0603
+    _context = ctx
 
 
 @mcp_server.tool(
@@ -57,7 +71,7 @@ def init_space_tool(base_path: str) -> dict[str, object]:
 
     yaml_text = profile_path.read_text(encoding="utf-8")
 
-    service = InitService(repository=default_context.memory_space_repo)
+    service = InitService(repository=_context.memory_space_repo)
 
     try:
         result = service.initialize(yaml_text)
@@ -133,12 +147,12 @@ def remember_entity_tool(
     or an error dict on failure.
     """
     try:
-        profile = default_context.load_profile(space)
+        profile = _context.load_profile(space)
     except ProfileValidationError as e:
         return {"error": str(e)}
 
     service = RememberEntityService(
-        repository=default_context.entity_repo, profile=profile
+        repository=_context.entity_repo, profile=profile
     )
 
     timestamp = parse_iso_timestamp(at)
@@ -194,12 +208,12 @@ def remember_decision_tool(
     or an error dict on failure.
     """
     try:
-        profile = default_context.load_profile(space)
+        profile = _context.load_profile(space)
     except ProfileValidationError as e:
         return {"error": str(e)}
 
     service = RememberDecisionService(
-        repository=default_context.decision_repo, profile=profile
+        repository=_context.decision_repo, profile=profile
     )
 
     timestamp = parse_iso_timestamp(at)
@@ -247,7 +261,7 @@ def current_truth_tool(
 
     Returns decision details on success, or an error dict on failure.
     """
-    service = CurrentTruthService(repository=default_context.decision_repo)
+    service = CurrentTruthService(repository=_context.decision_repo)
     decision = service.current(space=space, decision_id=decision_id)
 
     if decision is None:
@@ -280,7 +294,7 @@ def point_in_time_truth_tool(
 
     Returns decision details on success, or an error dict on failure.
     """
-    service = PointInTimeTruthService(repository=default_context.decision_repo)
+    service = PointInTimeTruthService(repository=_context.decision_repo)
     timestamp = parse_iso_timestamp(at)
     decision = service.at(space=space, decision_id=decision_id, at=timestamp)
 
@@ -315,7 +329,7 @@ def inspect_decision_history_tool(
 
     Returns the history on success, or an error dict on failure.
     """
-    service = InspectDecisionHistoryService(repository=default_context.decision_repo)
+    service = InspectDecisionHistoryService(repository=_context.decision_repo)
     history = service.history(space=space, decision_id=decision_id)
 
     if not history:
@@ -357,7 +371,7 @@ def inspect_provenance_tool(
 
     Returns provenance details on success, or an error dict on failure.
     """
-    inspector = InspectProvenanceService(repository=default_context.entity_repo)
+    inspector = InspectProvenanceService(repository=_context.entity_repo)
     provenance = inspector.inspect(space=space, entity_id=entity_id)
 
     if provenance is None:
@@ -399,11 +413,11 @@ def remember_task_tool(
     or an error dict on failure.
     """
     try:
-        profile = default_context.load_profile(space)
+        profile = _context.load_profile(space)
     except ProfileValidationError as e:
         return {"error": str(e)}
 
-    service = RememberTaskService(repository=default_context.task_repo, profile=profile)
+    service = RememberTaskService(repository=_context.task_repo, profile=profile)
 
     timestamp = parse_iso_timestamp(at)
 
@@ -454,7 +468,7 @@ def complete_task_tool(
     Returns a dict with completion info on success,
     or an error dict on failure.
     """
-    service = CompleteTaskService(repository=default_context.task_repo)
+    service = CompleteTaskService(repository=_context.task_repo)
 
     timestamp = parse_iso_timestamp(at)
 
@@ -501,7 +515,7 @@ def search_memory_tool(
         mode: "current" for Current Truth, "as-of" for Point-In-Time Truth
         as_of: ISO timestamp, required when mode is "as-of"
     """
-    service = default_context.build_retrieval_service()
+    service = _context.build_retrieval_service()
 
     as_of_dt = None
     if as_of is not None:
@@ -549,7 +563,7 @@ def inspect_task_tool(
 
     Returns task details on success, or an error dict on failure.
     """
-    service = InspectTaskService(repository=default_context.task_repo)
+    service = InspectTaskService(repository=_context.task_repo)
 
     as_of_dt = None
     if as_of is not None:

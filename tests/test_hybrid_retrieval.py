@@ -848,13 +848,9 @@ class TestRanking:
 # =====================================================================
 
 
+@pytest.mark.usefixtures("cli_in_memory_context")
 class TestCLISearch:
     """CLI `memorable search` performs hybrid retrieval."""
-
-    def setup_method(self) -> None:
-        from memorable.core.context import default_context
-
-        default_context.reset()
 
     def _setup_fixture_via_cli(self) -> None:
         from memorable.cli import main

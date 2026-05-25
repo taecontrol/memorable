@@ -359,6 +359,7 @@ class TestInspectProvenance:
 # =====================================================================
 
 
+@pytest.mark.usefixtures("cli_in_memory_context")
 class TestCLIRememberEntity:
     """CLI `memorable remember entity` writes an Entity with provenance."""
 
@@ -446,6 +447,7 @@ class TestCLIRememberEntity:
         assert "not declared" in err
 
 
+@pytest.mark.usefixtures("cli_in_memory_context")
 class TestCLIInspectProvenance:
     """CLI `memorable inspect provenance` shows where a memory came from."""
 

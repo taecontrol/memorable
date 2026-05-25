@@ -690,13 +690,9 @@ class TestInspectDecisionHistoryService:
 # =====================================================================
 
 
+@pytest.mark.usefixtures("cli_in_memory_context")
 class TestCLIRememberDecision:
     """CLI `memorable remember decision` writes a Decision."""
-
-    def setup_method(self) -> None:
-        from memorable.core.context import default_context
-
-        default_context.reset()
 
     def test_remember_decision_command(self, capsys) -> None:
         from memorable.cli import main
@@ -797,13 +793,9 @@ class TestCLIRememberDecision:
         assert V2_ID in output
 
 
+@pytest.mark.usefixtures("cli_in_memory_context")
 class TestCLITruthCurrent:
     """CLI `memorable truth current` follows supersession."""
-
-    def setup_method(self) -> None:
-        from memorable.core.context import default_context
-
-        default_context.reset()
 
     def test_truth_current_command(self, capsys) -> None:
         from memorable.cli import main
@@ -859,13 +851,9 @@ class TestCLITruthCurrent:
         assert V2_ID in output
 
 
+@pytest.mark.usefixtures("cli_in_memory_context")
 class TestCLITruthAsOf:
     """CLI `memorable truth as-of` returns Decision at a time."""
-
-    def setup_method(self) -> None:
-        from memorable.core.context import default_context
-
-        default_context.reset()
 
     def test_truth_as_of_before_supersession(self, capsys) -> None:
         from memorable.cli import main
@@ -923,13 +911,9 @@ class TestCLITruthAsOf:
         assert V1_ID in output
 
 
+@pytest.mark.usefixtures("cli_in_memory_context")
 class TestCLIInspectHistory:
     """CLI `memorable inspect history` shows supersession chain."""
-
-    def setup_method(self) -> None:
-        from memorable.core.context import default_context
-
-        default_context.reset()
 
     def test_inspect_history_command(self, capsys) -> None:
         from memorable.cli import main
