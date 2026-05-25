@@ -1515,6 +1515,116 @@ class TestInspectDecisionHistoryServiceOwnsChainTraversal:
 
 
 # =====================================================================
+# Cycle protection tests
+# =====================================================================
+
+
+class TestChainWalkingCycleProtection:
+    """Chain-walking services must terminate even with corrupted cyclic data.
+
+    If data corruption creates a cycle (v1.superseded_by -> v2, v2.superseded_by -> v1),
+    the services must not loop forever.
+    """
+
+    def _make_cyclic_repo(self):
+        """Create a repo with a circular supersession chain: v1 -> v2 -> v1."""
+        from memorable.core.models import Decision
+        from memorable.core.repositories import InMemoryDecisionRepository
+
+        repo = InMemoryDecisionRepository()
+
+        v1 = Decision(
+            id=V1_ID,
+            statement=STATEMENT_V1,
+            space="memorable",
+            validity_time=FIXTURE_TIMESTAMP_V1,
+            invalidation_time=FIXTURE_TIMESTAMP_V2,
+            lifecycle_state="superseded",
+            supersedes=None,
+            superseded_by=V2_ID,
+        )
+        v2 = Decision(
+            id=V2_ID,
+            statement=STATEMENT_V2,
+            space="memorable",
+            validity_time=FIXTURE_TIMESTAMP_V2,
+            invalidation_time=FIXTURE_TIMESTAMP_V1,
+            lifecycle_state="superseded",
+            supersedes=V1_ID,
+            superseded_by=V1_ID,  # Corrupt: cycle back to v1
+        )
+
+        from memorable.core.models import Provenance
+
+        prov1 = Provenance(
+            record_id=V1_ID,
+            record_kind="decision",
+            source_id=SOURCE_ID,
+            episode_id=EPISODE_V1,
+            writer="agent:test",
+            reason="cycle test",
+            creation_time=FIXTURE_TIMESTAMP_V1,
+            validity_time=FIXTURE_TIMESTAMP_V1,
+        )
+        prov2 = Provenance(
+            record_id=V2_ID,
+            record_kind="decision",
+            source_id=SOURCE_ID,
+            episode_id=EPISODE_V2,
+            writer="agent:test",
+            reason="cycle test",
+            creation_time=FIXTURE_TIMESTAMP_V2,
+            validity_time=FIXTURE_TIMESTAMP_V2,
+        )
+
+        repo.save(v1, prov1)
+        repo.save(v2, prov2)
+
+        return repo
+
+    def test_current_truth_terminates_on_cycle(self) -> None:
+        """CurrentTruthService.current() must not hang on a cyclic chain."""
+        from memorable.core.application import CurrentTruthService
+
+        repo = self._make_cyclic_repo()
+        service = CurrentTruthService(repository=repo)
+
+        result = service.current(space="memorable", decision_id=V1_ID)
+
+        # Must return a decision (not hang forever)
+        assert result is not None
+        assert result.id in {V1_ID, V2_ID}
+
+    def test_point_in_time_terminates_on_cycle(self) -> None:
+        """PointInTimeTruthService.at() must not hang on a cyclic chain."""
+        from memorable.core.application import PointInTimeTruthService
+
+        repo = self._make_cyclic_repo()
+        service = PointInTimeTruthService(repository=repo)
+
+        at_query = datetime(2026, 5, 23, 10, 25, 0, tzinfo=UTC)
+        result = service.at(space="memorable", decision_id=V1_ID, at=at_query)
+
+        # Must return a decision (not hang forever)
+        assert result is not None
+        assert result.id in {V1_ID, V2_ID}
+
+    def test_history_terminates_on_cycle(self) -> None:
+        """InspectDecisionHistoryService.history() must not hang on a cyclic chain."""
+        from memorable.core.application import InspectDecisionHistoryService
+
+        repo = self._make_cyclic_repo()
+        service = InspectDecisionHistoryService(repository=repo)
+
+        history = service.history(space="memorable", decision_id=V1_ID)
+
+        # Must return a finite list (not hang forever)
+        assert isinstance(history, list)
+        assert len(history) <= 2  # Only v1 and v2 exist
+        assert len(history) >= 1  # At least the starting decision
+
+
+# =====================================================================
 # Language boundary test
 # =====================================================================
 
