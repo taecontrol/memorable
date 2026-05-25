@@ -21,7 +21,6 @@ from memorable.core.application import (
 )
 from memorable.core.context import default_context
 from memorable.core.profile import ProfileValidationError
-from memorable.core.repositories import make_memory_space_repository
 from memorable.core.temporal import parse_iso_timestamp
 from memorable.core.tracer import TracerService
 
@@ -41,8 +40,7 @@ def _cmd_init(args: argparse.Namespace) -> int:
 
     yaml_text = profile_path.read_text(encoding="utf-8")
 
-    repository = make_memory_space_repository()
-    service = InitService(repository=repository)
+    service = InitService(repository=default_context.memory_space_repo)
 
     try:
         result = service.initialize(yaml_text)

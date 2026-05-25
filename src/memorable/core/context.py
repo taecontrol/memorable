@@ -12,12 +12,14 @@ from pathlib import Path
 from memorable.core.ports import (
     DecisionRepository,
     EntityRepository,
+    MemorySpaceRepository,
     TaskRepository,
 )
 from memorable.core.profile import MemoryProfile, load_profile_from_yaml
 from memorable.core.repositories import (
     InMemoryDecisionRepository,
     InMemoryEntityRepository,
+    InMemoryMemorySpaceRepository,
     InMemoryTaskRepository,
 )
 
@@ -53,10 +55,12 @@ class ApplicationContext:
         entity_repo: EntityRepository | None = None,
         decision_repo: DecisionRepository | None = None,
         task_repo: TaskRepository | None = None,
+        memory_space_repo: MemorySpaceRepository | None = None,
     ) -> None:
         self.entity_repo = entity_repo or InMemoryEntityRepository()
         self.decision_repo = decision_repo or InMemoryDecisionRepository()
         self.task_repo = task_repo or InMemoryTaskRepository()
+        self.memory_space_repo = memory_space_repo or InMemoryMemorySpaceRepository()
         self._profiles: dict[str, MemoryProfile] = {}
 
     def load_profile(self, space: str) -> MemoryProfile:
@@ -104,6 +108,7 @@ class ApplicationContext:
         self.entity_repo = InMemoryEntityRepository()
         self.decision_repo = InMemoryDecisionRepository()
         self.task_repo = InMemoryTaskRepository()
+        self.memory_space_repo = InMemoryMemorySpaceRepository()
         self._profiles.clear()
 
 
