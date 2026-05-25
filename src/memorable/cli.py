@@ -18,6 +18,7 @@ from memorable.core.application import (
     PointInTimeTruthService,
     RememberDecisionService,
     RememberEntityService,
+    RememberObservationService,
     RememberTaskService,
     build_status_payload,
 )
@@ -347,6 +348,58 @@ def _cmd_remember_decision(args: argparse.Namespace, ctx: ApplicationContext) ->
     return 0
 
 
+def _cmd_remember_observation(args: argparse.Namespace, ctx: ApplicationContext) -> int:
+    """Remember an Observation with provenance."""
+    space = resolve_space(getattr(args, "space", None))
+
+    try:
+        profile = ctx.load_profile(space)
+    except ProfileValidationError as e:
+        print(f"Error: {e}", file=sys.stderr)
+        return 1
+
+    service = RememberObservationService(
+        repository=ctx.observation_repo, profile=profile
+    )
+
+    at = parse_iso_timestamp(args.at)
+    supersedes = getattr(args, "supersedes", None)
+
+    try:
+        result = service.remember(
+            space=space,
+            observation_id=args.id,
+            statement=args.statement,
+            source_id=args.source,
+            at=at,
+            writer=getattr(args, "writer", "agent:memorable"),
+            reason=getattr(args, "reason", ""),
+            supersedes=supersedes,
+        )
+    except ValueError as e:
+        print(f"Error: {e}", file=sys.stderr)
+        return 1
+
+    print(
+        json.dumps(
+            {
+                "observation_id": result.observation.id,
+                "statement": result.observation.statement,
+                "space": result.observation.space,
+                "record_id": result.provenance.record_id,
+                "record_kind": result.provenance.record_kind,
+                "source": result.provenance.source_id,
+                "episode": result.provenance.episode_id,
+                "creation_time": result.provenance.creation_time.isoformat(),
+                "validity_time": result.provenance.validity_time.isoformat(),
+                "lifecycle_state": result.observation.lifecycle_state,
+            },
+            sort_keys=True,
+        )
+    )
+    return 0
+
+
 def _cmd_truth_current(args: argparse.Namespace, ctx: ApplicationContext) -> int:
     """Show the current truth for a Decision, following supersession chain."""
     space = resolve_space(getattr(args, "space", None))
@@ -605,6 +658,7 @@ _CONTEXT_HANDLERS: dict[
 ] = {
     ("remember", "entity"): _cmd_remember_entity,
     ("remember", "decision"): _cmd_remember_decision,
+    ("remember", "observation"): _cmd_remember_observation,
     ("remember", "task"): _cmd_remember_task,
     ("complete", "task"): _cmd_complete_task,
     ("task", "inspect"): _cmd_task_inspect,
@@ -738,6 +792,19 @@ def main(argv: list[str] | None = None) -> int:
     decision_parser.add_argument("--supersedes", default=None)
     decision_parser.add_argument("--writer", default="agent:memorable")
     decision_parser.add_argument("--reason", default="")
+
+    # remember observation subcommand
+    obs_parser = remember_sub.add_parser(
+        "observation", help="Remember an Observation with provenance."
+    )
+    obs_parser.add_argument("--space", default=None)
+    obs_parser.add_argument("--id", required=True)
+    obs_parser.add_argument("--statement", required=True)
+    obs_parser.add_argument("--source", required=True)
+    obs_parser.add_argument("--at", required=True)
+    obs_parser.add_argument("--supersedes", default=None)
+    obs_parser.add_argument("--writer", default="agent:memorable")
+    obs_parser.add_argument("--reason", default="")
 
     # complete subcommand
     complete_parser = subparsers.add_parser(
