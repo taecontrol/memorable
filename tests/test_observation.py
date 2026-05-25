@@ -462,3 +462,197 @@ class TestRememberObservationService:
         )
 
         assert result.provenance.writer == "agent:test-writer"
+
+
+# =====================================================================
+# Temporal services with ObservationRepository
+# =====================================================================
+
+
+class TestCurrentTruthServiceWithObservation:
+    """CurrentTruthService works with ObservationRepository."""
+
+    def _setup_chain(self):
+        from memorable.core.application import (
+            CurrentTruthService,
+            RememberObservationService,
+        )
+        from memorable.core.profile import load_profile_from_yaml
+        from memorable.core.repositories import InMemoryObservationRepository
+
+        repo = InMemoryObservationRepository()
+        profile = load_profile_from_yaml(VALID_PROFILE_YAML)
+        remember = RememberObservationService(repository=repo, profile=profile)
+
+        remember.remember(
+            space="memorable",
+            observation_id=V1_ID,
+            statement=STATEMENT_V1,
+            source_id=SOURCE_ID,
+            at=FIXTURE_TIMESTAMP_V1,
+        )
+        remember.remember(
+            space="memorable",
+            observation_id=V2_ID,
+            statement=STATEMENT_V2,
+            source_id=SOURCE_ID,
+            at=FIXTURE_TIMESTAMP_V2,
+            supersedes=V1_ID,
+        )
+
+        return CurrentTruthService(repository=repo), repo
+
+    def test_current_truth_returns_superseding_observation(self) -> None:
+        service, _repo = self._setup_chain()
+
+        result = service.current(space="memorable", record_id=V1_ID)
+
+        assert result is not None
+        assert result.id == V2_ID
+
+    def test_current_truth_returns_self_when_not_superseded(self) -> None:
+        from memorable.core.application import (
+            CurrentTruthService,
+            RememberObservationService,
+        )
+        from memorable.core.profile import load_profile_from_yaml
+        from memorable.core.repositories import InMemoryObservationRepository
+
+        repo = InMemoryObservationRepository()
+        profile = load_profile_from_yaml(VALID_PROFILE_YAML)
+        remember = RememberObservationService(repository=repo, profile=profile)
+
+        remember.remember(
+            space="memorable",
+            observation_id=V1_ID,
+            statement=STATEMENT_V1,
+            source_id=SOURCE_ID,
+            at=FIXTURE_TIMESTAMP_V1,
+        )
+
+        service = CurrentTruthService(repository=repo)
+        result = service.current(space="memorable", record_id=V1_ID)
+
+        assert result is not None
+        assert result.id == V1_ID
+
+
+class TestPointInTimeTruthServiceWithObservation:
+    """PointInTimeTruthService works with ObservationRepository."""
+
+    def _setup_chain(self):
+        from memorable.core.application import (
+            PointInTimeTruthService,
+            RememberObservationService,
+        )
+        from memorable.core.profile import load_profile_from_yaml
+        from memorable.core.repositories import InMemoryObservationRepository
+
+        repo = InMemoryObservationRepository()
+        profile = load_profile_from_yaml(VALID_PROFILE_YAML)
+        remember = RememberObservationService(repository=repo, profile=profile)
+
+        remember.remember(
+            space="memorable",
+            observation_id=V1_ID,
+            statement=STATEMENT_V1,
+            source_id=SOURCE_ID,
+            at=FIXTURE_TIMESTAMP_V1,
+        )
+        remember.remember(
+            space="memorable",
+            observation_id=V2_ID,
+            statement=STATEMENT_V2,
+            source_id=SOURCE_ID,
+            at=FIXTURE_TIMESTAMP_V2,
+            supersedes=V1_ID,
+        )
+
+        return PointInTimeTruthService(repository=repo), repo
+
+    def test_before_supersession_returns_v1(self) -> None:
+        service, _repo = self._setup_chain()
+
+        at_query = datetime(2026, 5, 25, 9, 5, 0, tzinfo=UTC)
+        result = service.at(space="memorable", record_id=V1_ID, at=at_query)
+
+        assert result is not None
+        assert result.id == V1_ID
+
+    def test_after_supersession_returns_v2(self) -> None:
+        service, _repo = self._setup_chain()
+
+        at_query = datetime(2026, 5, 25, 9, 15, 0, tzinfo=UTC)
+        result = service.at(space="memorable", record_id=V1_ID, at=at_query)
+
+        assert result is not None
+        assert result.id == V2_ID
+
+
+class TestInspectHistoryServiceWithObservation:
+    """InspectHistoryService works with ObservationRepository."""
+
+    def _setup_chain(self):
+        from memorable.core.application import (
+            InspectHistoryService,
+            RememberObservationService,
+        )
+        from memorable.core.profile import load_profile_from_yaml
+        from memorable.core.repositories import InMemoryObservationRepository
+
+        repo = InMemoryObservationRepository()
+        profile = load_profile_from_yaml(VALID_PROFILE_YAML)
+        remember = RememberObservationService(repository=repo, profile=profile)
+
+        remember.remember(
+            space="memorable",
+            observation_id=V1_ID,
+            statement=STATEMENT_V1,
+            source_id=SOURCE_ID,
+            at=FIXTURE_TIMESTAMP_V1,
+        )
+        remember.remember(
+            space="memorable",
+            observation_id=V2_ID,
+            statement=STATEMENT_V2,
+            source_id=SOURCE_ID,
+            at=FIXTURE_TIMESTAMP_V2,
+            supersedes=V1_ID,
+        )
+
+        return InspectHistoryService(repository=repo), repo
+
+    def test_history_returns_full_chain(self) -> None:
+        service, _repo = self._setup_chain()
+
+        history = service.history(space="memorable", record_id=V1_ID)
+
+        assert len(history) == 2
+        assert history[0].id == V1_ID
+        assert history[1].id == V2_ID
+
+    def test_history_single_when_not_superseded(self) -> None:
+        from memorable.core.application import (
+            InspectHistoryService,
+            RememberObservationService,
+        )
+        from memorable.core.profile import load_profile_from_yaml
+        from memorable.core.repositories import InMemoryObservationRepository
+
+        repo = InMemoryObservationRepository()
+        profile = load_profile_from_yaml(VALID_PROFILE_YAML)
+        remember = RememberObservationService(repository=repo, profile=profile)
+
+        remember.remember(
+            space="memorable",
+            observation_id=V1_ID,
+            statement=STATEMENT_V1,
+            source_id=SOURCE_ID,
+            at=FIXTURE_TIMESTAMP_V1,
+        )
+
+        service = InspectHistoryService(repository=repo)
+        history = service.history(space="memorable", record_id=V1_ID)
+
+        assert len(history) == 1
+        assert history[0].id == V1_ID
