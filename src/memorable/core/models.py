@@ -111,6 +111,31 @@ class Decision:
 
 
 @dataclass(frozen=True)
+class Observation:
+    """A remembered assertion with temporal validity and supersession links.
+
+    Observations are flexible fallback records for assertions that do not
+    naturally fit as a Decision, Task, or Measurement. They carry the same
+    temporal and supersession semantics as Decision.
+    """
+
+    id: str
+    statement: str
+    space: str
+    validity_time: datetime
+    invalidation_time: datetime | None
+    lifecycle_state: str
+    supersedes: str | None
+    superseded_by: str | None
+
+    def __post_init__(self) -> None:
+        if not self.id:
+            raise ValueError("Observation id must not be empty")
+        if not self.statement:
+            raise ValueError("Observation statement must not be empty")
+
+
+@dataclass(frozen=True)
 class Task:
     """A remembered work item with lifecycle state and temporal validity.
 
