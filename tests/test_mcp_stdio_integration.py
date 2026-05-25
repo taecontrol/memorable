@@ -80,6 +80,7 @@ class TestListToolsOverStdio:
             "memorable_complete_task",
             "memorable_search_memory",
             "memorable_inspect_task",
+            "memorable_invalidate",
         }
         assert tool_names == expected
 
