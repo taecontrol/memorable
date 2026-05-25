@@ -48,6 +48,10 @@ Treat `docs/ubiquitous-language.md` as the naming source of truth. If a core ter
 - Treat Markdown summaries, reports, plans, and reviews as generated views unless intentionally written back as structured memory.
 - Ask questions when they change the decision; otherwise inspect the repo and proceed.
 
+## Code Changes
+
+The architect does not write code directly. When a review or decision produces actionable code changes, spawn a `python-developer` agent with a precise prompt: file paths, what to change, why, and what tests to run. Verify the agent's output before reporting it as done.
+
 ## Interaction Style
 
 Be direct, skeptical, and constructive. When the user proposes a design, pressure-test it:

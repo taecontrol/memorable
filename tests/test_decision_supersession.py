@@ -13,14 +13,14 @@ Covers slice #7 acceptance criteria:
 from __future__ import annotations
 
 import textwrap
-from datetime import datetime, timezone
+from datetime import UTC, datetime
 
 import pytest
 
 # --- Fixture data ---
 
-FIXTURE_TIMESTAMP_V1 = datetime(2026, 5, 23, 10, 15, 0, tzinfo=timezone.utc)
-FIXTURE_TIMESTAMP_V2 = datetime(2026, 5, 23, 10, 20, 0, tzinfo=timezone.utc)
+FIXTURE_TIMESTAMP_V1 = datetime(2026, 5, 23, 10, 15, 0, tzinfo=UTC)
+FIXTURE_TIMESTAMP_V2 = datetime(2026, 5, 23, 10, 20, 0, tzinfo=UTC)
 
 STATEMENT_V1 = "Graphiti is the first implementation path for Memorable storage."
 STATEMENT_V2 = (
@@ -305,13 +305,13 @@ class TestDecisionRepositoryPort:
         )
 
         # Before supersession: v1 was current
-        at_1017 = datetime(2026, 5, 23, 10, 17, 0, tzinfo=timezone.utc)
+        at_1017 = datetime(2026, 5, 23, 10, 17, 0, tzinfo=UTC)
         result = repo.get_at(space="memorable", decision_id=V1_ID, at=at_1017)
         assert result is not None
         assert result.id == V1_ID
 
         # After supersession: v2 is current
-        at_1021 = datetime(2026, 5, 23, 10, 21, 0, tzinfo=timezone.utc)
+        at_1021 = datetime(2026, 5, 23, 10, 21, 0, tzinfo=UTC)
         result = repo.get_at(space="memorable", decision_id=V1_ID, at=at_1021)
         assert result is not None
         assert result.id == V2_ID
@@ -639,7 +639,7 @@ class TestPointInTimeTruthService:
     def test_before_supersession_returns_v1(self) -> None:
         service, _repo = self._setup_chain()
 
-        at_1017 = datetime(2026, 5, 23, 10, 17, 0, tzinfo=timezone.utc)
+        at_1017 = datetime(2026, 5, 23, 10, 17, 0, tzinfo=UTC)
         result = service.at(space="memorable", decision_id=V1_ID, at=at_1017)
 
         assert result is not None
@@ -648,7 +648,7 @@ class TestPointInTimeTruthService:
     def test_after_supersession_returns_v2(self) -> None:
         service, _repo = self._setup_chain()
 
-        at_1021 = datetime(2026, 5, 23, 10, 21, 0, tzinfo=timezone.utc)
+        at_1021 = datetime(2026, 5, 23, 10, 21, 0, tzinfo=UTC)
         result = service.at(space="memorable", decision_id=V1_ID, at=at_1021)
 
         assert result is not None

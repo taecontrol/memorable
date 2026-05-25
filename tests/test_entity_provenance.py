@@ -11,13 +11,13 @@ Covers slice #6 acceptance criteria:
 from __future__ import annotations
 
 import textwrap
-from datetime import datetime, timezone
+from datetime import UTC, datetime
 
 import pytest
 
 # --- Fixture data ---
 
-FIXTURE_TIMESTAMP = datetime(2026, 5, 23, 10, 10, 0, tzinfo=timezone.utc)
+FIXTURE_TIMESTAMP = datetime(2026, 5, 23, 10, 10, 0, tzinfo=UTC)
 
 VALID_PROFILE_YAML = textwrap.dedent("""\
     version: 1

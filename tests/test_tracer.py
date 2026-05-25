@@ -2,7 +2,7 @@
 
 Proves the accepted architecture composes end to end:
 - TracerService runs the fixed fixture with fixed timestamps
-- CLI `tracer run` and MCP `tracer_run_tool` exercise the same core behavior
+- CLI `tracer run` exercises TracerService through the human interface
 - Output covers current truth, point-in-time truth, task lifecycle,
   provenance inspection, and hybrid GraphRAG retrieval
 - No storage vocabulary leaks into agent-facing output
@@ -201,87 +201,46 @@ class TestTracerCLI:
 
 
 # =====================================================================
-# 3. MCP adapter
+# 3. CLI exercises TracerService
 # =====================================================================
 
 
-class TestTracerMCP:
-    """MCP tracer_run_tool returns same structured result."""
+class TestTracerCLISharesCore:
+    """CLI tracer run uses the same TracerService as direct calls."""
 
     def setup_method(self) -> None:
         from memorable.core.context import default_context
 
         default_context.reset()
 
-    def test_tracer_mcp_tool(self) -> None:
-        from memorable.mcp.server import tracer_run_tool
-
-        result = tracer_run_tool()
-
-        expected_sections = [
-            "current_truth",
-            "point_in_time_before",
-            "point_in_time_after",
-            "task_before_completion",
-            "task_after_completion",
-            "provenance",
-            "hybrid_retrieval",
-        ]
-        for section in expected_sections:
-            assert section in result, f"MCP output missing section: {section}"
-
-    def test_tracer_mcp_provenance_has_unified_fields(self) -> None:
-        """MCP tracer output provenance section includes record_id and record_kind."""
-        from memorable.mcp.server import tracer_run_tool
-
-        result = tracer_run_tool()
-        prov = result["provenance"]
-
-        assert prov["record_id"] == "decision:storage-path:v2"
-        assert prov["record_kind"] == "decision"
-
-
-# =====================================================================
-# 4. CLI and MCP share core behavior
-# =====================================================================
-
-
-class TestTracerSharedBehavior:
-    """Both CLI and MCP use TracerService."""
-
-    def setup_method(self) -> None:
-        from memorable.core.context import default_context
-
-        default_context.reset()
-
-    def test_tracer_cli_and_mcp_share_core_behavior(self, capsys) -> None:
+    def test_cli_output_matches_service_output(self, capsys) -> None:
         from memorable.cli import main
-        from memorable.mcp.server import tracer_run_tool
+        from memorable.core.context import default_context
+        from memorable.core.tracer import TracerService
 
         # Run CLI
         exit_code = main(["tracer", "run"])
         assert exit_code == 0
         cli_output = json.loads(capsys.readouterr().out)
 
-        # Reset and run MCP
-        from memorable.core.context import default_context
-
+        # Reset and run service directly
         default_context.reset()
-        mcp_output = tracer_run_tool()
+        service = TracerService()
+        service_output = service.run()
 
         # Both should have the same sections with the same data
         assert (
             cli_output["current_truth"]["decision_id"]
-            == mcp_output["current_truth"]["decision_id"]
+            == service_output["current_truth"]["decision_id"]
         )
         assert (
             cli_output["provenance"]["source_id"]
-            == mcp_output["provenance"]["source_id"]
+            == service_output["provenance"]["source_id"]
         )
 
 
 # =====================================================================
-# 5. Language boundary
+# 4. Language boundary
 # =====================================================================
 
 
