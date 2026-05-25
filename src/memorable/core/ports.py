@@ -13,6 +13,7 @@ from memorable.core.models import (
     Decision,
     Entity,
     MemorySpace,
+    Observation,
     Provenance,
     Task,
 )
@@ -125,6 +126,36 @@ class DecisionRepository(Protocol):
         invalidation_time: datetime,
     ) -> None:
         """Mark a Decision as superseded by another."""
+        ...
+
+
+class ObservationRepository(Protocol):
+    """Port for Observation persistence with provenance."""
+
+    def save(self, observation: Observation, provenance: Provenance) -> None:
+        """Persist an Observation with its provenance record."""
+        ...
+
+    def get(self, space: str, observation_id: str) -> Observation | None:
+        """Retrieve an Observation by space and id, or None if not found."""
+        ...
+
+    def get_provenance(self, space: str, observation_id: str) -> Provenance | None:
+        """Retrieve the provenance for an Observation, or None if not found."""
+        ...
+
+    def list_by_space(self, space: str) -> list[Observation]:
+        """Return all observations in the given space."""
+        ...
+
+    def mark_superseded(
+        self,
+        space: str,
+        observation_id: str,
+        superseded_by: str,
+        invalidation_time: datetime,
+    ) -> None:
+        """Mark an Observation as superseded by another."""
         ...
 
 

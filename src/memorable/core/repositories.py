@@ -11,6 +11,7 @@ from memorable.core.models import (
     Decision,
     Entity,
     MemorySpace,
+    Observation,
     Provenance,
     Task,
 )
@@ -102,6 +103,52 @@ class InMemoryDecisionRepository:
             superseded_by=superseded_by,
         )
         self._decisions[key] = updated
+
+
+class InMemoryObservationRepository:
+    """In-memory implementation of ObservationRepository."""
+
+    def __init__(self) -> None:
+        self._observations: dict[tuple[str, str], Observation] = {}
+        self._provenance: dict[tuple[str, str], Provenance] = {}
+
+    def save(self, observation: Observation, provenance: Provenance) -> None:
+        key = (observation.space, observation.id)
+        self._observations[key] = observation
+        self._provenance[key] = provenance
+
+    def get(self, space: str, observation_id: str) -> Observation | None:
+        return self._observations.get((space, observation_id))
+
+    def get_provenance(self, space: str, observation_id: str) -> Provenance | None:
+        return self._provenance.get((space, observation_id))
+
+    def list_by_space(self, space: str) -> list[Observation]:
+        """Return all observations in the given space."""
+        return [obs for (s, _), obs in self._observations.items() if s == space]
+
+    def mark_superseded(
+        self,
+        space: str,
+        observation_id: str,
+        superseded_by: str,
+        invalidation_time: datetime,
+    ) -> None:
+        key = (space, observation_id)
+        old = self._observations.get(key)
+        if old is None:
+            return
+        updated = Observation(
+            id=old.id,
+            statement=old.statement,
+            space=old.space,
+            validity_time=old.validity_time,
+            invalidation_time=invalidation_time,
+            lifecycle_state="superseded",
+            supersedes=old.supersedes,
+            superseded_by=superseded_by,
+        )
+        self._observations[key] = updated
 
 
 class InMemoryTaskRepository:
