@@ -326,3 +326,139 @@ class TestObservationInApplicationContext:
         ctx.observation_repo.save(obs, prov)
         ctx.reset()
         assert ctx.observation_repo.get(space="memorable", observation_id=V1_ID) is None
+
+
+# =====================================================================
+# Application service tests
+# =====================================================================
+
+VALID_PROFILE_YAML = """\
+version: 1
+
+space:
+  name: memorable
+  description: Agent memory system
+
+entities:
+  - name: Project
+
+records:
+  - name: TeamObservation
+    extends: Observation
+"""
+
+
+class TestRememberObservationService:
+    """RememberObservationService validates and creates provenance."""
+
+    def _make_service(self):
+        from memorable.core.application import RememberObservationService
+        from memorable.core.profile import load_profile_from_yaml
+        from memorable.core.repositories import InMemoryObservationRepository
+
+        repo = InMemoryObservationRepository()
+        profile = load_profile_from_yaml(VALID_PROFILE_YAML)
+        return (
+            RememberObservationService(repository=repo, profile=profile),
+            repo,
+        )
+
+    def test_remember_observation_stores_with_provenance(self) -> None:
+        service, repo = self._make_service()
+
+        result = service.remember(
+            space="memorable",
+            observation_id=V1_ID,
+            statement=STATEMENT_V1,
+            source_id=SOURCE_ID,
+            at=FIXTURE_TIMESTAMP_V1,
+        )
+
+        assert result.observation.id == V1_ID
+        assert result.observation.lifecycle_state == "current"
+        assert result.provenance.source_id == SOURCE_ID
+        assert result.provenance.record_kind == "observation"
+        assert result.provenance.creation_time == FIXTURE_TIMESTAMP_V1
+
+        stored = repo.get(space="memorable", observation_id=V1_ID)
+        assert stored is not None
+
+    def test_remember_observation_with_supersession(self) -> None:
+        service, repo = self._make_service()
+
+        # Remember v1
+        service.remember(
+            space="memorable",
+            observation_id=V1_ID,
+            statement=STATEMENT_V1,
+            source_id=SOURCE_ID,
+            at=FIXTURE_TIMESTAMP_V1,
+        )
+
+        # Remember v2, superseding v1
+        result = service.remember(
+            space="memorable",
+            observation_id=V2_ID,
+            statement=STATEMENT_V2,
+            source_id=SOURCE_ID,
+            at=FIXTURE_TIMESTAMP_V2,
+            supersedes=V1_ID,
+        )
+
+        assert result.observation.id == V2_ID
+        assert result.observation.supersedes == V1_ID
+        assert result.observation.lifecycle_state == "current"
+
+        # v1 should now be marked superseded
+        v1 = repo.get(space="memorable", observation_id=V1_ID)
+        assert v1 is not None
+        assert v1.lifecycle_state == "superseded"
+        assert v1.invalidation_time == FIXTURE_TIMESTAMP_V2
+        assert v1.superseded_by == V2_ID
+
+    def test_rejects_profile_without_observation_record(self) -> None:
+        """Profile must have a record that extends Observation."""
+        import textwrap
+
+        from memorable.core.application import RememberObservationService
+        from memorable.core.profile import load_profile_from_yaml
+        from memorable.core.repositories import InMemoryObservationRepository
+
+        no_obs_yaml = textwrap.dedent("""\
+            version: 1
+            space:
+              name: memorable
+              description: test
+            entities:
+              - name: Project
+            records:
+              - name: ArchitectureDecision
+                extends: Decision
+        """)
+        repo = InMemoryObservationRepository()
+        profile = load_profile_from_yaml(no_obs_yaml)
+
+        service = RememberObservationService(repository=repo, profile=profile)
+
+        with pytest.raises(ValueError, match="Observation"):
+            service.remember(
+                space="memorable",
+                observation_id="observation:x",
+                statement="X",
+                source_id="source:test",
+                at=FIXTURE_TIMESTAMP_V1,
+            )
+
+    def test_remember_observation_sets_writer(self) -> None:
+        service, _repo = self._make_service()
+
+        result = service.remember(
+            space="memorable",
+            observation_id=V1_ID,
+            statement="Test observation.",
+            source_id=SOURCE_ID,
+            at=FIXTURE_TIMESTAMP_V1,
+            writer="agent:test-writer",
+        )
+
+        assert result.provenance.writer == "agent:test-writer"
