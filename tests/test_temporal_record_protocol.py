@@ -64,6 +64,19 @@ class FakeTemporalRecordRepository:
         old.superseded_by = superseded_by
         old.invalidation_time = invalidation_time
 
+    def invalidate(
+        self,
+        space: str,
+        record_id: str,
+        invalidation_time: object,
+    ) -> None:
+        key = (space, record_id)
+        old = self._records.get(key)
+        if old is None:
+            return
+        old.lifecycle_state = "invalidated"
+        old.invalidation_time = invalidation_time
+
     def put(self, record: FakeTemporalRecord) -> None:
         """Helper to seed test data."""
         self._records[(record.space, record.id)] = record
