@@ -443,3 +443,152 @@ class TestMCPInvalidateTool:
 
         assert "error" in result
         assert "Unknown record_type" in result["error"]
+
+
+# =====================================================================
+# CLI command tests
+# =====================================================================
+
+
+@pytest.mark.usefixtures("cli_in_memory_context")
+class TestCLIInvalidateCommand:
+    """CLI `memorable invalidate` marks a temporal record as invalidated."""
+
+    def test_invalidate_decision_command(self, capsys) -> None:
+        import json
+
+        from memorable.cli import main
+
+        # Remember a decision first
+        main(
+            [
+                "remember",
+                "decision",
+                "--space",
+                "memorable",
+                "--id",
+                DECISION_ID,
+                "--statement",
+                "Use Graphiti for storage.",
+                "--source",
+                SOURCE_ID,
+                "--at",
+                "2026-05-25T09:00:00Z",
+            ]
+        )
+        capsys.readouterr()  # clear output
+
+        exit_code = main(
+            [
+                "invalidate",
+                "--space",
+                "memorable",
+                "--id",
+                DECISION_ID,
+                "--record-type",
+                "decision",
+                "--at",
+                "2026-05-25T10:00:00Z",
+            ]
+        )
+
+        assert exit_code == 0
+        output = json.loads(capsys.readouterr().out)
+        assert output["record_id"] == DECISION_ID
+        assert output["lifecycle_state"] == "invalidated"
+
+    def test_invalidate_observation_command(self, capsys) -> None:
+        import json
+
+        from memorable.cli import main
+
+        # Remember an observation first
+        main(
+            [
+                "remember",
+                "observation",
+                "--space",
+                "memorable",
+                "--id",
+                OBSERVATION_ID,
+                "--statement",
+                "The team prefers async communication.",
+                "--source",
+                SOURCE_ID,
+                "--at",
+                "2026-05-25T09:00:00Z",
+            ]
+        )
+        capsys.readouterr()  # clear output
+
+        exit_code = main(
+            [
+                "invalidate",
+                "--space",
+                "memorable",
+                "--id",
+                OBSERVATION_ID,
+                "--record-type",
+                "observation",
+                "--at",
+                "2026-05-25T10:00:00Z",
+            ]
+        )
+
+        assert exit_code == 0
+        output = json.loads(capsys.readouterr().out)
+        assert output["record_id"] == OBSERVATION_ID
+        assert output["lifecycle_state"] == "invalidated"
+
+    def test_invalidate_rejects_already_invalidated(self, capsys) -> None:
+        from memorable.cli import main
+
+        # Remember and invalidate a decision
+        main(
+            [
+                "remember",
+                "decision",
+                "--space",
+                "memorable",
+                "--id",
+                DECISION_ID,
+                "--statement",
+                "Use Graphiti for storage.",
+                "--source",
+                SOURCE_ID,
+                "--at",
+                "2026-05-25T09:00:00Z",
+            ]
+        )
+        main(
+            [
+                "invalidate",
+                "--space",
+                "memorable",
+                "--id",
+                DECISION_ID,
+                "--record-type",
+                "decision",
+                "--at",
+                "2026-05-25T10:00:00Z",
+            ]
+        )
+        capsys.readouterr()  # clear output
+
+        exit_code = main(
+            [
+                "invalidate",
+                "--space",
+                "memorable",
+                "--id",
+                DECISION_ID,
+                "--record-type",
+                "decision",
+                "--at",
+                "2026-05-25T10:00:00Z",
+            ]
+        )
+
+        assert exit_code == 1
+        stderr = capsys.readouterr().err
+        assert "already invalidated" in stderr
