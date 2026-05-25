@@ -299,7 +299,6 @@ class TestObservationInApplicationContext:
     def test_reset_clears_observation_repo(self) -> None:
         from memorable.core.context import ApplicationContext
         from memorable.core.models import Observation, Provenance
-        from memorable.core.repositories import InMemoryObservationRepository
 
         ctx = ApplicationContext()
         # Store something, then reset

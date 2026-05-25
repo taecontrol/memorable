@@ -271,7 +271,11 @@ class RememberObservationService:
     When supersedes is provided, marks the old observation as superseded.
     """
 
-    def __init__(self, repository: ObservationRepository, profile: MemoryProfile) -> None:
+    def __init__(
+        self,
+        repository: ObservationRepository,
+        profile: MemoryProfile,
+    ) -> None:
         self._repository = repository
         self._profile = profile
 
