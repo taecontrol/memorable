@@ -158,3 +158,25 @@ class TestCallToolSuccessPath:
         text = json.dumps(structured).lower()
         assert "node" not in text
         assert "edge" not in text
+
+
+class TestCallToolErrorPath:
+    def test_current_truth_returns_error_for_missing_decision(self) -> None:
+        result = _call_tool(
+            "memorable/current_truth",
+            {"space": "nonexistent", "decision_id": "no-such-decision"},
+        )
+        _, structured = result
+        assert "error" in structured
+        assert "No Decision found" in structured["error"]
+        assert "MemorySpace" in structured["error"]
+
+    def test_error_response_uses_domain_language(self) -> None:
+        result = _call_tool(
+            "memorable/current_truth",
+            {"space": "test-space", "decision_id": "missing"},
+        )
+        _, structured = result
+        error_text = structured["error"].lower()
+        assert "node" not in error_text
+        assert "edge" not in error_text
