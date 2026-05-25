@@ -533,27 +533,6 @@ def search_memory_tool(
 
 
 @mcp_server.tool(
-    name="memorable_tracer_run",
-    description=(
-        "Run the tracer-bullet fixture and return structured verification results. "
-        "Proves end-to-end composition across Entity, Decision, Task, "
-        "Provenance, Supersession, and Hybrid Retrieval."
-    ),
-)
-def tracer_run_tool() -> dict[str, object]:
-    """Run the tracer-bullet fixture and return structured verification results.
-
-    Resets the default context, runs the full fixture with fixed timestamps,
-    and returns all verification sections proving end-to-end composition.
-    """
-    from memorable.core.tracer import TracerService
-
-    default_context.reset()
-    service = TracerService()
-    return service.run()
-
-
-@mcp_server.tool(
     name="memorable_inspect_task",
     description=(
         "Inspect a Task's Lifecycle State at the current time "

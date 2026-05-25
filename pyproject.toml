@@ -17,6 +17,7 @@ dependencies = [
 
 [project.optional-dependencies]
 dev = [
+    "anyio>=4.0",
     "pytest>=8.0",
     "ruff>=0.4",
 ]
