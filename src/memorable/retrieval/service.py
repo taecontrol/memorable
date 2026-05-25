@@ -327,9 +327,9 @@ class HybridRetrievalService:
                 return None
             lifecycle_state = decision.lifecycle_state
         elif mode == "as-of" and as_of is not None:
-            pit_decision = PointInTimeTruthService(
-                repository=self._decision_repo
-            ).at(space=space, decision_id=decision.id, at=as_of)
+            pit_decision = PointInTimeTruthService(repository=self._decision_repo).at(
+                space=space, decision_id=decision.id, at=as_of
+            )
             if pit_decision is None:
                 return None
             if pit_decision.id != decision.id:

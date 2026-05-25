@@ -113,4 +113,3 @@ class TaskRepository(Protocol):
     def list_by_space(self, space: str) -> list[Task]:
         """Return all tasks in the given space."""
         ...
-

@@ -1187,9 +1187,7 @@ class TestDecisionRepositoryHasNoGetCurrent:
         from memorable.core.ports import DecisionRepository
 
         protocol_methods = {
-            name
-            for name in dir(DecisionRepository)
-            if not name.startswith("_")
+            name for name in dir(DecisionRepository) if not name.startswith("_")
         }
         assert "get_current" not in protocol_methods
 
@@ -1298,9 +1296,7 @@ class TestDecisionRepositoryHasNoGetAt:
         from memorable.core.ports import DecisionRepository
 
         protocol_methods = {
-            name
-            for name in dir(DecisionRepository)
-            if not name.startswith("_")
+            name for name in dir(DecisionRepository) if not name.startswith("_")
         }
         assert "get_at" not in protocol_methods
 
@@ -1421,9 +1417,7 @@ class TestDecisionRepositoryHasNoGetHistory:
         from memorable.core.ports import DecisionRepository
 
         protocol_methods = {
-            name
-            for name in dir(DecisionRepository)
-            if not name.startswith("_")
+            name for name in dir(DecisionRepository) if not name.startswith("_")
         }
         assert "get_history" not in protocol_methods
 
