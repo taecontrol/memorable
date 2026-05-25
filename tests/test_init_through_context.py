@@ -74,9 +74,10 @@ def test_cli_init_twice_reports_already_exists(tmp_path: object) -> None:
     # Reset context so we start clean
     default_context.reset()
 
-    from memorable.cli import main
-    from io import StringIO
     import sys
+    from io import StringIO
+
+    from memorable.cli import main
 
     # First init
     old_stdout = sys.stdout
