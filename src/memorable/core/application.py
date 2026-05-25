@@ -259,8 +259,18 @@ class CurrentTruthService:
         self._repository = repository
 
     def current(self, *, space: str, decision_id: str) -> Decision | None:
-        """Return the current Decision, following supersession chain."""
-        return self._repository.get_current(space=space, decision_id=decision_id)
+        """Return the current Decision, following the supersession chain."""
+        decision = self._repository.get(space=space, decision_id=decision_id)
+        if decision is None:
+            return None
+        while decision.superseded_by is not None:
+            next_decision = self._repository.get(
+                space=space, decision_id=decision.superseded_by
+            )
+            if next_decision is None:
+                break
+            decision = next_decision
+        return decision
 
 
 class PointInTimeTruthService:

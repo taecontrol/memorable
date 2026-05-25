@@ -80,18 +80,6 @@ class InMemoryDecisionRepository:
         """Return all decisions in the given space."""
         return [decision for (s, _), decision in self._decisions.items() if s == space]
 
-    def get_current(self, space: str, decision_id: str) -> Decision | None:
-        decision = self.get(space, decision_id)
-        if decision is None:
-            return None
-        # Follow supersession chain
-        while decision.superseded_by is not None:
-            next_decision = self.get(space, decision.superseded_by)
-            if next_decision is None:
-                break
-            decision = next_decision
-        return decision
-
     def get_at(self, space: str, decision_id: str, at: datetime) -> Decision | None:
         decision = self.get(space, decision_id)
         if decision is None:

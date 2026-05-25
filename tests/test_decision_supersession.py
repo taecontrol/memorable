@@ -264,28 +264,6 @@ class TestDecisionRepositoryPort:
             is None
         )
 
-    def test_get_current_follows_supersession_chain(self) -> None:
-        from memorable.core.repositories import (
-            InMemoryDecisionRepository,
-        )
-
-        repo = InMemoryDecisionRepository()
-        v1, prov1 = self._make_decision_v1()
-        v2, prov2 = self._make_decision_v2()
-
-        repo.save(v1, prov1)
-        repo.save(v2, prov2)
-        repo.mark_superseded(
-            space="memorable",
-            decision_id=V1_ID,
-            superseded_by=V2_ID,
-            invalidation_time=FIXTURE_TIMESTAMP_V2,
-        )
-
-        current = repo.get_current(space="memorable", decision_id=V1_ID)
-        assert current is not None
-        assert current.id == V2_ID
-
     def test_get_at_returns_decision_valid_at_time(self) -> None:
         from memorable.core.repositories import (
             InMemoryDecisionRepository,
@@ -1247,6 +1225,117 @@ class TestMCPInspectDecisionHistory:
         assert len(result["history"]) == 2
         ids = [h["decision_id"] for h in result["history"]]
         assert ids == [V1_ID, V2_ID]
+
+
+# =====================================================================
+# Thin repository / service-owned chain-walking tests (slice #30)
+# =====================================================================
+
+
+class TestDecisionRepositoryHasNoGetCurrent:
+    """DecisionRepository protocol must not expose get_current (ADR 0009)."""
+
+    def test_protocol_has_no_get_current(self) -> None:
+        """get_current is not part of the DecisionRepository protocol."""
+        from memorable.core.ports import DecisionRepository
+
+        protocol_methods = {
+            name
+            for name in dir(DecisionRepository)
+            if not name.startswith("_")
+        }
+        assert "get_current" not in protocol_methods
+
+    def test_in_memory_repo_has_no_get_current(self) -> None:
+        """InMemoryDecisionRepository does not implement get_current."""
+        from memorable.core.repositories import InMemoryDecisionRepository
+
+        repo = InMemoryDecisionRepository()
+        assert not hasattr(repo, "get_current")
+
+
+class TestCurrentTruthServiceOwnsChainWalking:
+    """CurrentTruthService owns the supersession chain-walking logic.
+
+    This replaces the former repo-level test_get_current_follows_supersession_chain.
+    The service composes thin repo.get() calls to walk the chain.
+    """
+
+    def _setup_chain(self):
+        from memorable.core.application import (
+            CurrentTruthService,
+            RememberDecisionService,
+        )
+        from memorable.core.profile import load_profile_from_yaml
+        from memorable.core.repositories import InMemoryDecisionRepository
+
+        repo = InMemoryDecisionRepository()
+        profile = load_profile_from_yaml(VALID_PROFILE_YAML)
+        remember = RememberDecisionService(repository=repo, profile=profile)
+
+        remember.remember(
+            space="memorable",
+            decision_id=V1_ID,
+            statement=STATEMENT_V1,
+            source_id=SOURCE_ID,
+            at=FIXTURE_TIMESTAMP_V1,
+        )
+        remember.remember(
+            space="memorable",
+            decision_id=V2_ID,
+            statement=STATEMENT_V2,
+            source_id=SOURCE_ID,
+            at=FIXTURE_TIMESTAMP_V2,
+            supersedes=V1_ID,
+        )
+
+        return CurrentTruthService(repository=repo), repo
+
+    def test_service_follows_supersession_chain(self) -> None:
+        """Service walks v1 -> v2 chain via repo.get() calls."""
+        service, _repo = self._setup_chain()
+
+        result = service.current(space="memorable", decision_id=V1_ID)
+
+        assert result is not None
+        assert result.id == V2_ID
+        assert result.lifecycle_state == "current"
+
+    def test_service_returns_self_when_not_superseded(self) -> None:
+        from memorable.core.application import (
+            CurrentTruthService,
+            RememberDecisionService,
+        )
+        from memorable.core.profile import load_profile_from_yaml
+        from memorable.core.repositories import InMemoryDecisionRepository
+
+        repo = InMemoryDecisionRepository()
+        profile = load_profile_from_yaml(VALID_PROFILE_YAML)
+        remember = RememberDecisionService(repository=repo, profile=profile)
+
+        remember.remember(
+            space="memorable",
+            decision_id=V1_ID,
+            statement=STATEMENT_V1,
+            source_id=SOURCE_ID,
+            at=FIXTURE_TIMESTAMP_V1,
+        )
+
+        service = CurrentTruthService(repository=repo)
+        result = service.current(space="memorable", decision_id=V1_ID)
+
+        assert result is not None
+        assert result.id == V1_ID
+
+    def test_service_returns_none_for_missing(self) -> None:
+        from memorable.core.application import CurrentTruthService
+        from memorable.core.repositories import InMemoryDecisionRepository
+
+        repo = InMemoryDecisionRepository()
+        service = CurrentTruthService(repository=repo)
+
+        result = service.current(space="memorable", decision_id="decision:missing")
+        assert result is None
 
 
 # =====================================================================
