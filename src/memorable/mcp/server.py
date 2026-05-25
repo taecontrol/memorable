@@ -3,6 +3,8 @@ from __future__ import annotations
 from pathlib import Path
 from typing import Literal
 
+from mcp.server.fastmcp import FastMCP
+
 from memorable.core.application import (
     CompleteTaskService,
     CurrentTruthService,
@@ -19,6 +21,8 @@ from memorable.core.application import (
 from memorable.core.context import default_context
 from memorable.core.profile import ProfileValidationError, load_profile_from_yaml
 from memorable.core.temporal import parse_iso_timestamp
+
+mcp_server = FastMCP("memorable")
 
 
 def status_tool() -> dict[str, object]:
