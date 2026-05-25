@@ -55,7 +55,7 @@ class EntityRepository(Protocol):
 
 
 class DecisionRepository(Protocol):
-    """Port for Decision persistence with provenance and temporal queries."""
+    """Port for Decision persistence with provenance."""
 
     def save(self, decision: Decision, provenance: Provenance) -> None:
         """Persist a Decision with its provenance record."""
