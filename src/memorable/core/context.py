@@ -9,6 +9,11 @@ from __future__ import annotations
 
 from pathlib import Path
 
+from memorable.core.ports import (
+    DecisionRepository,
+    EntityRepository,
+    TaskRepository,
+)
 from memorable.core.profile import MemoryProfile, load_profile_from_yaml
 from memorable.core.repositories import (
     InMemoryDecisionRepository,
@@ -45,9 +50,9 @@ class ApplicationContext:
 
     def __init__(
         self,
-        entity_repo: InMemoryEntityRepository | None = None,
-        decision_repo: InMemoryDecisionRepository | None = None,
-        task_repo: InMemoryTaskRepository | None = None,
+        entity_repo: EntityRepository | None = None,
+        decision_repo: DecisionRepository | None = None,
+        task_repo: TaskRepository | None = None,
     ) -> None:
         self.entity_repo = entity_repo or InMemoryEntityRepository()
         self.decision_repo = decision_repo or InMemoryDecisionRepository()

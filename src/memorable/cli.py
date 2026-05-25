@@ -4,6 +4,7 @@ import argparse
 import json
 import sys
 from pathlib import Path
+from typing import Literal, cast
 
 from memorable.core.application import (
     CompleteTaskService,
@@ -388,7 +389,8 @@ def _cmd_search(args: argparse.Namespace) -> int:
     """Search memory using hybrid GraphRAG retrieval."""
     service = default_context.build_retrieval_service()
 
-    mode = getattr(args, "mode", "current") or "current"
+    raw_mode = getattr(args, "mode", "current") or "current"
+    mode = cast(Literal["current", "as-of"], raw_mode)
     as_of = None
     if hasattr(args, "as_of") and args.as_of is not None:
         as_of = parse_iso_timestamp(args.as_of)

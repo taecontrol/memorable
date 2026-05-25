@@ -10,10 +10,10 @@ from datetime import datetime
 from typing import Literal
 
 from memorable.core.models import Decision, Entity, Task
-from memorable.core.repositories import (
-    InMemoryDecisionRepository,
-    InMemoryEntityRepository,
-    InMemoryTaskRepository,
+from memorable.core.ports import (
+    DecisionRepository,
+    EntityRepository,
+    TaskRepository,
 )
 from memorable.retrieval.embeddings import EmbeddingProvider
 from memorable.retrieval.index import InMemoryEmbeddingIndex
@@ -36,9 +36,9 @@ class HybridRetrievalService:
 
     def __init__(
         self,
-        entity_repo: InMemoryEntityRepository,
-        decision_repo: InMemoryDecisionRepository,
-        task_repo: InMemoryTaskRepository,
+        entity_repo: EntityRepository,
+        decision_repo: DecisionRepository,
+        task_repo: TaskRepository,
         embedding_provider: EmbeddingProvider,
         dimensions: int = 32,
     ) -> None:

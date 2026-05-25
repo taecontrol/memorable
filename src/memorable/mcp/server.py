@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 from pathlib import Path
+from typing import Literal
 
 from memorable.core.application import (
     CompleteTaskService,
@@ -391,7 +392,7 @@ def complete_task_tool(
 def search_memory_tool(
     space: str,
     query: str,
-    mode: str = "current",
+    mode: Literal["current", "as-of"] = "current",
     as_of: str | None = None,
 ) -> dict[str, object]:
     """Search memory using hybrid GraphRAG retrieval.

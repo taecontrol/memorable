@@ -51,6 +51,10 @@ class EntityRepository(Protocol):
         """Retrieve the provenance for an Entity, or None if not found."""
         ...
 
+    def list_by_space(self, space: str) -> list[Entity]:
+        """Return all entities in the given space."""
+        ...
+
 
 class DecisionRepository(Protocol):
     """Port for Decision persistence with provenance and temporal queries."""
@@ -65,6 +69,10 @@ class DecisionRepository(Protocol):
 
     def get_provenance(self, space: str, decision_id: str) -> DecisionProvenance | None:
         """Retrieve the provenance for a Decision, or None if not found."""
+        ...
+
+    def list_by_space(self, space: str) -> list[Decision]:
+        """Return all decisions in the given space."""
         ...
 
     def get_current(self, space: str, decision_id: str) -> Decision | None:
@@ -114,6 +122,10 @@ class TaskRepository(Protocol):
         completion_event_id: str,
     ) -> None:
         """Record a completion event on a Task (append-first, not delete)."""
+        ...
+
+    def list_by_space(self, space: str) -> list[Task]:
+        """Return all tasks in the given space."""
         ...
 
     def get_at(self, *, space: str, task_id: str, at: datetime) -> Task | None:
