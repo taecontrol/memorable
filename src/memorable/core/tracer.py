@@ -226,7 +226,7 @@ class TracerService:
             space="memorable", decision_id="decision:storage-path:v2"
         )
         return {
-            "decision_id": provenance.decision_id,
+            "record_id": provenance.record_id,
             "source_id": provenance.source_id,
             "writer": provenance.writer,
             "reason": provenance.reason,

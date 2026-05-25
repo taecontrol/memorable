@@ -297,7 +297,8 @@ def inspect_provenance_tool(
         }
 
     return {
-        "entity_id": provenance.entity_id,
+        "record_id": provenance.record_id,
+        "record_kind": provenance.record_kind,
         "source": provenance.source_id,
         "episode": provenance.episode_id,
         "writer": provenance.writer,

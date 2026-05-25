@@ -71,10 +71,13 @@ class Provenance:
     """The recorded explanation of where a memory came from and why it is believed.
 
     Every memory write preserves provenance. Provenance belongs in stored
-    memory and inspection workflows.
+    memory and inspection workflows. The record_id identifies the owning
+    record, and record_kind distinguishes the record type (entity, decision,
+    or task).
     """
 
-    entity_id: str
+    record_id: str
+    record_kind: str
     source_id: str
     episode_id: str
     writer: str
@@ -108,22 +111,6 @@ class Decision:
 
 
 @dataclass(frozen=True)
-class DecisionProvenance:
-    """The recorded explanation of where a Decision came from and why it is believed.
-
-    Every Decision write preserves provenance.
-    """
-
-    decision_id: str
-    source_id: str
-    episode_id: str
-    writer: str
-    reason: str
-    creation_time: datetime
-    validity_time: datetime
-
-
-@dataclass(frozen=True)
 class Task:
     """A remembered work item with lifecycle state and temporal validity.
 
@@ -144,19 +131,3 @@ class Task:
             raise ValueError("Task id must not be empty.")
         if not self.title:
             raise ValueError("Task title must not be empty.")
-
-
-@dataclass(frozen=True)
-class TaskProvenance:
-    """The recorded explanation of where a Task came from and why it is believed.
-
-    Every Task write preserves provenance.
-    """
-
-    task_id: str
-    source_id: str
-    episode_id: str
-    writer: str
-    reason: str
-    creation_time: datetime
-    validity_time: datetime

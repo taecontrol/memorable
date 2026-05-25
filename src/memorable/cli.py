@@ -124,7 +124,7 @@ def _cmd_inspect_provenance(args: argparse.Namespace) -> int:
         )
         return 1
 
-    print(f"Provenance for {provenance.entity_id}")
+    print(f"Provenance for {provenance.record_id}")
     print(f"  - Source: {provenance.source_id}")
     print(f"  - Episode: {provenance.episode_id}")
     print(f"  - Writer: {provenance.writer}")
