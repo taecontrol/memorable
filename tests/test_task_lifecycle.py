@@ -11,14 +11,14 @@ Covers slice #8 acceptance criteria:
 from __future__ import annotations
 
 import textwrap
-from datetime import datetime, timezone
+from datetime import UTC, datetime
 
 import pytest
 
 # --- Fixture data ---
 
-FIXTURE_TIMESTAMP_REMEMBER = datetime(2026, 5, 23, 10, 25, 0, tzinfo=timezone.utc)
-FIXTURE_TIMESTAMP_COMPLETE = datetime(2026, 5, 23, 10, 30, 0, tzinfo=timezone.utc)
+FIXTURE_TIMESTAMP_REMEMBER = datetime(2026, 5, 23, 10, 25, 0, tzinfo=UTC)
+FIXTURE_TIMESTAMP_COMPLETE = datetime(2026, 5, 23, 10, 30, 0, tzinfo=UTC)
 
 TASK_ID = "task:mcp-smoke-path"
 TASK_TITLE = "Build the MCP smoke path over shared core behavior."
@@ -248,7 +248,7 @@ class TestTaskRepositoryPort:
             completion_event_id=EVENT_ID,
         )
 
-        at_1027 = datetime(2026, 5, 23, 10, 27, 0, tzinfo=timezone.utc)
+        at_1027 = datetime(2026, 5, 23, 10, 27, 0, tzinfo=UTC)
         result = repo.get_at(space="memorable", task_id=TASK_ID, at=at_1027)
 
         assert result is not None
@@ -270,7 +270,7 @@ class TestTaskRepositoryPort:
             completion_event_id=EVENT_ID,
         )
 
-        at_1031 = datetime(2026, 5, 23, 10, 31, 0, tzinfo=timezone.utc)
+        at_1031 = datetime(2026, 5, 23, 10, 31, 0, tzinfo=UTC)
         result = repo.get_at(space="memorable", task_id=TASK_ID, at=at_1031)
 
         assert result is not None
@@ -283,7 +283,7 @@ class TestTaskRepositoryPort:
         task, provenance = self._make_task()
         repo.save(task, provenance)
 
-        at_1020 = datetime(2026, 5, 23, 10, 20, 0, tzinfo=timezone.utc)
+        at_1020 = datetime(2026, 5, 23, 10, 20, 0, tzinfo=UTC)
         result = repo.get_at(space="memorable", task_id=TASK_ID, at=at_1020)
 
         assert result is None
@@ -538,7 +538,7 @@ class TestInspectTaskService:
     def test_inspect_as_of_before_completion(self) -> None:
         service, _repo = self._setup_completed_task()
 
-        at_1027 = datetime(2026, 5, 23, 10, 27, 0, tzinfo=timezone.utc)
+        at_1027 = datetime(2026, 5, 23, 10, 27, 0, tzinfo=UTC)
         result = service.inspect(space="memorable", task_id=TASK_ID, as_of=at_1027)
 
         assert result is not None
@@ -547,7 +547,7 @@ class TestInspectTaskService:
     def test_inspect_as_of_after_completion(self) -> None:
         service, _repo = self._setup_completed_task()
 
-        at_1031 = datetime(2026, 5, 23, 10, 31, 0, tzinfo=timezone.utc)
+        at_1031 = datetime(2026, 5, 23, 10, 31, 0, tzinfo=UTC)
         result = service.inspect(space="memorable", task_id=TASK_ID, as_of=at_1031)
 
         assert result is not None

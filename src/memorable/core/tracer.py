@@ -7,7 +7,7 @@ architecture composes end to end.
 
 from __future__ import annotations
 
-from datetime import datetime, timezone
+from datetime import UTC, datetime
 
 from memorable.core.application import (
     CompleteTaskService,
@@ -23,13 +23,13 @@ from memorable.core.profile import MemoryProfile, load_profile_from_yaml
 
 # Fixed fixture timestamps from the tracer-bullet contract.
 FIXTURE_TIMESTAMPS = {
-    "space": datetime(2026, 5, 23, 10, 0, 0, tzinfo=timezone.utc),
-    "profile": datetime(2026, 5, 23, 10, 5, 0, tzinfo=timezone.utc),
-    "entity": datetime(2026, 5, 23, 10, 10, 0, tzinfo=timezone.utc),
-    "decision_v1": datetime(2026, 5, 23, 10, 15, 0, tzinfo=timezone.utc),
-    "decision_v2": datetime(2026, 5, 23, 10, 20, 0, tzinfo=timezone.utc),
-    "task": datetime(2026, 5, 23, 10, 25, 0, tzinfo=timezone.utc),
-    "task_complete": datetime(2026, 5, 23, 10, 30, 0, tzinfo=timezone.utc),
+    "space": datetime(2026, 5, 23, 10, 0, 0, tzinfo=UTC),
+    "profile": datetime(2026, 5, 23, 10, 5, 0, tzinfo=UTC),
+    "entity": datetime(2026, 5, 23, 10, 10, 0, tzinfo=UTC),
+    "decision_v1": datetime(2026, 5, 23, 10, 15, 0, tzinfo=UTC),
+    "decision_v2": datetime(2026, 5, 23, 10, 20, 0, tzinfo=UTC),
+    "task": datetime(2026, 5, 23, 10, 25, 0, tzinfo=UTC),
+    "task_complete": datetime(2026, 5, 23, 10, 30, 0, tzinfo=UTC),
 }
 
 SOURCE_ID = "source:tracer-fixture"
@@ -59,10 +59,10 @@ records:
 """
 
 # Query timestamps for verification.
-QUERY_AT_10_17 = datetime(2026, 5, 23, 10, 17, 0, tzinfo=timezone.utc)
-QUERY_AT_10_21 = datetime(2026, 5, 23, 10, 21, 0, tzinfo=timezone.utc)
-QUERY_AT_10_27 = datetime(2026, 5, 23, 10, 27, 0, tzinfo=timezone.utc)
-QUERY_AT_10_31 = datetime(2026, 5, 23, 10, 31, 0, tzinfo=timezone.utc)
+QUERY_AT_10_17 = datetime(2026, 5, 23, 10, 17, 0, tzinfo=UTC)
+QUERY_AT_10_21 = datetime(2026, 5, 23, 10, 21, 0, tzinfo=UTC)
+QUERY_AT_10_27 = datetime(2026, 5, 23, 10, 27, 0, tzinfo=UTC)
+QUERY_AT_10_31 = datetime(2026, 5, 23, 10, 31, 0, tzinfo=UTC)
 
 
 class TracerService:

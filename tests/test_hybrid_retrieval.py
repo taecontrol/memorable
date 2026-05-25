@@ -15,20 +15,20 @@ Covers slice #9 acceptance criteria:
 from __future__ import annotations
 
 import textwrap
-from datetime import datetime, timezone
+from datetime import UTC, datetime
 
 import pytest
 
 # --- Fixture data (from contract) ---
 
 FIXTURE_TIMESTAMPS = {
-    "space": datetime(2026, 5, 23, 10, 0, 0, tzinfo=timezone.utc),
-    "profile": datetime(2026, 5, 23, 10, 5, 0, tzinfo=timezone.utc),
-    "entity": datetime(2026, 5, 23, 10, 10, 0, tzinfo=timezone.utc),
-    "decision_v1": datetime(2026, 5, 23, 10, 15, 0, tzinfo=timezone.utc),
-    "decision_v2": datetime(2026, 5, 23, 10, 20, 0, tzinfo=timezone.utc),
-    "task": datetime(2026, 5, 23, 10, 25, 0, tzinfo=timezone.utc),
-    "task_complete": datetime(2026, 5, 23, 10, 30, 0, tzinfo=timezone.utc),
+    "space": datetime(2026, 5, 23, 10, 0, 0, tzinfo=UTC),
+    "profile": datetime(2026, 5, 23, 10, 5, 0, tzinfo=UTC),
+    "entity": datetime(2026, 5, 23, 10, 10, 0, tzinfo=UTC),
+    "decision_v1": datetime(2026, 5, 23, 10, 15, 0, tzinfo=UTC),
+    "decision_v2": datetime(2026, 5, 23, 10, 20, 0, tzinfo=UTC),
+    "task": datetime(2026, 5, 23, 10, 25, 0, tzinfo=UTC),
+    "task_complete": datetime(2026, 5, 23, 10, 30, 0, tzinfo=UTC),
 }
 
 SOURCE_ID = "source:tracer-fixture"
@@ -574,7 +574,7 @@ class TestTemporalFiltering:
         """Point-in-time before supersession returns the original decision."""
         service, *_ = _build_fixture()
 
-        at_before = datetime(2026, 5, 23, 10, 17, 0, tzinfo=timezone.utc)
+        at_before = datetime(2026, 5, 23, 10, 17, 0, tzinfo=UTC)
 
         results = service.search(
             space="memorable",
@@ -591,7 +591,7 @@ class TestTemporalFiltering:
         """Point-in-time before completion shows task as open."""
         service, *_ = _build_fixture()
 
-        at_before = datetime(2026, 5, 23, 10, 27, 0, tzinfo=timezone.utc)
+        at_before = datetime(2026, 5, 23, 10, 27, 0, tzinfo=UTC)
 
         results = service.search(
             space="memorable",
