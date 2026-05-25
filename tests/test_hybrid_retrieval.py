@@ -1091,3 +1091,199 @@ class TestLanguageBoundary:
             assert result.source_kind in valid_kinds, (
                 f"source_kind '{result.source_kind}' is not a domain term"
             )
+
+
+# =====================================================================
+# 14. Dependency injection tests for temporal services
+# =====================================================================
+
+
+class TestHybridRetrievalServiceDependencyInjection:
+    """HybridRetrievalService accepts injected temporal services."""
+
+    def test_constructor_accepts_point_in_time_service(self) -> None:
+        """Constructor accepts a point_in_time_service parameter."""
+        from memorable.core.application import PointInTimeTruthService
+        from memorable.core.repositories import (
+            InMemoryDecisionRepository,
+            InMemoryEntityRepository,
+            InMemoryTaskRepository,
+        )
+        from memorable.retrieval.embeddings import FakeEmbeddingProvider
+        from memorable.retrieval.service import HybridRetrievalService
+
+        entity_repo = InMemoryEntityRepository()
+        decision_repo = InMemoryDecisionRepository()
+        task_repo = InMemoryTaskRepository()
+        provider = FakeEmbeddingProvider(dimensions=32)
+        pit_service = PointInTimeTruthService(repository=decision_repo)
+
+        service = HybridRetrievalService(
+            entity_repo=entity_repo,
+            decision_repo=decision_repo,
+            task_repo=task_repo,
+            embedding_provider=provider,
+            point_in_time_service=pit_service,
+        )
+
+        assert service is not None
+
+    def test_constructor_accepts_inspect_task_service(self) -> None:
+        """Constructor accepts an inspect_task_service parameter."""
+        from memorable.core.application import InspectTaskService
+        from memorable.core.repositories import (
+            InMemoryDecisionRepository,
+            InMemoryEntityRepository,
+            InMemoryTaskRepository,
+        )
+        from memorable.retrieval.embeddings import FakeEmbeddingProvider
+        from memorable.retrieval.service import HybridRetrievalService
+
+        entity_repo = InMemoryEntityRepository()
+        decision_repo = InMemoryDecisionRepository()
+        task_repo = InMemoryTaskRepository()
+        provider = FakeEmbeddingProvider(dimensions=32)
+        inspect_service = InspectTaskService(repository=task_repo)
+
+        service = HybridRetrievalService(
+            entity_repo=entity_repo,
+            decision_repo=decision_repo,
+            task_repo=task_repo,
+            embedding_provider=provider,
+            inspect_task_service=inspect_service,
+        )
+
+        assert service is not None
+
+    def test_uses_injected_point_in_time_service(self) -> None:
+        """as-of search uses the injected PointInTimeTruthService, not a new one."""
+        from unittest.mock import MagicMock
+
+        from memorable.core.application import (
+            PointInTimeTruthService,
+            RememberDecisionService,
+            RememberEntityService,
+        )
+        from memorable.core.profile import load_profile_from_yaml
+        from memorable.core.repositories import (
+            InMemoryDecisionRepository,
+            InMemoryEntityRepository,
+            InMemoryTaskRepository,
+        )
+        from memorable.retrieval.embeddings import FakeEmbeddingProvider
+        from memorable.retrieval.service import HybridRetrievalService
+
+        entity_repo = InMemoryEntityRepository()
+        decision_repo = InMemoryDecisionRepository()
+        task_repo = InMemoryTaskRepository()
+        profile = load_profile_from_yaml(VALID_PROFILE_YAML)
+
+        entity_svc = RememberEntityService(repository=entity_repo, profile=profile)
+        entity_svc.remember(
+            space="memorable",
+            entity_id="entity:memorable",
+            entity_type="Project",
+            name="Memorable",
+            source_id=SOURCE_ID,
+            at=FIXTURE_TIMESTAMPS["entity"],
+        )
+
+        decision_svc = RememberDecisionService(
+            repository=decision_repo, profile=profile
+        )
+        decision_svc.remember(
+            space="memorable",
+            decision_id="decision:storage-path:v1",
+            statement=STATEMENT_V1,
+            source_id=SOURCE_ID,
+            at=FIXTURE_TIMESTAMPS["decision_v1"],
+        )
+
+        provider = FakeEmbeddingProvider(dimensions=32)
+
+        # Wrap a real service to spy on calls
+        real_pit = PointInTimeTruthService(repository=decision_repo)
+        spy_pit = MagicMock(wraps=real_pit)
+
+        service = HybridRetrievalService(
+            entity_repo=entity_repo,
+            decision_repo=decision_repo,
+            task_repo=task_repo,
+            embedding_provider=provider,
+            point_in_time_service=spy_pit,
+        )
+
+        at_query = datetime(2026, 5, 23, 10, 17, 0, tzinfo=UTC)
+        service.search(
+            space="memorable",
+            query="storage implementation decision",
+            mode="as-of",
+            as_of=at_query,
+        )
+
+        spy_pit.at.assert_called()
+
+    def test_uses_injected_inspect_task_service(self) -> None:
+        """as-of search uses the injected InspectTaskService, not a new one."""
+        from unittest.mock import MagicMock
+
+        from memorable.core.application import (
+            InspectTaskService,
+            RememberEntityService,
+            RememberTaskService,
+        )
+        from memorable.core.profile import load_profile_from_yaml
+        from memorable.core.repositories import (
+            InMemoryDecisionRepository,
+            InMemoryEntityRepository,
+            InMemoryTaskRepository,
+        )
+        from memorable.retrieval.embeddings import FakeEmbeddingProvider
+        from memorable.retrieval.service import HybridRetrievalService
+
+        entity_repo = InMemoryEntityRepository()
+        decision_repo = InMemoryDecisionRepository()
+        task_repo = InMemoryTaskRepository()
+        profile = load_profile_from_yaml(VALID_PROFILE_YAML)
+
+        entity_svc = RememberEntityService(repository=entity_repo, profile=profile)
+        entity_svc.remember(
+            space="memorable",
+            entity_id="entity:memorable",
+            entity_type="Project",
+            name="Memorable",
+            source_id=SOURCE_ID,
+            at=FIXTURE_TIMESTAMPS["entity"],
+        )
+
+        task_svc = RememberTaskService(repository=task_repo, profile=profile)
+        task_svc.remember(
+            space="memorable",
+            task_id="task:mcp-smoke-path",
+            title="Expose Memorable Core through MCP smoke path",
+            source_id=SOURCE_ID,
+            at=FIXTURE_TIMESTAMPS["task"],
+        )
+
+        provider = FakeEmbeddingProvider(dimensions=32)
+
+        real_inspect = InspectTaskService(repository=task_repo)
+        spy_inspect = MagicMock(wraps=real_inspect)
+
+        service = HybridRetrievalService(
+            entity_repo=entity_repo,
+            decision_repo=decision_repo,
+            task_repo=task_repo,
+            embedding_provider=provider,
+            inspect_task_service=spy_inspect,
+        )
+
+        at_query = datetime(2026, 5, 23, 10, 27, 0, tzinfo=UTC)
+        service.search(
+            space="memorable",
+            query="MCP smoke path task",
+            mode="as-of",
+            as_of=at_query,
+        )
+
+        spy_inspect.inspect.assert_called()
