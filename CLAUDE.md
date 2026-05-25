@@ -28,6 +28,11 @@ Default label vocabulary (needs-triage, needs-info, ready-for-agent, ready-for-h
 
 Single-context layout — `docs/ubiquitous-language.md` + `docs/adr/` at the repo root. See `docs/agents/domain.md`.
 
+## Tooling
+
+- Use `uv` for all Python tasks: `uv run pytest`, `uv run ruff`, `uv run memorable`, etc.
+- Do not use bare `python` or `pip` commands.
+
 ## Commits
 
 - No Co-Authored-By: Claude … trailer on commits. AI is a tool, not a co-author.
