@@ -227,6 +227,7 @@ class TracerService:
         )
         return {
             "record_id": provenance.record_id,
+            "record_kind": provenance.record_kind,
             "source_id": provenance.source_id,
             "writer": provenance.writer,
             "reason": provenance.reason,
