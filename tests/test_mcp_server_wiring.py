@@ -132,3 +132,29 @@ class TestToolDescriptions:
         assert not leaked, (
             f"Tool descriptions leak storage vocabulary: {leaked}"
         )
+
+
+def _call_tool(name: str, arguments: dict) -> object:
+    """Call a tool on the FastMCP server and return the result (sync helper)."""
+    from memorable.mcp.server import mcp_server
+
+    return asyncio.run(mcp_server.call_tool(name, arguments))
+
+
+class TestCallToolSuccessPath:
+    def test_status_tool_returns_diagnostic_payload(self) -> None:
+        result = _call_tool("memorable/status", {})
+        # call_tool returns a tuple of (content_blocks, structured_result)
+        _, structured = result
+        assert structured["product"] == "Memorable"
+        assert structured["memory_space_scope"] == "project"
+        assert structured["service"] == "diagnostics"
+
+    def test_status_tool_result_uses_core_language(self) -> None:
+        import json
+
+        result = _call_tool("memorable/status", {})
+        _, structured = result
+        text = json.dumps(structured).lower()
+        assert "node" not in text
+        assert "edge" not in text
