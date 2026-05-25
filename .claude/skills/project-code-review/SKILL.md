@@ -1,5 +1,5 @@
 ---
-name: code-review
+name: project-code-review
 description: >
   Review code changes against Memorable's Python architecture rules and coding
   guidelines. Produces a structured checklist verdict (✅/❌/🟡) covering

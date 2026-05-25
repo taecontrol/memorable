@@ -29,7 +29,7 @@ The user provides a GitHub issue URL. The skill:
 2. Fetches slice + parent issue context via `gh`
 3. Creates/verifies feature branch from parent issue
 4. Spawns implementer subagent (python-developer + tdd skill)
-5. Spawns reviewer subagent (python-developer + code-review skill)
+5. Spawns reviewer subagent (python-developer + project-code-review skill)
 6. Loops up to 2 rounds until review is clean
 7. Auto-commits and closes issue if all criteria pass
 

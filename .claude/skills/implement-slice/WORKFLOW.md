@@ -90,7 +90,7 @@ Spawn a `python-developer` subagent:
 >
 > ## Instructions
 >
-> Use the `code-review` skill to review the current diff against main.
+> Use the `project-code-review` skill to review the current diff against main.
 > Focus your review on the changes from this slice.
 >
 > After the review, state clearly whether the review is **CLEAN** (all ✅)
