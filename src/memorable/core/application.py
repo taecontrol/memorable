@@ -6,12 +6,10 @@ from typing import Protocol
 
 from memorable.core.models import (
     Decision,
-    DecisionProvenance,
     Entity,
     MemorySpace,
     Provenance,
     Task,
-    TaskProvenance,
 )
 from memorable.core.ports import (
     DecisionRepository,
@@ -157,7 +155,8 @@ class RememberEntityService:
         episode_id = make_episode_id(source_id, at)
 
         provenance = Provenance(
-            entity_id=entity_id,
+            record_id=entity_id,
+            record_kind="entity",
             source_id=source_id,
             episode_id=episode_id,
             writer=writer,
@@ -176,7 +175,7 @@ class RememberDecisionResult:
     """Result of remembering a Decision with provenance."""
 
     decision: Decision
-    provenance: DecisionProvenance
+    provenance: Provenance
 
 
 class RememberDecisionService:
@@ -229,8 +228,9 @@ class RememberDecisionService:
 
         episode_id = make_episode_id(source_id, at)
 
-        provenance = DecisionProvenance(
-            decision_id=decision_id,
+        provenance = Provenance(
+            record_id=decision_id,
+            record_kind="decision",
             source_id=source_id,
             episode_id=episode_id,
             writer=writer,
@@ -304,7 +304,7 @@ class RememberTaskResult:
     """Result of remembering a Task with provenance."""
 
     task: Task
-    provenance: TaskProvenance
+    provenance: Provenance
 
 
 class RememberTaskService:
@@ -352,8 +352,9 @@ class RememberTaskService:
 
         episode_id = make_episode_id(source_id, at)
 
-        provenance = TaskProvenance(
-            task_id=task_id,
+        provenance = Provenance(
+            record_id=task_id,
+            record_kind="task",
             source_id=source_id,
             episode_id=episode_id,
             writer=writer,

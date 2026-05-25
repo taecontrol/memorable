@@ -100,6 +100,8 @@ def _cmd_remember_entity(args: argparse.Namespace) -> int:
                 "entity_type": result.entity.entity_type,
                 "name": result.entity.name,
                 "space": result.entity.space,
+                "record_id": result.provenance.record_id,
+                "record_kind": result.provenance.record_kind,
                 "source": result.provenance.source_id,
                 "episode": result.provenance.episode_id,
                 "creation_time": result.provenance.creation_time.isoformat(),
@@ -124,7 +126,8 @@ def _cmd_inspect_provenance(args: argparse.Namespace) -> int:
         )
         return 1
 
-    print(f"Provenance for {provenance.entity_id}")
+    print(f"Provenance for {provenance.record_id}")
+    print(f"  - Record Kind: {provenance.record_kind}")
     print(f"  - Source: {provenance.source_id}")
     print(f"  - Episode: {provenance.episode_id}")
     print(f"  - Writer: {provenance.writer}")
@@ -171,6 +174,8 @@ def _cmd_remember_decision(args: argparse.Namespace) -> int:
                 "decision_id": result.decision.id,
                 "statement": result.decision.statement,
                 "space": result.decision.space,
+                "record_id": result.provenance.record_id,
+                "record_kind": result.provenance.record_kind,
                 "source": result.provenance.source_id,
                 "episode": result.provenance.episode_id,
                 "creation_time": result.provenance.creation_time.isoformat(),
@@ -299,6 +304,8 @@ def _cmd_remember_task(args: argparse.Namespace) -> int:
                 "title": result.task.title,
                 "space": result.task.space,
                 "lifecycle_state": result.task.lifecycle_state,
+                "record_id": result.provenance.record_id,
+                "record_kind": result.provenance.record_kind,
                 "source": result.provenance.source_id,
                 "episode": result.provenance.episode_id,
                 "creation_time": result.provenance.creation_time.isoformat(),

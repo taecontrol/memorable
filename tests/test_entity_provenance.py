@@ -116,7 +116,8 @@ class TestProvenanceModel:
         from memorable.core.models import Provenance
 
         prov = Provenance(
-            entity_id="entity:memorable",
+            record_id="entity:memorable",
+            record_kind="entity",
             source_id="source:tracer-fixture",
             episode_id="episode:tracer:2026-05-23T10:10:00Z",
             writer="agent:tracer-fixture",
@@ -124,7 +125,8 @@ class TestProvenanceModel:
             creation_time=FIXTURE_TIMESTAMP,
             validity_time=FIXTURE_TIMESTAMP,
         )
-        assert prov.entity_id == "entity:memorable"
+        assert prov.record_id == "entity:memorable"
+        assert prov.record_kind == "entity"
         assert prov.source_id == "source:tracer-fixture"
         assert prov.episode_id == "episode:tracer:2026-05-23T10:10:00Z"
         assert prov.writer == "agent:tracer-fixture"
@@ -153,7 +155,8 @@ class TestEntityRepositoryPort:
             space="memorable",
         )
         provenance = Provenance(
-            entity_id="entity:memorable",
+            record_id="entity:memorable",
+            record_kind="entity",
             source_id="source:tracer-fixture",
             episode_id="episode:tracer:2026-05-23T10:10:00Z",
             writer="agent:tracer-fixture",
@@ -180,7 +183,8 @@ class TestEntityRepositoryPort:
             space="memorable",
         )
         provenance = Provenance(
-            entity_id="entity:memorable",
+            record_id="entity:memorable",
+            record_kind="entity",
             source_id="source:tracer-fixture",
             episode_id="episode:tracer:2026-05-23T10:10:00Z",
             writer="agent:tracer-fixture",
@@ -385,6 +389,36 @@ class TestCLIRememberEntity:
         assert "entity:memorable" in output
         assert "source:tracer-fixture" in output
 
+    def test_remember_entity_includes_unified_provenance_fields(self, capsys) -> None:
+        """CLI remember entity JSON output includes record_id and record_kind."""
+        import json
+
+        from memorable.cli import main
+
+        exit_code = main(
+            [
+                "remember",
+                "entity",
+                "--space",
+                "memorable",
+                "--id",
+                "entity:memorable",
+                "--type",
+                "Project",
+                "--name",
+                "Memorable",
+                "--source",
+                "source:tracer-fixture",
+                "--at",
+                "2026-05-23T10:10:00Z",
+            ]
+        )
+
+        assert exit_code == 0
+        output = json.loads(capsys.readouterr().out)
+        assert output["record_id"] == "entity:memorable"
+        assert output["record_kind"] == "entity"
+
     def test_remember_entity_rejects_undeclared_type(self, capsys) -> None:
         from memorable.cli import main
 
@@ -456,6 +490,45 @@ class TestCLIInspectProvenance:
         assert "source:tracer-fixture" in output
         assert "2026-05-23T10:10:00" in output
 
+    def test_inspect_provenance_shows_record_kind(self, capsys) -> None:
+        """Inspect provenance output includes Record Kind field."""
+        from memorable.cli import main
+
+        main(
+            [
+                "remember",
+                "entity",
+                "--space",
+                "memorable",
+                "--id",
+                "entity:memorable",
+                "--type",
+                "Project",
+                "--name",
+                "Memorable",
+                "--source",
+                "source:tracer-fixture",
+                "--at",
+                "2026-05-23T10:10:00Z",
+            ]
+        )
+
+        exit_code = main(
+            [
+                "inspect",
+                "provenance",
+                "--space",
+                "memorable",
+                "--id",
+                "entity:memorable",
+            ]
+        )
+
+        assert exit_code == 0
+        output = capsys.readouterr().out
+        assert "Record Kind:" in output
+        assert "entity" in output
+
 
 # =====================================================================
 # MCP adapter tests
@@ -480,6 +553,23 @@ class TestMCPRememberEntity:
         assert result["entity_id"] == "entity:memorable"
         assert result["source"] == "source:tracer-fixture"
         assert "error" not in result
+
+    def test_remember_entity_tool_includes_unified_provenance_fields(self) -> None:
+        """MCP remember_entity_tool response includes record_id and record_kind."""
+        from memorable.mcp.server import remember_entity_tool
+
+        result = remember_entity_tool(
+            space="memorable",
+            entity_id="entity:memorable",
+            entity_type="Project",
+            name="Memorable",
+            source="source:tracer-fixture",
+            at="2026-05-23T10:10:00Z",
+        )
+
+        assert "error" not in result
+        assert result["record_id"] == "entity:memorable"
+        assert result["record_kind"] == "entity"
 
     def test_remember_entity_tool_rejects_undeclared_type(self) -> None:
         from memorable.mcp.server import remember_entity_tool
@@ -521,6 +611,28 @@ class TestMCPInspectProvenance:
         assert result["source"] == "source:tracer-fixture"
         assert result["writer"] is not None
         assert "2026-05-23T10:10:00" in result["creation_time"]
+
+    def test_inspect_provenance_tool_includes_unified_fields(self) -> None:
+        """MCP inspect_provenance_tool response includes record_id and record_kind."""
+        from memorable.mcp.server import inspect_provenance_tool, remember_entity_tool
+
+        remember_entity_tool(
+            space="memorable",
+            entity_id="entity:memorable",
+            entity_type="Project",
+            name="Memorable",
+            source="source:tracer-fixture",
+            at="2026-05-23T10:10:00Z",
+        )
+
+        result = inspect_provenance_tool(
+            space="memorable",
+            entity_id="entity:memorable",
+        )
+
+        assert "error" not in result
+        assert result["record_id"] == "entity:memorable"
+        assert result["record_kind"] == "entity"
 
     def test_inspect_provenance_returns_error_for_missing(self) -> None:
         from memorable.mcp.server import inspect_provenance_tool

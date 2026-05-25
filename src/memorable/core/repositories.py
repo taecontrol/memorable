@@ -9,12 +9,10 @@ from datetime import datetime
 
 from memorable.core.models import (
     Decision,
-    DecisionProvenance,
     Entity,
     MemorySpace,
     Provenance,
     Task,
-    TaskProvenance,
 )
 from memorable.core.ports import MemorySpaceRepository
 
@@ -65,9 +63,9 @@ class InMemoryDecisionRepository:
 
     def __init__(self) -> None:
         self._decisions: dict[tuple[str, str], Decision] = {}
-        self._provenance: dict[tuple[str, str], DecisionProvenance] = {}
+        self._provenance: dict[tuple[str, str], Provenance] = {}
 
-    def save(self, decision: Decision, provenance: DecisionProvenance) -> None:
+    def save(self, decision: Decision, provenance: Provenance) -> None:
         key = (decision.space, decision.id)
         self._decisions[key] = decision
         self._provenance[key] = provenance
@@ -75,7 +73,7 @@ class InMemoryDecisionRepository:
     def get(self, space: str, decision_id: str) -> Decision | None:
         return self._decisions.get((space, decision_id))
 
-    def get_provenance(self, space: str, decision_id: str) -> DecisionProvenance | None:
+    def get_provenance(self, space: str, decision_id: str) -> Provenance | None:
         return self._provenance.get((space, decision_id))
 
     def list_by_space(self, space: str) -> list[Decision]:
@@ -155,9 +153,9 @@ class InMemoryTaskRepository:
 
     def __init__(self) -> None:
         self._tasks: dict[tuple[str, str], Task] = {}
-        self._provenance: dict[tuple[str, str], TaskProvenance] = {}
+        self._provenance: dict[tuple[str, str], Provenance] = {}
 
-    def save(self, task: Task, provenance: TaskProvenance) -> None:
+    def save(self, task: Task, provenance: Provenance) -> None:
         key = (task.space, task.id)
         self._tasks[key] = task
         self._provenance[key] = provenance
@@ -169,7 +167,7 @@ class InMemoryTaskRepository:
     def get(self, *, space: str, task_id: str) -> Task | None:
         return self._tasks.get((space, task_id))
 
-    def get_provenance(self, *, space: str, task_id: str) -> TaskProvenance | None:
+    def get_provenance(self, *, space: str, task_id: str) -> Provenance | None:
         return self._provenance.get((space, task_id))
 
     def complete(

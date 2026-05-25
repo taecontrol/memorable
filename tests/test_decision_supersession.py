@@ -134,13 +134,14 @@ class TestDecisionModel:
 
 
 class TestDecisionProvenanceModel:
-    """DecisionProvenance explains where a Decision came from."""
+    """Provenance explains where a Decision came from."""
 
     def test_decision_provenance_has_required_fields(self) -> None:
-        from memorable.core.models import DecisionProvenance
+        from memorable.core.models import Provenance
 
-        prov = DecisionProvenance(
-            decision_id=V1_ID,
+        prov = Provenance(
+            record_id=V1_ID,
+            record_kind="decision",
             source_id=SOURCE_ID,
             episode_id=EPISODE_V1,
             writer="agent:tracer-fixture",
@@ -148,7 +149,8 @@ class TestDecisionProvenanceModel:
             creation_time=FIXTURE_TIMESTAMP_V1,
             validity_time=FIXTURE_TIMESTAMP_V1,
         )
-        assert prov.decision_id == V1_ID
+        assert prov.record_id == V1_ID
+        assert prov.record_kind == "decision"
         assert prov.source_id == SOURCE_ID
         assert prov.writer == "agent:tracer-fixture"
         assert prov.creation_time == FIXTURE_TIMESTAMP_V1
@@ -164,7 +166,7 @@ class TestDecisionRepositoryPort:
     """DecisionRepository defines persistence for Decisions."""
 
     def _make_decision_v1(self):
-        from memorable.core.models import Decision, DecisionProvenance
+        from memorable.core.models import Decision, Provenance
 
         decision = Decision(
             id=V1_ID,
@@ -176,8 +178,9 @@ class TestDecisionRepositoryPort:
             supersedes=None,
             superseded_by=None,
         )
-        provenance = DecisionProvenance(
-            decision_id=V1_ID,
+        provenance = Provenance(
+            record_id=V1_ID,
+            record_kind="decision",
             source_id=SOURCE_ID,
             episode_id=EPISODE_V1,
             writer="agent:tracer-fixture",
@@ -188,7 +191,7 @@ class TestDecisionRepositoryPort:
         return decision, provenance
 
     def _make_decision_v2(self):
-        from memorable.core.models import Decision, DecisionProvenance
+        from memorable.core.models import Decision, Provenance
 
         decision = Decision(
             id=V2_ID,
@@ -200,8 +203,9 @@ class TestDecisionRepositoryPort:
             supersedes=V1_ID,
             superseded_by=None,
         )
-        provenance = DecisionProvenance(
-            decision_id=V2_ID,
+        provenance = Provenance(
+            record_id=V2_ID,
+            record_kind="decision",
             source_id=SOURCE_ID,
             episode_id=EPISODE_V2,
             writer="agent:tracer-fixture",
@@ -794,6 +798,34 @@ class TestCLIRememberDecision:
         assert V1_ID in output
         assert SOURCE_ID in output
 
+    def test_remember_decision_includes_unified_provenance_fields(self, capsys) -> None:
+        """CLI remember decision JSON output includes record_id and record_kind."""
+        import json
+
+        from memorable.cli import main
+
+        exit_code = main(
+            [
+                "remember",
+                "decision",
+                "--space",
+                "memorable",
+                "--id",
+                V1_ID,
+                "--statement",
+                STATEMENT_V1,
+                "--source",
+                SOURCE_ID,
+                "--at",
+                "2026-05-23T10:15:00Z",
+            ]
+        )
+
+        assert exit_code == 0
+        output = json.loads(capsys.readouterr().out)
+        assert output["record_id"] == V1_ID
+        assert output["record_kind"] == "decision"
+
     def test_remember_decision_with_supersession(self, capsys) -> None:
         from memorable.cli import main
 
@@ -1056,6 +1088,22 @@ class TestMCPRememberDecision:
         assert result["decision_id"] == V1_ID
         assert result["source"] == SOURCE_ID
         assert "error" not in result
+
+    def test_remember_decision_tool_includes_unified_provenance_fields(self) -> None:
+        """MCP remember_decision_tool response includes record_id and record_kind."""
+        from memorable.mcp.server import remember_decision_tool
+
+        result = remember_decision_tool(
+            space="memorable",
+            decision_id=V1_ID,
+            statement=STATEMENT_V1,
+            source=SOURCE_ID,
+            at="2026-05-23T10:15:00Z",
+        )
+
+        assert "error" not in result
+        assert result["record_id"] == V1_ID
+        assert result["record_kind"] == "decision"
 
     def test_remember_decision_with_supersession(self) -> None:
         from memorable.mcp.server import remember_decision_tool

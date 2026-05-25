@@ -133,6 +133,8 @@ def remember_entity_tool(
         "entity_type": result.entity.entity_type,
         "name": result.entity.name,
         "space": result.entity.space,
+        "record_id": result.provenance.record_id,
+        "record_kind": result.provenance.record_kind,
         "source": result.provenance.source_id,
         "episode": result.provenance.episode_id,
         "creation_time": result.provenance.creation_time.isoformat(),
@@ -184,6 +186,8 @@ def remember_decision_tool(
         "decision_id": result.decision.id,
         "statement": result.decision.statement,
         "space": result.decision.space,
+        "record_id": result.provenance.record_id,
+        "record_kind": result.provenance.record_kind,
         "source": result.provenance.source_id,
         "episode": result.provenance.episode_id,
         "creation_time": result.provenance.creation_time.isoformat(),
@@ -297,7 +301,8 @@ def inspect_provenance_tool(
         }
 
     return {
-        "entity_id": provenance.entity_id,
+        "record_id": provenance.record_id,
+        "record_kind": provenance.record_kind,
         "source": provenance.source_id,
         "episode": provenance.episode_id,
         "writer": provenance.writer,
@@ -348,6 +353,8 @@ def remember_task_tool(
         "title": result.task.title,
         "space": result.task.space,
         "lifecycle_state": result.task.lifecycle_state,
+        "record_id": result.provenance.record_id,
+        "record_kind": result.provenance.record_kind,
         "source": result.provenance.source_id,
         "episode": result.provenance.episode_id,
         "creation_time": result.provenance.creation_time.isoformat(),

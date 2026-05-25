@@ -11,12 +11,10 @@ from typing import Protocol
 
 from memorable.core.models import (
     Decision,
-    DecisionProvenance,
     Entity,
     MemorySpace,
     Provenance,
     Task,
-    TaskProvenance,
 )
 
 
@@ -59,7 +57,7 @@ class EntityRepository(Protocol):
 class DecisionRepository(Protocol):
     """Port for Decision persistence with provenance and temporal queries."""
 
-    def save(self, decision: Decision, provenance: DecisionProvenance) -> None:
+    def save(self, decision: Decision, provenance: Provenance) -> None:
         """Persist a Decision with its provenance record."""
         ...
 
@@ -67,7 +65,7 @@ class DecisionRepository(Protocol):
         """Retrieve a Decision by space and id, or None if not found."""
         ...
 
-    def get_provenance(self, space: str, decision_id: str) -> DecisionProvenance | None:
+    def get_provenance(self, space: str, decision_id: str) -> Provenance | None:
         """Retrieve the provenance for a Decision, or None if not found."""
         ...
 
@@ -101,7 +99,7 @@ class DecisionRepository(Protocol):
 class TaskRepository(Protocol):
     """Port for Task persistence with provenance and temporal queries."""
 
-    def save(self, task: Task, provenance: TaskProvenance) -> None:
+    def save(self, task: Task, provenance: Provenance) -> None:
         """Persist a Task with its provenance record."""
         ...
 
@@ -109,7 +107,7 @@ class TaskRepository(Protocol):
         """Retrieve a Task by space and id, or None if not found."""
         ...
 
-    def get_provenance(self, *, space: str, task_id: str) -> TaskProvenance | None:
+    def get_provenance(self, *, space: str, task_id: str) -> Provenance | None:
         """Retrieve the provenance for a Task, or None if not found."""
         ...
 
