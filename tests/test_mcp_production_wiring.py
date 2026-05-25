@@ -124,9 +124,7 @@ class TestMCPToolsUseContext:
             assert result["entity_id"] == "entity:mcp-test"
 
             # Verify it was stored in the custom context, not default
-            stored = ctx.entity_repo.get(
-                space="memorable", entity_id="entity:mcp-test"
-            )
+            stored = ctx.entity_repo.get(space="memorable", entity_id="entity:mcp-test")
             assert stored is not None
         finally:
             # Reset to default to avoid polluting other tests

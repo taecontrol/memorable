@@ -75,9 +75,7 @@ class TestRuntimeYaml:
 
         config_dir = tmp_path / ".memorable"
         config_dir.mkdir()
-        (config_dir / "runtime.yaml").write_text(
-            "neo4j:\n  uri: bolt://custom:7687\n"
-        )
+        (config_dir / "runtime.yaml").write_text("neo4j:\n  uri: bolt://custom:7687\n")
 
         config = load_runtime_config(base_path=tmp_path)
 
@@ -91,9 +89,7 @@ class TestRuntimeYaml:
 
         config_dir = tmp_path / ".memorable"
         config_dir.mkdir()
-        (config_dir / "runtime.yaml").write_text(
-            "neo4j:\n  uri: bolt://custom:7687\n"
-        )
+        (config_dir / "runtime.yaml").write_text("neo4j:\n  uri: bolt://custom:7687\n")
 
         config = load_runtime_config(base_path=tmp_path)
 
@@ -159,12 +155,9 @@ class TestLocalOverrideMerging:
         config_dir = tmp_path / ".memorable"
         config_dir.mkdir()
         (config_dir / "runtime.yaml").write_text(
-            "neo4j:\n  uri: bolt://base:7687\n"
-            "docker:\n  neo4j_version: '5.26'\n"
+            "neo4j:\n  uri: bolt://base:7687\ndocker:\n  neo4j_version: '5.26'\n"
         )
-        (config_dir / "runtime.local.yaml").write_text(
-            "docker:\n  bolt_port: 9999\n"
-        )
+        (config_dir / "runtime.local.yaml").write_text("docker:\n  bolt_port: 9999\n")
 
         config = load_runtime_config(base_path=tmp_path)
 
@@ -193,9 +186,7 @@ class TestDotEnvSecrets:
 
         config_dir = tmp_path / ".memorable"
         config_dir.mkdir()
-        (config_dir / "runtime.yaml").write_text(
-            "neo4j:\n  password: yaml_pass\n"
-        )
+        (config_dir / "runtime.yaml").write_text("neo4j:\n  password: yaml_pass\n")
         (config_dir / ".env").write_text("MEMORABLE_NEO4J_PASSWORD=env_pass\n")
 
         config = load_runtime_config(base_path=tmp_path)
@@ -224,9 +215,7 @@ class TestDotEnvSecrets:
 
         config_dir = tmp_path / ".memorable"
         config_dir.mkdir()
-        (config_dir / ".env").write_text(
-            'MEMORABLE_NEO4J_PASSWORD="quoted_pass"\n'
-        )
+        (config_dir / ".env").write_text('MEMORABLE_NEO4J_PASSWORD="quoted_pass"\n')
 
         config = load_runtime_config(base_path=tmp_path)
 

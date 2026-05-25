@@ -65,9 +65,12 @@ def _compose_env(config: RuntimeConfig) -> dict[str, str]:
 def start(config: RuntimeConfig) -> DockerResult:
     """Start the local Neo4j container via docker compose up -d."""
     cmd = [
-        "docker", "compose",
-        "-f", str(_TEMPLATE_PATH),
-        "up", "-d",
+        "docker",
+        "compose",
+        "-f",
+        str(_TEMPLATE_PATH),
+        "up",
+        "-d",
     ]
     result = subprocess.run(
         cmd,
@@ -86,8 +89,10 @@ def start(config: RuntimeConfig) -> DockerResult:
 def stop(config: RuntimeConfig) -> DockerResult:
     """Stop the local Neo4j container via docker compose down."""
     cmd = [
-        "docker", "compose",
-        "-f", str(_TEMPLATE_PATH),
+        "docker",
+        "compose",
+        "-f",
+        str(_TEMPLATE_PATH),
         "down",
     ]
     result = subprocess.run(
@@ -107,9 +112,13 @@ def stop(config: RuntimeConfig) -> DockerResult:
 def status(config: RuntimeConfig) -> ContainerState:
     """Check the state of the local Neo4j container."""
     cmd = [
-        "docker", "compose",
-        "-f", str(_TEMPLATE_PATH),
-        "ps", "--format", "{{.State}}",
+        "docker",
+        "compose",
+        "-f",
+        str(_TEMPLATE_PATH),
+        "ps",
+        "--format",
+        "{{.State}}",
         "neo4j",
     ]
     result = subprocess.run(

@@ -49,11 +49,7 @@ def _deep_merge(base: dict[str, Any], override: dict[str, Any]) -> dict[str, Any
     """Recursively merge override into base, replacing leaf values only."""
     merged = dict(base)
     for key, value in override.items():
-        if (
-            key in merged
-            and isinstance(merged[key], dict)
-            and isinstance(value, dict)
-        ):
+        if key in merged and isinstance(merged[key], dict) and isinstance(value, dict):
             merged[key] = _deep_merge(merged[key], value)
         else:
             merged[key] = value
@@ -182,9 +178,14 @@ def load_runtime_config(base_path: Path | None = None) -> RuntimeConfig:
 
     # Fill in "built-in" for any field not already tracked
     all_fields = [
-        "neo4j.uri", "neo4j.user", "neo4j.password",
-        "docker.neo4j_version", "docker.http_port", "docker.bolt_port",
-        "embeddings.provider", "embeddings.model",
+        "neo4j.uri",
+        "neo4j.user",
+        "neo4j.password",
+        "docker.neo4j_version",
+        "docker.http_port",
+        "docker.bolt_port",
+        "embeddings.provider",
+        "embeddings.model",
     ]
     for fp in all_fields:
         if fp not in sources:

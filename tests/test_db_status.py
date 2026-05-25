@@ -51,9 +51,7 @@ class TestDbStatusOutput:
     def test_reflects_yaml_config(self, tmp_path: Path, capsys) -> None:
         config_dir = tmp_path / ".memorable"
         config_dir.mkdir()
-        (config_dir / "runtime.yaml").write_text(
-            "neo4j:\n  uri: bolt://prod:7687\n"
-        )
+        (config_dir / "runtime.yaml").write_text("neo4j:\n  uri: bolt://prod:7687\n")
 
         main(["db", "status", "--path", str(tmp_path)])
 

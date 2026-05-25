@@ -230,7 +230,9 @@ def test_cli_init_prints_connection_error_when_neo4j_unreachable(
     with (
         patch(
             "memorable.cli.build_production_context",
-            side_effect=ConnectionError("Cannot connect to Neo4j at bolt://localhost:7687"),
+            side_effect=ConnectionError(
+                "Cannot connect to Neo4j at bolt://localhost:7687"
+            ),
         ),
         patch("memorable.cli.load_runtime_config", return_value=RuntimeConfig()),
     ):

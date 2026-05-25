@@ -91,9 +91,7 @@ def _cmd_db_status(args: argparse.Namespace) -> int:
             "bolt_port": _field_entry(config.docker.bolt_port, "docker.bolt_port"),
         },
         "embeddings": {
-            "provider": _field_entry(
-                config.embeddings.provider, "embeddings.provider"
-            ),
+            "provider": _field_entry(config.embeddings.provider, "embeddings.provider"),
             "model": _field_entry(config.embeddings.model, "embeddings.model"),
         },
     }
@@ -233,9 +231,7 @@ def _cmd_remember_entity(args: argparse.Namespace, ctx: ApplicationContext) -> i
         print(f"Error: {e}", file=sys.stderr)
         return 1
 
-    service = RememberEntityService(
-        repository=ctx.entity_repo, profile=profile
-    )
+    service = RememberEntityService(repository=ctx.entity_repo, profile=profile)
 
     at = parse_iso_timestamp(args.at)
 
@@ -283,8 +279,7 @@ def _cmd_inspect_provenance(args: argparse.Namespace, ctx: ApplicationContext) -
 
     if provenance is None:
         print(
-            f"Error: No provenance found for '{args.id}' "
-            f"in MemorySpace '{space}'.",
+            f"Error: No provenance found for '{args.id}' in MemorySpace '{space}'.",
             file=sys.stderr,
         )
         return 1
@@ -311,9 +306,7 @@ def _cmd_remember_decision(args: argparse.Namespace, ctx: ApplicationContext) ->
         print(f"Error: {e}", file=sys.stderr)
         return 1
 
-    service = RememberDecisionService(
-        repository=ctx.decision_repo, profile=profile
-    )
+    service = RememberDecisionService(repository=ctx.decision_repo, profile=profile)
 
     at = parse_iso_timestamp(args.at)
     supersedes = getattr(args, "supersedes", None)
@@ -694,9 +687,7 @@ def main(argv: list[str] | None = None) -> int:
         default=None,
         help="Base directory containing .memorable/ config (default: cwd).",
     )
-    db_stop_parser = db_sub.add_parser(
-        "stop", help="Stop the local Neo4j container."
-    )
+    db_stop_parser = db_sub.add_parser("stop", help="Stop the local Neo4j container.")
     db_stop_parser.add_argument(
         "--path",
         default=None,

@@ -68,14 +68,22 @@ class TestCLIMemoryCommandsUseProductionContext:
         ):
             mock_build.return_value = (shared_ctx, mock_driver)
 
-            rc = main([
-                "remember", "entity",
-                "--id", "entity:test",
-                "--type", "Project",
-                "--name", "Test",
-                "--source", "source:test",
-                "--at", "2026-05-23T10:10:00Z",
-            ])
+            rc = main(
+                [
+                    "remember",
+                    "entity",
+                    "--id",
+                    "entity:test",
+                    "--type",
+                    "Project",
+                    "--name",
+                    "Test",
+                    "--source",
+                    "source:test",
+                    "--at",
+                    "2026-05-23T10:10:00Z",
+                ]
+            )
 
         assert rc == 0
 
@@ -92,9 +100,7 @@ class TestCLIMemoryCommandsUseProductionContext:
         )
         assert default_stored is None
 
-    def test_driver_is_closed_on_exit(
-        self, tmp_path: Path, monkeypatch
-    ) -> None:
+    def test_driver_is_closed_on_exit(self, tmp_path: Path, monkeypatch) -> None:
         """The Neo4j driver is closed after the CLI command completes."""
         from memorable.cli import main
 
@@ -114,20 +120,26 @@ class TestCLIMemoryCommandsUseProductionContext:
         ):
             mock_build.return_value = (shared_ctx, mock_driver)
 
-            main([
-                "remember", "entity",
-                "--id", "entity:test",
-                "--type", "Project",
-                "--name", "Test",
-                "--source", "source:test",
-                "--at", "2026-05-23T10:10:00Z",
-            ])
+            main(
+                [
+                    "remember",
+                    "entity",
+                    "--id",
+                    "entity:test",
+                    "--type",
+                    "Project",
+                    "--name",
+                    "Test",
+                    "--source",
+                    "source:test",
+                    "--at",
+                    "2026-05-23T10:10:00Z",
+                ]
+            )
 
         mock_driver.close.assert_called_once()
 
-    def test_driver_is_closed_even_on_error(
-        self, tmp_path: Path, monkeypatch
-    ) -> None:
+    def test_driver_is_closed_even_on_error(self, tmp_path: Path, monkeypatch) -> None:
         """The driver is closed even when a command fails."""
         from memorable.cli import main
 
@@ -148,14 +160,22 @@ class TestCLIMemoryCommandsUseProductionContext:
             mock_build.return_value = (shared_ctx, mock_driver)
 
             # UnknownType should cause an error
-            rc = main([
-                "remember", "entity",
-                "--id", "entity:test",
-                "--type", "UnknownType",
-                "--name", "Test",
-                "--source", "source:test",
-                "--at", "2026-05-23T10:10:00Z",
-            ])
+            rc = main(
+                [
+                    "remember",
+                    "entity",
+                    "--id",
+                    "entity:test",
+                    "--type",
+                    "UnknownType",
+                    "--name",
+                    "Test",
+                    "--source",
+                    "source:test",
+                    "--at",
+                    "2026-05-23T10:10:00Z",
+                ]
+            )
 
         assert rc == 1
         mock_driver.close.assert_called_once()
@@ -182,14 +202,22 @@ class TestCLIMemoryCommandsUseProductionContext:
         ):
             mock_build.return_value = (shared_ctx, mock_driver)
 
-            rc = main([
-                "remember", "entity",
-                "--id", "entity:test",
-                "--type", "Project",
-                "--name", "Test",
-                "--source", "source:test",
-                "--at", "2026-05-23T10:10:00Z",
-            ])
+            rc = main(
+                [
+                    "remember",
+                    "entity",
+                    "--id",
+                    "entity:test",
+                    "--type",
+                    "Project",
+                    "--name",
+                    "Test",
+                    "--source",
+                    "source:test",
+                    "--at",
+                    "2026-05-23T10:10:00Z",
+                ]
+            )
 
         assert rc == 0
         output = json.loads(capsys.readouterr().out)
@@ -217,15 +245,24 @@ class TestCLIMemoryCommandsUseProductionContext:
         ):
             mock_build.return_value = (shared_ctx, mock_driver)
 
-            rc = main([
-                "remember", "entity",
-                "--space", "override-space",
-                "--id", "entity:test",
-                "--type", "Project",
-                "--name", "Test",
-                "--source", "source:test",
-                "--at", "2026-05-23T10:10:00Z",
-            ])
+            rc = main(
+                [
+                    "remember",
+                    "entity",
+                    "--space",
+                    "override-space",
+                    "--id",
+                    "entity:test",
+                    "--type",
+                    "Project",
+                    "--name",
+                    "Test",
+                    "--source",
+                    "source:test",
+                    "--at",
+                    "2026-05-23T10:10:00Z",
+                ]
+            )
 
         assert rc == 0
         output = json.loads(capsys.readouterr().out)
@@ -244,8 +281,7 @@ class TestCLIMemoryCommandsUseProductionContext:
             patch(
                 "memorable.cli.build_production_context",
                 side_effect=ConnectionError(
-                    "Cannot connect to Neo4j"
-                    " at bolt://localhost:7687"
+                    "Cannot connect to Neo4j at bolt://localhost:7687"
                 ),
             ),
             patch(
@@ -253,14 +289,22 @@ class TestCLIMemoryCommandsUseProductionContext:
                 return_value=RuntimeConfig(),
             ),
         ):
-            rc = main([
-                "remember", "entity",
-                "--id", "entity:test",
-                "--type", "Project",
-                "--name", "Test",
-                "--source", "source:test",
-                "--at", "2026-05-23T10:10:00Z",
-            ])
+            rc = main(
+                [
+                    "remember",
+                    "entity",
+                    "--id",
+                    "entity:test",
+                    "--type",
+                    "Project",
+                    "--name",
+                    "Test",
+                    "--source",
+                    "source:test",
+                    "--at",
+                    "2026-05-23T10:10:00Z",
+                ]
+            )
 
         assert rc == 1
         err = capsys.readouterr().err

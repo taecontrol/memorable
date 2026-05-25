@@ -151,9 +151,7 @@ def remember_entity_tool(
     except ProfileValidationError as e:
         return {"error": str(e)}
 
-    service = RememberEntityService(
-        repository=_context.entity_repo, profile=profile
-    )
+    service = RememberEntityService(repository=_context.entity_repo, profile=profile)
 
     timestamp = parse_iso_timestamp(at)
 
