@@ -23,7 +23,7 @@ The first package should provide commands shaped like:
 ```bash
 uvx memorable init
 uvx memorable doctor
-uvx memorable runtime start
+uvx memorable db start
 uvx memorable tracer run
 uvx memorable search "How does Memorable expose memory to agents?"
 uvx memorable mcp
@@ -46,9 +46,9 @@ The package contains the first implementation of:
 - the human CLI;
 - runtime diagnostics.
 
-Neo4j remains a runtime dependency, not something bundled into the Python package. Memorable may manage a local Neo4j container through `memorable runtime start`, and it may also connect to a user-supplied local Neo4j instance.
+Neo4j remains a runtime dependency, not something bundled into the Python package. Memorable may manage a local Neo4j container through `memorable db start`, and it may also connect to a user-supplied local Neo4j instance.
 
-The CLI owns product workflow. Docker or other runtime mechanisms are implementation details of local runtime management unless the user explicitly chooses to operate them directly.
+The CLI owns product workflow. Docker or other runtime mechanisms are implementation details of `memorable db start` unless the user explicitly chooses to operate them directly (via `memorable db eject`).
 
 ## Consequences
 
