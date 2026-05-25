@@ -24,6 +24,10 @@ from memorable.core.context import default_context
 from memorable.core.profile import ProfileValidationError
 from memorable.core.temporal import parse_iso_timestamp
 from memorable.core.tracer import TracerService
+from memorable.runtime.docker import eject as docker_eject
+from memorable.runtime.docker import is_remote_uri
+from memorable.runtime.docker import start as docker_start
+from memorable.runtime.docker import stop as docker_stop
 
 
 def _cmd_db_status(args: argparse.Namespace) -> int:
@@ -60,6 +64,59 @@ def _cmd_db_status(args: argparse.Namespace) -> int:
     }
 
     print(json.dumps(output, indent=2))
+    return 0
+
+
+def _cmd_db_start(args: argparse.Namespace) -> int:
+    """Start the local Neo4j container."""
+    base_path = Path(args.path) if args.path else None
+    config = load_runtime_config(base_path=base_path)
+
+    if is_remote_uri(config.neo4j.uri):
+        print(
+            "Using remote Neo4j, no local container to manage.",
+            file=sys.stderr,
+        )
+        return 1
+
+    result = docker_start(config)
+    if not result.success:
+        print(f"Error: {result.message}", file=sys.stderr)
+        return 1
+    print(result.message)
+    return 0
+
+
+def _cmd_db_stop(args: argparse.Namespace) -> int:
+    """Stop the local Neo4j container."""
+    base_path = Path(args.path) if args.path else None
+    config = load_runtime_config(base_path=base_path)
+
+    if is_remote_uri(config.neo4j.uri):
+        print(
+            "Using remote Neo4j, no local container to manage.",
+            file=sys.stderr,
+        )
+        return 1
+
+    result = docker_stop(config)
+    if not result.success:
+        print(f"Error: {result.message}", file=sys.stderr)
+        return 1
+    print(result.message)
+    return 0
+
+
+def _cmd_db_eject(args: argparse.Namespace) -> int:
+    """Copy compose template to .memorable/ for customization."""
+    base_path = Path(args.path) if args.path else Path.cwd()
+    target_dir = base_path / ".memorable"
+
+    result = docker_eject(target_dir)
+    if not result.success:
+        print(f"Error: {result.message}", file=sys.stderr)
+        return 1
+    print(result.message)
     return 0
 
 
@@ -481,6 +538,30 @@ def main(argv: list[str] | None = None) -> int:
         default=None,
         help="Base directory containing .memorable/ config (default: cwd).",
     )
+    db_start_parser = db_sub.add_parser(
+        "start", help="Start the local Neo4j container."
+    )
+    db_start_parser.add_argument(
+        "--path",
+        default=None,
+        help="Base directory containing .memorable/ config (default: cwd).",
+    )
+    db_stop_parser = db_sub.add_parser(
+        "stop", help="Stop the local Neo4j container."
+    )
+    db_stop_parser.add_argument(
+        "--path",
+        default=None,
+        help="Base directory containing .memorable/ config (default: cwd).",
+    )
+    db_eject_parser = db_sub.add_parser(
+        "eject", help="Copy compose template to .memorable/ for customization."
+    )
+    db_eject_parser.add_argument(
+        "--path",
+        default=None,
+        help="Base directory containing .memorable/ (default: cwd).",
+    )
 
     init_parser = subparsers.add_parser(
         "init", help="Initialize a MemorySpace from a MemoryProfile."
@@ -609,6 +690,12 @@ def main(argv: list[str] | None = None) -> int:
     elif args.command == "db":
         if args.db_type == "status":
             return _cmd_db_status(args)
+        elif args.db_type == "start":
+            return _cmd_db_start(args)
+        elif args.db_type == "stop":
+            return _cmd_db_stop(args)
+        elif args.db_type == "eject":
+            return _cmd_db_eject(args)
     elif args.command == "init":
         return _cmd_init(args)
     elif args.command == "remember":
