@@ -306,7 +306,19 @@ class InspectDecisionHistoryService:
 
     def history(self, *, space: str, decision_id: str) -> list[Decision]:
         """Return the supersession chain starting from the given Decision."""
-        return self._repository.get_history(space=space, decision_id=decision_id)
+        decision = self._repository.get(space=space, decision_id=decision_id)
+        if decision is None:
+            return []
+        chain = [decision]
+        while decision.superseded_by is not None:
+            next_decision = self._repository.get(
+                space=space, decision_id=decision.superseded_by
+            )
+            if next_decision is None:
+                break
+            chain.append(next_decision)
+            decision = next_decision
+        return chain
 
 
 class InspectProvenanceService:

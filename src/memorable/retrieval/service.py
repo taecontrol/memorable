@@ -360,9 +360,11 @@ class HybridRetrievalService:
                 f"temporal filter kept it because it was valid at {as_of.isoformat()}"
             )
 
-        # Supersession history context
-        history = self._decision_repo.get_history(space, decision.id)
-        if len(history) > 1 or decision.supersedes:
+        # Supersession history context (chain-walk via thin repo.get() calls)
+        has_chain = (
+            decision.superseded_by is not None or decision.supersedes is not None
+        )
+        if has_chain:
             supersession_parts = []
             if decision.supersedes:
                 old = self._decision_repo.get(space, decision.supersedes)

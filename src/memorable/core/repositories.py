@@ -80,19 +80,6 @@ class InMemoryDecisionRepository:
         """Return all decisions in the given space."""
         return [decision for (s, _), decision in self._decisions.items() if s == space]
 
-    def get_history(self, space: str, decision_id: str) -> list[Decision]:
-        decision = self.get(space, decision_id)
-        if decision is None:
-            return []
-        chain = [decision]
-        while decision.superseded_by is not None:
-            next_decision = self.get(space, decision.superseded_by)
-            if next_decision is None:
-                break
-            chain.append(next_decision)
-            decision = next_decision
-        return chain
-
     def mark_superseded(
         self,
         space: str,

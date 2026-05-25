@@ -264,29 +264,6 @@ class TestDecisionRepositoryPort:
             is None
         )
 
-    def test_get_history_returns_supersession_chain(self) -> None:
-        from memorable.core.repositories import (
-            InMemoryDecisionRepository,
-        )
-
-        repo = InMemoryDecisionRepository()
-        v1, prov1 = self._make_decision_v1()
-        v2, prov2 = self._make_decision_v2()
-
-        repo.save(v1, prov1)
-        repo.save(v2, prov2)
-        repo.mark_superseded(
-            space="memorable",
-            decision_id=V1_ID,
-            superseded_by=V2_ID,
-            invalidation_time=FIXTURE_TIMESTAMP_V2,
-        )
-
-        history = repo.get_history(space="memorable", decision_id=V1_ID)
-        assert len(history) == 2
-        assert history[0].id == V1_ID
-        assert history[1].id == V2_ID
-
     def test_mark_superseded_updates_old_decision(self) -> None:
         from memorable.core.repositories import (
             InMemoryDecisionRepository,
@@ -1429,6 +1406,118 @@ class TestPointInTimeTruthServiceOwnsProjection:
             at=FIXTURE_TIMESTAMP_V1,
         )
         assert result is None
+
+
+# =====================================================================
+# Thin repository / service-owned decision history tests (slice #33)
+# =====================================================================
+
+
+class TestDecisionRepositoryHasNoGetHistory:
+    """DecisionRepository protocol must not expose get_history (ADR 0009)."""
+
+    def test_protocol_has_no_get_history(self) -> None:
+        """get_history is not part of the DecisionRepository protocol."""
+        from memorable.core.ports import DecisionRepository
+
+        protocol_methods = {
+            name
+            for name in dir(DecisionRepository)
+            if not name.startswith("_")
+        }
+        assert "get_history" not in protocol_methods
+
+    def test_in_memory_repo_has_no_get_history(self) -> None:
+        """InMemoryDecisionRepository does not implement get_history."""
+        from memorable.core.repositories import InMemoryDecisionRepository
+
+        repo = InMemoryDecisionRepository()
+        assert not hasattr(repo, "get_history")
+
+
+class TestInspectDecisionHistoryServiceOwnsChainTraversal:
+    """InspectDecisionHistoryService owns the supersession chain traversal logic.
+
+    This replaces the former repo-level test_get_history_returns_supersession_chain.
+    The service composes thin repo.get() calls to walk the chain following
+    superseded_by links.
+    """
+
+    def _setup_chain(self):
+        from memorable.core.application import (
+            InspectDecisionHistoryService,
+            RememberDecisionService,
+        )
+        from memorable.core.profile import load_profile_from_yaml
+        from memorable.core.repositories import InMemoryDecisionRepository
+
+        repo = InMemoryDecisionRepository()
+        profile = load_profile_from_yaml(VALID_PROFILE_YAML)
+        remember = RememberDecisionService(repository=repo, profile=profile)
+
+        remember.remember(
+            space="memorable",
+            decision_id=V1_ID,
+            statement=STATEMENT_V1,
+            source_id=SOURCE_ID,
+            at=FIXTURE_TIMESTAMP_V1,
+        )
+        remember.remember(
+            space="memorable",
+            decision_id=V2_ID,
+            statement=STATEMENT_V2,
+            source_id=SOURCE_ID,
+            at=FIXTURE_TIMESTAMP_V2,
+            supersedes=V1_ID,
+        )
+
+        return InspectDecisionHistoryService(repository=repo), repo
+
+    def test_service_walks_supersession_chain(self) -> None:
+        """Service walks v1 -> v2 chain via repo.get() calls."""
+        service, _repo = self._setup_chain()
+
+        history = service.history(space="memorable", decision_id=V1_ID)
+
+        assert len(history) == 2
+        assert history[0].id == V1_ID
+        assert history[1].id == V2_ID
+
+    def test_service_returns_single_when_not_superseded(self) -> None:
+        from memorable.core.application import (
+            InspectDecisionHistoryService,
+            RememberDecisionService,
+        )
+        from memorable.core.profile import load_profile_from_yaml
+        from memorable.core.repositories import InMemoryDecisionRepository
+
+        repo = InMemoryDecisionRepository()
+        profile = load_profile_from_yaml(VALID_PROFILE_YAML)
+        remember = RememberDecisionService(repository=repo, profile=profile)
+
+        remember.remember(
+            space="memorable",
+            decision_id=V1_ID,
+            statement=STATEMENT_V1,
+            source_id=SOURCE_ID,
+            at=FIXTURE_TIMESTAMP_V1,
+        )
+
+        service = InspectDecisionHistoryService(repository=repo)
+        history = service.history(space="memorable", decision_id=V1_ID)
+
+        assert len(history) == 1
+        assert history[0].id == V1_ID
+
+    def test_service_returns_empty_for_missing(self) -> None:
+        from memorable.core.application import InspectDecisionHistoryService
+        from memorable.core.repositories import InMemoryDecisionRepository
+
+        repo = InMemoryDecisionRepository()
+        service = InspectDecisionHistoryService(repository=repo)
+
+        history = service.history(space="memorable", decision_id="decision:missing")
+        assert history == []
 
 
 # =====================================================================

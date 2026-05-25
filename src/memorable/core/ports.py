@@ -73,10 +73,6 @@ class DecisionRepository(Protocol):
         """Return all decisions in the given space."""
         ...
 
-    def get_history(self, space: str, decision_id: str) -> list[Decision]:
-        """Return the supersession chain starting from the given Decision."""
-        ...
-
     def mark_superseded(
         self,
         space: str,
