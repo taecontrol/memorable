@@ -81,3 +81,54 @@ class TestToolRegistration:
             assert tool.name.startswith("memorable/"), (
                 f"Tool {tool.name!r} missing memorable/ prefix"
             )
+
+
+# Core domain terms that must appear in at least one tool description.
+# These are from docs/ubiquitous-language.md accepted language.
+REQUIRED_DOMAIN_TERMS = {
+    "MemorySpace",
+    "MemoryProfile",
+    "Provenance",
+    "Current Truth",
+    "Point-In-Time",
+    "Supersession",
+    "Lifecycle State",
+    "Entity",
+    "Decision",
+    "Task",
+    "Source",
+    "Episode",
+    "Hybrid Retrieval",
+}
+
+# Storage vocabulary that must not leak into tool descriptions.
+AVOIDED_STORAGE_TERMS = {"node", "edge", "neo4j", "graphiti"}
+
+
+class TestToolDescriptions:
+    def test_every_tool_has_a_description(self) -> None:
+        tools = _list_tools()
+        for tool in tools:
+            assert tool.description, (
+                f"Tool {tool.name!r} has no description"
+            )
+
+    def test_descriptions_use_core_domain_terms(self) -> None:
+        tools = _list_tools()
+        all_descriptions = " ".join(t.description for t in tools)
+        missing = {
+            term for term in REQUIRED_DOMAIN_TERMS if term not in all_descriptions
+        }
+        assert not missing, (
+            f"Tool descriptions missing Memorable Core terms: {missing}"
+        )
+
+    def test_descriptions_avoid_storage_vocabulary(self) -> None:
+        tools = _list_tools()
+        all_descriptions = " ".join(t.description for t in tools).lower()
+        leaked = {
+            term for term in AVOIDED_STORAGE_TERMS if term in all_descriptions
+        }
+        assert not leaked, (
+            f"Tool descriptions leak storage vocabulary: {leaked}"
+        )
