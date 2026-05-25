@@ -14,6 +14,20 @@ Memorable is a project-scoped memory system for agents. Before changing the prod
 - Preserve temporal semantics: current truth, point-in-time truth, provenance, lifecycle transitions, correction, supersession, and append-first history are core product concerns.
 - Add or update an ADR when a decision changes architecture, storage strategy, core temporal behavior, profile semantics, or agent-facing interfaces.
 
+## Agent skills
+
+### Issue tracker
+
+Issues live in GitHub Issues on `taecontrol/memorable`. See `docs/agents/issue-tracker.md`.
+
+### Triage labels
+
+Default label vocabulary (needs-triage, needs-info, ready-for-agent, ready-for-human, wontfix). See `docs/agents/triage-labels.md`.
+
+### Domain docs
+
+Single-context layout — `docs/ubiquitous-language.md` + `docs/adr/` at the repo root. See `docs/agents/domain.md`.
+
 ## Commits
 
 - No Co-Authored-By: Claude … trailer on commits. AI is a tool, not a co-author.
