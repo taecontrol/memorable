@@ -116,7 +116,8 @@ class TestProvenanceModel:
         from memorable.core.models import Provenance
 
         prov = Provenance(
-            entity_id="entity:memorable",
+            record_id="entity:memorable",
+            record_kind="entity",
             source_id="source:tracer-fixture",
             episode_id="episode:tracer:2026-05-23T10:10:00Z",
             writer="agent:tracer-fixture",
@@ -124,7 +125,8 @@ class TestProvenanceModel:
             creation_time=FIXTURE_TIMESTAMP,
             validity_time=FIXTURE_TIMESTAMP,
         )
-        assert prov.entity_id == "entity:memorable"
+        assert prov.record_id == "entity:memorable"
+        assert prov.record_kind == "entity"
         assert prov.source_id == "source:tracer-fixture"
         assert prov.episode_id == "episode:tracer:2026-05-23T10:10:00Z"
         assert prov.writer == "agent:tracer-fixture"
@@ -153,7 +155,8 @@ class TestEntityRepositoryPort:
             space="memorable",
         )
         provenance = Provenance(
-            entity_id="entity:memorable",
+            record_id="entity:memorable",
+            record_kind="entity",
             source_id="source:tracer-fixture",
             episode_id="episode:tracer:2026-05-23T10:10:00Z",
             writer="agent:tracer-fixture",
@@ -180,7 +183,8 @@ class TestEntityRepositoryPort:
             space="memorable",
         )
         provenance = Provenance(
-            entity_id="entity:memorable",
+            record_id="entity:memorable",
+            record_kind="entity",
             source_id="source:tracer-fixture",
             episode_id="episode:tracer:2026-05-23T10:10:00Z",
             writer="agent:tracer-fixture",

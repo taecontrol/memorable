@@ -121,13 +121,14 @@ class TestTaskModel:
 
 
 class TestTaskProvenanceModel:
-    """TaskProvenance explains where a Task came from."""
+    """Provenance explains where a Task came from."""
 
     def test_task_provenance_has_required_fields(self) -> None:
-        from memorable.core.models import TaskProvenance
+        from memorable.core.models import Provenance
 
-        prov = TaskProvenance(
-            task_id=TASK_ID,
+        prov = Provenance(
+            record_id=TASK_ID,
+            record_kind="task",
             source_id=SOURCE_ID,
             episode_id="episode:tracer-fixture:2026-05-23T10:25:00+00:00",
             writer="agent:tracer-fixture",
@@ -135,7 +136,8 @@ class TestTaskProvenanceModel:
             creation_time=FIXTURE_TIMESTAMP_REMEMBER,
             validity_time=FIXTURE_TIMESTAMP_REMEMBER,
         )
-        assert prov.task_id == TASK_ID
+        assert prov.record_id == TASK_ID
+        assert prov.record_kind == "task"
         assert prov.source_id == SOURCE_ID
         assert prov.writer == "agent:tracer-fixture"
         assert prov.creation_time == FIXTURE_TIMESTAMP_REMEMBER
@@ -151,7 +153,7 @@ class TestTaskRepositoryPort:
     """InMemoryTaskRepository defines persistence for Tasks."""
 
     def _make_task(self):
-        from memorable.core.models import Task, TaskProvenance
+        from memorable.core.models import Provenance, Task
 
         task = Task(
             id=TASK_ID,
@@ -162,8 +164,9 @@ class TestTaskRepositoryPort:
             completion_time=None,
             completion_event_id=None,
         )
-        provenance = TaskProvenance(
-            task_id=TASK_ID,
+        provenance = Provenance(
+            record_id=TASK_ID,
+            record_kind="task",
             source_id=SOURCE_ID,
             episode_id="episode:tracer-fixture:2026-05-23T10:25:00+00:00",
             writer="agent:tracer-fixture",
