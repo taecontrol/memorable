@@ -212,3 +212,135 @@ class TestInMemoryObservationRepositoryInvalidate:
         updated = repo.get(space="memorable", observation_id=OBSERVATION_ID)
         assert updated is not None
         assert updated.invalidation_time == INVALIDATION_TIMESTAMP
+
+
+# =====================================================================
+# InvalidateService tests
+# =====================================================================
+
+
+class TestInvalidateServiceWithDecision:
+    """InvalidateService invalidates a Decision through TemporalRecordRepository."""
+
+    def _setup(self):
+        from memorable.core.application import InvalidateService, RememberDecisionService
+        from memorable.core.profile import load_profile_from_yaml
+        from memorable.core.repositories import InMemoryDecisionRepository
+
+        repo = InMemoryDecisionRepository()
+        profile = load_profile_from_yaml(VALID_PROFILE_YAML)
+        remember = RememberDecisionService(repository=repo, profile=profile)
+
+        remember.remember(
+            space="memorable",
+            decision_id=DECISION_ID,
+            statement="Use Graphiti for storage.",
+            source_id=SOURCE_ID,
+            at=FIXTURE_TIMESTAMP,
+        )
+
+        return InvalidateService(repository=repo), repo
+
+    def test_invalidate_sets_lifecycle_state_and_time(self) -> None:
+        service, repo = self._setup()
+
+        result = service.invalidate(
+            space="memorable",
+            record_id=DECISION_ID,
+            at=INVALIDATION_TIMESTAMP,
+        )
+
+        assert result.record_id == DECISION_ID
+        assert result.lifecycle_state == "invalidated"
+        assert result.invalidation_time == INVALIDATION_TIMESTAMP
+
+        # Verify in repository
+        stored = repo.get(space="memorable", decision_id=DECISION_ID)
+        assert stored is not None
+        assert stored.lifecycle_state == "invalidated"
+        assert stored.invalidation_time == INVALIDATION_TIMESTAMP
+
+    def test_invalidate_rejects_missing_record(self) -> None:
+        service, _repo = self._setup()
+
+        with pytest.raises(ValueError, match="not found"):
+            service.invalidate(
+                space="memorable",
+                record_id="decision:missing",
+                at=INVALIDATION_TIMESTAMP,
+            )
+
+    def test_invalidate_rejects_already_invalidated(self) -> None:
+        service, _repo = self._setup()
+
+        service.invalidate(
+            space="memorable",
+            record_id=DECISION_ID,
+            at=INVALIDATION_TIMESTAMP,
+        )
+
+        with pytest.raises(ValueError, match="already invalidated"):
+            service.invalidate(
+                space="memorable",
+                record_id=DECISION_ID,
+                at=INVALIDATION_TIMESTAMP,
+            )
+
+
+class TestInvalidateServiceWithObservation:
+    """InvalidateService invalidates an Observation through TemporalRecordRepository."""
+
+    def _setup(self):
+        from memorable.core.application import (
+            InvalidateService,
+            RememberObservationService,
+        )
+        from memorable.core.profile import load_profile_from_yaml
+        from memorable.core.repositories import InMemoryObservationRepository
+
+        repo = InMemoryObservationRepository()
+        profile = load_profile_from_yaml(VALID_PROFILE_YAML)
+        remember = RememberObservationService(repository=repo, profile=profile)
+
+        remember.remember(
+            space="memorable",
+            observation_id=OBSERVATION_ID,
+            statement="The team prefers async communication.",
+            source_id=SOURCE_ID,
+            at=FIXTURE_TIMESTAMP,
+        )
+
+        return InvalidateService(repository=repo), repo
+
+    def test_invalidate_observation(self) -> None:
+        service, repo = self._setup()
+
+        result = service.invalidate(
+            space="memorable",
+            record_id=OBSERVATION_ID,
+            at=INVALIDATION_TIMESTAMP,
+        )
+
+        assert result.record_id == OBSERVATION_ID
+        assert result.lifecycle_state == "invalidated"
+
+        stored = repo.get(space="memorable", observation_id=OBSERVATION_ID)
+        assert stored is not None
+        assert stored.lifecycle_state == "invalidated"
+        assert stored.invalidation_time == INVALIDATION_TIMESTAMP
+
+    def test_invalidate_observation_rejects_already_invalidated(self) -> None:
+        service, _repo = self._setup()
+
+        service.invalidate(
+            space="memorable",
+            record_id=OBSERVATION_ID,
+            at=INVALIDATION_TIMESTAMP,
+        )
+
+        with pytest.raises(ValueError, match="already invalidated"):
+            service.invalidate(
+                space="memorable",
+                record_id=OBSERVATION_ID,
+                at=INVALIDATION_TIMESTAMP,
+            )
