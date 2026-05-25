@@ -84,13 +84,13 @@ class TestListToolsOverStdio:
         assert tool_names == expected
 
     @pytest.mark.anyio
-    async def test_list_tools_returns_14_tools(self) -> None:
+    async def test_list_tools_returns_15_tools(self) -> None:
         async def _check(session):
             result = await session.list_tools()
             return len(result.tools)
 
         count = await _connect_and_run(_check)
-        assert count == 14
+        assert count == 15
 
 
 class TestCallToolOverStdio:

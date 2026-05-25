@@ -154,7 +154,7 @@ class TestInMemoryDecisionRepositoryInvalidate:
 
 
 class TestInMemoryObservationRepositoryInvalidate:
-    """InMemoryObservationRepository.invalidate() marks an Observation as invalidated."""
+    """InMemoryObservationRepository.invalidate() marks Observation as invalidated."""
 
     def _store_observation(self, repo):
         from memorable.core.models import Observation, Provenance
@@ -223,7 +223,10 @@ class TestInvalidateServiceWithDecision:
     """InvalidateService invalidates a Decision through TemporalRecordRepository."""
 
     def _setup(self):
-        from memorable.core.application import InvalidateService, RememberDecisionService
+        from memorable.core.application import (
+            InvalidateService,
+            RememberDecisionService,
+        )
         from memorable.core.profile import load_profile_from_yaml
         from memorable.core.repositories import InMemoryDecisionRepository
 
