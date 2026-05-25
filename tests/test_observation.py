@@ -273,3 +273,56 @@ class TestObservationRepositoryPort:
 
         repo = InMemoryObservationRepository()
         assert isinstance(repo, TemporalRecordRepository)
+
+
+# =====================================================================
+# ApplicationContext tests
+# =====================================================================
+
+
+class TestObservationInApplicationContext:
+    """observation_repo is wired into ApplicationContext."""
+
+    def test_context_has_observation_repo(self) -> None:
+        from memorable.core.context import ApplicationContext
+
+        ctx = ApplicationContext()
+        assert hasattr(ctx, "observation_repo")
+        assert ctx.observation_repo is not None
+
+    def test_default_context_has_observation_repo(self) -> None:
+        from memorable.core.context import default_context
+
+        assert hasattr(default_context, "observation_repo")
+        assert default_context.observation_repo is not None
+
+    def test_reset_clears_observation_repo(self) -> None:
+        from memorable.core.context import ApplicationContext
+        from memorable.core.models import Observation, Provenance
+        from memorable.core.repositories import InMemoryObservationRepository
+
+        ctx = ApplicationContext()
+        # Store something, then reset
+        obs = Observation(
+            id=V1_ID,
+            statement=STATEMENT_V1,
+            space="memorable",
+            validity_time=FIXTURE_TIMESTAMP_V1,
+            invalidation_time=None,
+            lifecycle_state="current",
+            supersedes=None,
+            superseded_by=None,
+        )
+        prov = Provenance(
+            record_id=V1_ID,
+            record_kind="observation",
+            source_id=SOURCE_ID,
+            episode_id="episode:test:2026-05-25T09:00:00+00:00",
+            writer="agent:test",
+            reason="test",
+            creation_time=FIXTURE_TIMESTAMP_V1,
+            validity_time=FIXTURE_TIMESTAMP_V1,
+        )
+        ctx.observation_repo.save(obs, prov)
+        ctx.reset()
+        assert ctx.observation_repo.get(space="memorable", observation_id=V1_ID) is None
