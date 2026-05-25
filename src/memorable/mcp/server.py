@@ -26,7 +26,7 @@ mcp_server = FastMCP("memorable")
 
 
 @mcp_server.tool(
-    name="memorable/status",
+    name="memorable_status",
     description=(
         "Return Memorable service diagnostics "
         "for the current MemorySpace scope."
@@ -37,7 +37,7 @@ def status_tool() -> dict[str, object]:
 
 
 @mcp_server.tool(
-    name="memorable/init_space",
+    name="memorable_init_space",
     description=(
         "Initialize a MemorySpace from a project's MemoryProfile "
         "(.memorable/memory.yaml). Returns space info or an error."
@@ -73,7 +73,7 @@ def init_space_tool(base_path: str) -> dict[str, object]:
 
 
 @mcp_server.tool(
-    name="memorable/inspect_space",
+    name="memorable_inspect_space",
     description=(
         "Inspect a project's MemoryProfile without initializing the MemorySpace. "
         "Returns Entity types, MemoryRecord types, and Write Policy."
@@ -112,7 +112,7 @@ def inspect_space_tool(base_path: str) -> dict[str, object]:
 
 
 @mcp_server.tool(
-    name="memorable/remember_entity",
+    name="memorable_remember_entity",
     description=(
         "Remember an Entity with Provenance in a MemorySpace. "
         "Records the Source, Episode, Validity Time, and writer."
@@ -173,7 +173,7 @@ def remember_entity_tool(
 
 
 @mcp_server.tool(
-    name="memorable/remember_decision",
+    name="memorable_remember_decision",
     description=(
         "Remember a Decision with Provenance in a MemorySpace. "
         "Supports Supersession to replace an earlier Decision."
@@ -234,7 +234,7 @@ def remember_decision_tool(
 
 
 @mcp_server.tool(
-    name="memorable/current_truth",
+    name="memorable_current_truth",
     description=(
         "Get the Current Truth for a Decision by following its Supersession chain. "
         "Returns the active Decision or an error if not found."
@@ -266,7 +266,7 @@ def current_truth_tool(
 
 
 @mcp_server.tool(
-    name="memorable/point_in_time_truth",
+    name="memorable_point_in_time_truth",
     description=(
         "Get the Point-In-Time Truth for a Decision at a specific timestamp. "
         "Returns the Decision that was valid at that time."
@@ -301,7 +301,7 @@ def point_in_time_truth_tool(
 
 
 @mcp_server.tool(
-    name="memorable/inspect_decision_history",
+    name="memorable_inspect_decision_history",
     description=(
         "Inspect the full Supersession chain for a Decision. "
         "Returns Lifecycle State, Validity Time, "
@@ -344,7 +344,7 @@ def inspect_decision_history_tool(
 
 
 @mcp_server.tool(
-    name="memorable/inspect_provenance",
+    name="memorable_inspect_provenance",
     description=(
         "Inspect Provenance for a remembered Entity. "
         "Returns Source, Episode, writer, reason, Creation Time, and Validity Time."
@@ -379,7 +379,7 @@ def inspect_provenance_tool(
 
 
 @mcp_server.tool(
-    name="memorable/remember_task",
+    name="memorable_remember_task",
     description=(
         "Remember a Task with Provenance in a MemorySpace. "
         "Tasks have a Lifecycle State and support completion transitions."
@@ -436,7 +436,7 @@ def remember_task_tool(
 
 
 @mcp_server.tool(
-    name="memorable/complete_task",
+    name="memorable_complete_task",
     description=(
         "Complete a Task in a MemorySpace. "
         "Records the Lifecycle State transition and completion Event."
@@ -477,7 +477,7 @@ def complete_task_tool(
 
 
 @mcp_server.tool(
-    name="memorable/search_memory",
+    name="memorable_search_memory",
     description=(
         "Search memory using Hybrid Retrieval (GraphRAG). "
         "Combines semantic similarity, graph expansion, "
@@ -534,7 +534,7 @@ def search_memory_tool(
 
 
 @mcp_server.tool(
-    name="memorable/tracer_run",
+    name="memorable_tracer_run",
     description=(
         "Run the tracer-bullet fixture and return structured verification results. "
         "Proves end-to-end composition across Entity, Decision, Task, "
@@ -555,7 +555,7 @@ def tracer_run_tool() -> dict[str, object]:
 
 
 @mcp_server.tool(
-    name="memorable/inspect_task",
+    name="memorable_inspect_task",
     description=(
         "Inspect a Task's Lifecycle State at the current time "
         "or as-of a Point-In-Time. "

@@ -3,7 +3,7 @@
 Verifies:
 - FastMCP server instance is created with name "memorable"
 - All 14 handler functions are registered as MCP tools
-- Each tool name uses the memorable/ prefix
+- Each tool name uses the memorable_ prefix
 - Tool descriptions use Memorable Core language
 - Tools are callable through call_tool() and return expected shapes
 - Entry points wire to mcp.run() with stdio transport
@@ -49,20 +49,20 @@ class TestFastMCPServerInstance:
 
 
 EXPECTED_TOOL_NAMES = {
-    "memorable/status",
-    "memorable/init_space",
-    "memorable/inspect_space",
-    "memorable/remember_entity",
-    "memorable/remember_decision",
-    "memorable/current_truth",
-    "memorable/point_in_time_truth",
-    "memorable/inspect_decision_history",
-    "memorable/inspect_provenance",
-    "memorable/remember_task",
-    "memorable/complete_task",
-    "memorable/search_memory",
-    "memorable/inspect_task",
-    "memorable/tracer_run",
+    "memorable_status",
+    "memorable_init_space",
+    "memorable_inspect_space",
+    "memorable_remember_entity",
+    "memorable_remember_decision",
+    "memorable_current_truth",
+    "memorable_point_in_time_truth",
+    "memorable_inspect_decision_history",
+    "memorable_inspect_provenance",
+    "memorable_remember_task",
+    "memorable_complete_task",
+    "memorable_search_memory",
+    "memorable_inspect_task",
+    "memorable_tracer_run",
 }
 
 
@@ -78,8 +78,8 @@ class TestToolRegistration:
     def test_every_tool_name_has_memorable_prefix(self) -> None:
         tools = _list_tools()
         for tool in tools:
-            assert tool.name.startswith("memorable/"), (
-                f"Tool {tool.name!r} missing memorable/ prefix"
+            assert tool.name.startswith("memorable_"), (
+                f"Tool {tool.name!r} missing memorable_ prefix"
             )
 
 
@@ -143,7 +143,7 @@ def _call_tool(name: str, arguments: dict) -> object:
 
 class TestCallToolSuccessPath:
     def test_status_tool_returns_diagnostic_payload(self) -> None:
-        result = _call_tool("memorable/status", {})
+        result = _call_tool("memorable_status", {})
         # call_tool returns a tuple of (content_blocks, structured_result)
         _, structured = result
         assert structured["product"] == "Memorable"
@@ -153,7 +153,7 @@ class TestCallToolSuccessPath:
     def test_status_tool_result_uses_core_language(self) -> None:
         import json
 
-        result = _call_tool("memorable/status", {})
+        result = _call_tool("memorable_status", {})
         _, structured = result
         text = json.dumps(structured).lower()
         assert "node" not in text
@@ -163,7 +163,7 @@ class TestCallToolSuccessPath:
 class TestCallToolErrorPath:
     def test_current_truth_returns_error_for_missing_decision(self) -> None:
         result = _call_tool(
-            "memorable/current_truth",
+            "memorable_current_truth",
             {"space": "nonexistent", "decision_id": "no-such-decision"},
         )
         _, structured = result
@@ -173,7 +173,7 @@ class TestCallToolErrorPath:
 
     def test_error_response_uses_domain_language(self) -> None:
         result = _call_tool(
-            "memorable/current_truth",
+            "memorable_current_truth",
             {"space": "test-space", "decision_id": "missing"},
         )
         _, structured = result
