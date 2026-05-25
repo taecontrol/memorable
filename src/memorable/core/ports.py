@@ -62,6 +62,15 @@ class TemporalRecordRepository(Protocol):
         """Mark a temporal record as superseded by another."""
         ...
 
+    def invalidate(
+        self,
+        space: str,
+        record_id: str,
+        invalidation_time: datetime,
+    ) -> None:
+        """Mark a temporal record as invalidated (no replacement)."""
+        ...
+
 
 class MemorySpaceRepository(Protocol):
     """Port for MemorySpace persistence."""
