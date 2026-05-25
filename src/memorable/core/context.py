@@ -13,6 +13,7 @@ from memorable.core.ports import (
     DecisionRepository,
     EntityRepository,
     MemorySpaceRepository,
+    ObservationRepository,
     TaskRepository,
 )
 from memorable.core.profile import MemoryProfile, load_profile_from_yaml
@@ -20,6 +21,7 @@ from memorable.core.repositories import (
     InMemoryDecisionRepository,
     InMemoryEntityRepository,
     InMemoryMemorySpaceRepository,
+    InMemoryObservationRepository,
     InMemoryTaskRepository,
 )
 
@@ -55,11 +57,13 @@ class ApplicationContext:
         entity_repo: EntityRepository | None = None,
         decision_repo: DecisionRepository | None = None,
         task_repo: TaskRepository | None = None,
+        observation_repo: ObservationRepository | None = None,
         memory_space_repo: MemorySpaceRepository | None = None,
     ) -> None:
         self.entity_repo = entity_repo or InMemoryEntityRepository()
         self.decision_repo = decision_repo or InMemoryDecisionRepository()
         self.task_repo = task_repo or InMemoryTaskRepository()
+        self.observation_repo = observation_repo or InMemoryObservationRepository()
         self.memory_space_repo = memory_space_repo or InMemoryMemorySpaceRepository()
         self._profiles: dict[str, MemoryProfile] = {}
 
@@ -108,6 +112,7 @@ class ApplicationContext:
         self.entity_repo = InMemoryEntityRepository()
         self.decision_repo = InMemoryDecisionRepository()
         self.task_repo = InMemoryTaskRepository()
+        self.observation_repo = InMemoryObservationRepository()
         self.memory_space_repo = InMemoryMemorySpaceRepository()
         self._profiles.clear()
 
