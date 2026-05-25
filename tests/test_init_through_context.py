@@ -45,13 +45,19 @@ def test_constructor_injection_of_memory_space_repo() -> None:
 def test_cli_init_twice_reports_already_exists(tmp_path: object) -> None:
     """Running init twice on the same space reports 'already exists' the second time.
 
-    This proves the CLI init command uses a shared repository (via
-    ApplicationContext) rather than a throwaway one.
+    This proves the CLI init command uses a persistent repository (via
+    production context) rather than a throwaway one. The test mocks the
+    production context factory to use a shared in-memory ApplicationContext.
     """
     import json
+    import sys
+    from io import StringIO
     from pathlib import Path
+    from unittest.mock import MagicMock, patch
 
-    from memorable.core.context import default_context
+    from memorable.cli import main
+    from memorable.config import RuntimeConfig
+    from memorable.core.context import ApplicationContext
 
     tmp = Path(str(tmp_path))
 
@@ -71,36 +77,36 @@ def test_cli_init_twice_reports_already_exists(tmp_path: object) -> None:
         encoding="utf-8",
     )
 
-    # Reset context so we start clean
-    default_context.reset()
+    # Shared context so the second init sees the first's MemorySpace
+    shared_ctx = ApplicationContext()
+    mock_driver = MagicMock()
 
-    import sys
-    from io import StringIO
+    with (
+        patch("memorable.cli.build_production_context") as mock_build,
+        patch("memorable.cli.ensure_all_constraints"),
+        patch("memorable.cli.load_runtime_config", return_value=RuntimeConfig()),
+    ):
+        mock_build.return_value = (shared_ctx, mock_driver)
 
-    from memorable.cli import main
+        # First init
+        old_stdout = sys.stdout
+        sys.stdout = captured = StringIO()
+        try:
+            rc1 = main(["init", "--path", str(tmp)])
+        finally:
+            sys.stdout = old_stdout
+        first_output = json.loads(captured.getvalue())
 
-    # First init
-    old_stdout = sys.stdout
-    sys.stdout = captured = StringIO()
-    try:
-        rc1 = main(["init", "--path", str(tmp)])
-    finally:
-        sys.stdout = old_stdout
-    first_output = json.loads(captured.getvalue())
+        assert rc1 == 0
+        assert first_output["status"] == "initialized"
 
-    assert rc1 == 0
-    assert first_output["status"] == "initialized"
+        # Second init -- should report "already exists"
+        sys.stdout = captured2 = StringIO()
+        try:
+            rc2 = main(["init", "--path", str(tmp)])
+        finally:
+            sys.stdout = old_stdout
+        second_output = json.loads(captured2.getvalue())
 
-    # Second init -- should report "already exists"
-    sys.stdout = captured2 = StringIO()
-    try:
-        rc2 = main(["init", "--path", str(tmp)])
-    finally:
-        sys.stdout = old_stdout
-    second_output = json.loads(captured2.getvalue())
-
-    assert rc2 == 0
-    assert second_output["status"] == "already exists"
-
-    # Clean up: reset context to avoid leaking state to other tests
-    default_context.reset()
+        assert rc2 == 0
+        assert second_output["status"] == "already exists"

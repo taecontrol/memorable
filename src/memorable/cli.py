@@ -28,6 +28,8 @@ from memorable.runtime.docker import eject as docker_eject
 from memorable.runtime.docker import is_remote_uri
 from memorable.runtime.docker import start as docker_start
 from memorable.runtime.docker import stop as docker_stop
+from memorable.storage.neo4j.repository import ensure_all_constraints
+from memorable.storage.production import build_production_context
 
 
 def _cmd_db_status(args: argparse.Namespace) -> int:
@@ -121,7 +123,11 @@ def _cmd_db_eject(args: argparse.Namespace) -> int:
 
 
 def _cmd_init(args: argparse.Namespace) -> int:
-    """Initialize a MemorySpace from .memorable/memory.yaml."""
+    """Initialize a MemorySpace from .memorable/memory.yaml.
+
+    Uses the production Neo4j context: bootstraps schema constraints,
+    creates the MemorySpace, and closes the driver on exit.
+    """
     base_path = Path(args.path) if args.path else Path.cwd()
     profile_path = base_path / ".memorable" / "memory.yaml"
 
@@ -135,26 +141,39 @@ def _cmd_init(args: argparse.Namespace) -> int:
 
     yaml_text = profile_path.read_text(encoding="utf-8")
 
-    service = InitService(repository=default_context.memory_space_repo)
+    config = load_runtime_config(base_path=base_path)
 
     try:
-        result = service.initialize(yaml_text)
-    except ProfileValidationError as e:
+        ctx, driver = build_production_context(config)
+    except ConnectionError as e:
         print(f"Error: {e}", file=sys.stderr)
         return 1
 
-    status = "already exists" if result.already_existed else "initialized"
-    print(
-        json.dumps(
-            {
-                "space": result.space.name,
-                "status": status,
-                "profile_version": result.profile.version,
-            },
-            sort_keys=True,
+    try:
+        ensure_all_constraints(driver)
+
+        service = InitService(repository=ctx.memory_space_repo)
+
+        try:
+            result = service.initialize(yaml_text)
+        except ProfileValidationError as e:
+            print(f"Error: {e}", file=sys.stderr)
+            return 1
+
+        status = "already exists" if result.already_existed else "initialized"
+        print(
+            json.dumps(
+                {
+                    "space": result.space.name,
+                    "status": status,
+                    "profile_version": result.profile.version,
+                },
+                sort_keys=True,
+            )
         )
-    )
-    return 0
+        return 0
+    finally:
+        driver.close()
 
 
 def _cmd_remember_entity(args: argparse.Namespace) -> int:
