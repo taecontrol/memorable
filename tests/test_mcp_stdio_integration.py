@@ -73,7 +73,7 @@ class TestListToolsOverStdio:
             "memorable_remember_decision",
             "memorable_current_truth",
             "memorable_point_in_time_truth",
-            "memorable_inspect_decision_history",
+            "memorable_inspect_history",
             "memorable_inspect_provenance",
             "memorable_remember_task",
             "memorable_complete_task",

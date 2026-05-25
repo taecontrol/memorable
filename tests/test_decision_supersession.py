@@ -478,7 +478,7 @@ class TestCurrentTruthService:
     def test_current_truth_returns_superseding(self) -> None:
         service, _repo = self._setup_chain()
 
-        result = service.current(space="memorable", decision_id=V1_ID)
+        result = service.current(space="memorable", record_id=V1_ID)
 
         assert result is not None
         assert result.id == V2_ID
@@ -508,7 +508,7 @@ class TestCurrentTruthService:
         )
 
         service = CurrentTruthService(repository=repo)
-        result = service.current(space="memorable", decision_id=V1_ID)
+        result = service.current(space="memorable", record_id=V1_ID)
 
         assert result is not None
         assert result.id == V1_ID
@@ -522,7 +522,7 @@ class TestCurrentTruthService:
         repo = InMemoryDecisionRepository()
         service = CurrentTruthService(repository=repo)
 
-        result = service.current(space="memorable", decision_id="decision:missing")
+        result = service.current(space="memorable", record_id="decision:missing")
         assert result is None
 
 
@@ -565,7 +565,7 @@ class TestPointInTimeTruthService:
         service, _repo = self._setup_chain()
 
         at_1017 = datetime(2026, 5, 23, 10, 17, 0, tzinfo=UTC)
-        result = service.at(space="memorable", decision_id=V1_ID, at=at_1017)
+        result = service.at(space="memorable", record_id=V1_ID, at=at_1017)
 
         assert result is not None
         assert result.id == V1_ID
@@ -574,7 +574,7 @@ class TestPointInTimeTruthService:
         service, _repo = self._setup_chain()
 
         at_1021 = datetime(2026, 5, 23, 10, 21, 0, tzinfo=UTC)
-        result = service.at(space="memorable", decision_id=V1_ID, at=at_1021)
+        result = service.at(space="memorable", record_id=V1_ID, at=at_1021)
 
         assert result is not None
         assert result.id == V2_ID
@@ -592,7 +592,7 @@ class TestPointInTimeTruthService:
 
         result = service.at(
             space="memorable",
-            decision_id="decision:missing",
+            record_id="decision:missing",
             at=FIXTURE_TIMESTAMP_V1,
         )
         assert result is None
@@ -636,7 +636,7 @@ class TestInspectDecisionHistoryService:
     def test_history_returns_full_chain(self) -> None:
         service, _repo = self._setup_chain()
 
-        history = service.history(space="memorable", decision_id=V1_ID)
+        history = service.history(space="memorable", record_id=V1_ID)
 
         assert len(history) == 2
         assert history[0].id == V1_ID
@@ -665,7 +665,7 @@ class TestInspectDecisionHistoryService:
         )
 
         service = InspectDecisionHistoryService(repository=repo)
-        history = service.history(space="memorable", decision_id=V1_ID)
+        history = service.history(space="memorable", record_id=V1_ID)
 
         assert len(history) == 1
         assert history[0].id == V1_ID
@@ -681,7 +681,7 @@ class TestInspectDecisionHistoryService:
         repo = InMemoryDecisionRepository()
         service = InspectDecisionHistoryService(repository=repo)
 
-        history = service.history(space="memorable", decision_id="decision:missing")
+        history = service.history(space="memorable", record_id="decision:missing")
         assert history == []
 
 
@@ -1118,16 +1118,16 @@ class TestMCPPointInTimeTruth:
 
 
 class TestMCPInspectDecisionHistory:
-    """MCP inspect_decision_history_tool returns the chain."""
+    """MCP inspect_history_tool returns the chain for decisions."""
 
     def setup_method(self) -> None:
         from memorable.core.context import default_context
 
         default_context.reset()
 
-    def test_inspect_decision_history_tool(self) -> None:
+    def test_inspect_history_tool_for_decisions(self) -> None:
         from memorable.mcp.server import (
-            inspect_decision_history_tool,
+            inspect_history_tool,
             remember_decision_tool,
         )
 
@@ -1147,14 +1147,15 @@ class TestMCPInspectDecisionHistory:
             supersedes=V1_ID,
         )
 
-        result = inspect_decision_history_tool(
+        result = inspect_history_tool(
             space="memorable",
-            decision_id=V1_ID,
+            record_id=V1_ID,
+            record_type="decision",
         )
 
         assert "error" not in result
         assert len(result["history"]) == 2
-        ids = [h["decision_id"] for h in result["history"]]
+        ids = [h["record_id"] for h in result["history"]]
         assert ids == [V1_ID, V2_ID]
 
 
@@ -1224,7 +1225,7 @@ class TestCurrentTruthServiceOwnsChainWalking:
         """Service walks v1 -> v2 chain via repo.get() calls."""
         service, _repo = self._setup_chain()
 
-        result = service.current(space="memorable", decision_id=V1_ID)
+        result = service.current(space="memorable", record_id=V1_ID)
 
         assert result is not None
         assert result.id == V2_ID
@@ -1251,7 +1252,7 @@ class TestCurrentTruthServiceOwnsChainWalking:
         )
 
         service = CurrentTruthService(repository=repo)
-        result = service.current(space="memorable", decision_id=V1_ID)
+        result = service.current(space="memorable", record_id=V1_ID)
 
         assert result is not None
         assert result.id == V1_ID
@@ -1263,7 +1264,7 @@ class TestCurrentTruthServiceOwnsChainWalking:
         repo = InMemoryDecisionRepository()
         service = CurrentTruthService(repository=repo)
 
-        result = service.current(space="memorable", decision_id="decision:missing")
+        result = service.current(space="memorable", record_id="decision:missing")
         assert result is None
 
 
@@ -1335,13 +1336,13 @@ class TestPointInTimeTruthServiceOwnsProjection:
         service, _repo = self._setup_chain()
 
         at_1017 = datetime(2026, 5, 23, 10, 17, 0, tzinfo=UTC)
-        result_v1 = service.at(space="memorable", decision_id=V1_ID, at=at_1017)
+        result_v1 = service.at(space="memorable", record_id=V1_ID, at=at_1017)
 
         assert result_v1 is not None
         assert result_v1.id == V1_ID
 
         at_1021 = datetime(2026, 5, 23, 10, 21, 0, tzinfo=UTC)
-        result_v2 = service.at(space="memorable", decision_id=V1_ID, at=at_1021)
+        result_v2 = service.at(space="memorable", record_id=V1_ID, at=at_1021)
 
         assert result_v2 is not None
         assert result_v2.id == V2_ID
@@ -1368,7 +1369,7 @@ class TestPointInTimeTruthServiceOwnsProjection:
 
         service = PointInTimeTruthService(repository=repo)
         at_1017 = datetime(2026, 5, 23, 10, 17, 0, tzinfo=UTC)
-        result = service.at(space="memorable", decision_id=V1_ID, at=at_1017)
+        result = service.at(space="memorable", record_id=V1_ID, at=at_1017)
 
         assert result is not None
         assert result.id == V1_ID
@@ -1382,7 +1383,7 @@ class TestPointInTimeTruthServiceOwnsProjection:
 
         result = service.at(
             space="memorable",
-            decision_id="decision:missing",
+            record_id="decision:missing",
             at=FIXTURE_TIMESTAMP_V1,
         )
         assert result is None
@@ -1455,7 +1456,7 @@ class TestInspectDecisionHistoryServiceOwnsChainTraversal:
         """Service walks v1 -> v2 chain via repo.get() calls."""
         service, _repo = self._setup_chain()
 
-        history = service.history(space="memorable", decision_id=V1_ID)
+        history = service.history(space="memorable", record_id=V1_ID)
 
         assert len(history) == 2
         assert history[0].id == V1_ID
@@ -1482,7 +1483,7 @@ class TestInspectDecisionHistoryServiceOwnsChainTraversal:
         )
 
         service = InspectDecisionHistoryService(repository=repo)
-        history = service.history(space="memorable", decision_id=V1_ID)
+        history = service.history(space="memorable", record_id=V1_ID)
 
         assert len(history) == 1
         assert history[0].id == V1_ID
@@ -1494,7 +1495,7 @@ class TestInspectDecisionHistoryServiceOwnsChainTraversal:
         repo = InMemoryDecisionRepository()
         service = InspectDecisionHistoryService(repository=repo)
 
-        history = service.history(space="memorable", decision_id="decision:missing")
+        history = service.history(space="memorable", record_id="decision:missing")
         assert history == []
 
 
@@ -1573,7 +1574,7 @@ class TestChainWalkingCycleProtection:
         repo = self._make_cyclic_repo()
         service = CurrentTruthService(repository=repo)
 
-        result = service.current(space="memorable", decision_id=V1_ID)
+        result = service.current(space="memorable", record_id=V1_ID)
 
         # Must return a decision (not hang forever)
         assert result is not None
@@ -1587,7 +1588,7 @@ class TestChainWalkingCycleProtection:
         service = PointInTimeTruthService(repository=repo)
 
         at_query = datetime(2026, 5, 23, 10, 25, 0, tzinfo=UTC)
-        result = service.at(space="memorable", decision_id=V1_ID, at=at_query)
+        result = service.at(space="memorable", record_id=V1_ID, at=at_query)
 
         # Must return a decision (not hang forever)
         assert result is not None
@@ -1600,7 +1601,7 @@ class TestChainWalkingCycleProtection:
         repo = self._make_cyclic_repo()
         service = InspectDecisionHistoryService(repository=repo)
 
-        history = service.history(space="memorable", decision_id=V1_ID)
+        history = service.history(space="memorable", record_id=V1_ID)
 
         # Must return a finite list (not hang forever)
         assert isinstance(history, list)

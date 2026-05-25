@@ -9,7 +9,7 @@ from memorable.core.application import (
     CompleteTaskService,
     CurrentTruthService,
     InitService,
-    InspectDecisionHistoryService,
+    InspectHistoryService,
     InspectProvenanceService,
     InspectTaskService,
     PointInTimeTruthService,
@@ -260,7 +260,7 @@ def current_truth_tool(
     Returns decision details on success, or an error dict on failure.
     """
     service = CurrentTruthService(repository=_context.decision_repo)
-    decision = service.current(space=space, decision_id=decision_id)
+    decision = service.current(space=space, record_id=decision_id)
 
     if decision is None:
         return {
@@ -294,7 +294,7 @@ def point_in_time_truth_tool(
     """
     service = PointInTimeTruthService(repository=_context.decision_repo)
     timestamp = parse_iso_timestamp(at)
-    decision = service.at(space=space, decision_id=decision_id, at=timestamp)
+    decision = service.at(space=space, record_id=decision_id, at=timestamp)
 
     if decision is None:
         return {
@@ -312,44 +312,60 @@ def point_in_time_truth_tool(
 
 
 @mcp_server.tool(
-    name="memorable_inspect_decision_history",
+    name="memorable_inspect_history",
     description=(
-        "Inspect the full Supersession chain for a Decision. "
+        "Inspect the full Supersession chain for a temporal record. "
+        "Accepts a record_type to select the repository. "
         "Returns Lifecycle State, Validity Time, "
         "and Invalidation Time for each version."
     ),
 )
-def inspect_decision_history_tool(
+def inspect_history_tool(
     space: str,
-    decision_id: str,
+    record_id: str,
+    record_type: str = "decision",
 ) -> dict[str, object]:
-    """Inspect the full supersession chain for a Decision.
+    """Inspect the full supersession chain for a temporal record.
+
+    Args:
+        space: MemorySpace to search in.
+        record_id: ID of the record to inspect.
+        record_type: Type of record ("decision" initially).
 
     Returns the history on success, or an error dict on failure.
     """
-    service = InspectDecisionHistoryService(repository=_context.decision_repo)
-    history = service.history(space=space, decision_id=decision_id)
+    if record_type == "decision":
+        repository = _context.decision_repo
+    else:
+        return {
+            "error": f"Unknown record_type '{record_type}'. "
+            f"Supported types: decision."
+        }
+
+    service = InspectHistoryService(repository=repository)
+    history = service.history(space=space, record_id=record_id)
 
     if not history:
         return {
-            "error": f"No Decision found for '{decision_id}' in MemorySpace '{space}'."
+            "error": f"No record found for '{record_id}' "
+            f"in MemorySpace '{space}'."
         }
 
     return {
-        "decision_id": decision_id,
+        "record_id": record_id,
+        "record_type": record_type,
         "history": [
             {
-                "decision_id": d.id,
-                "statement": d.statement,
-                "lifecycle_state": d.lifecycle_state,
-                "validity_time": d.validity_time.isoformat(),
+                "record_id": r.id,
+                "lifecycle_state": r.lifecycle_state,
+                "validity_time": r.validity_time.isoformat(),
                 "invalidation_time": (
-                    d.invalidation_time.isoformat() if d.invalidation_time else None
+                    r.invalidation_time.isoformat() if r.invalidation_time else None
                 ),
-                "supersedes": d.supersedes,
-                "superseded_by": d.superseded_by,
+                "supersedes": r.supersedes,
+                "superseded_by": r.superseded_by,
             }
-            for d in history
+            for r in history
         ],
     }
 

@@ -12,7 +12,7 @@ from memorable.core.application import (
     CompleteTaskService,
     CurrentTruthService,
     InitService,
-    InspectDecisionHistoryService,
+    InspectHistoryService,
     InspectProvenanceService,
     InspectTaskService,
     PointInTimeTruthService,
@@ -352,7 +352,7 @@ def _cmd_truth_current(args: argparse.Namespace, ctx: ApplicationContext) -> int
     space = resolve_space(getattr(args, "space", None))
 
     service = CurrentTruthService(repository=ctx.decision_repo)
-    decision = service.current(space=space, decision_id=args.id)
+    decision = service.current(space=space, record_id=args.id)
 
     if decision is None:
         print(
@@ -382,7 +382,7 @@ def _cmd_truth_as_of(args: argparse.Namespace, ctx: ApplicationContext) -> int:
 
     service = PointInTimeTruthService(repository=ctx.decision_repo)
     at = parse_iso_timestamp(args.at)
-    decision = service.at(space=space, decision_id=args.id, at=at)
+    decision = service.at(space=space, record_id=args.id, at=at)
 
     if decision is None:
         print(
@@ -411,8 +411,8 @@ def _cmd_inspect_history(args: argparse.Namespace, ctx: ApplicationContext) -> i
     """Show the full supersession chain for a Decision."""
     space = resolve_space(getattr(args, "space", None))
 
-    service = InspectDecisionHistoryService(repository=ctx.decision_repo)
-    history = service.history(space=space, decision_id=args.id)
+    service = InspectHistoryService(repository=ctx.decision_repo)
+    history = service.history(space=space, record_id=args.id)
 
     if not history:
         print(

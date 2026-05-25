@@ -340,7 +340,7 @@ class HybridRetrievalService:
             lifecycle_state = decision.lifecycle_state
         elif mode == "as-of" and as_of is not None:
             pit_decision = self._point_in_time_service.at(
-                space=space, decision_id=decision.id, at=as_of
+                space=space, record_id=decision.id, at=as_of
             )
             if pit_decision is None:
                 return None

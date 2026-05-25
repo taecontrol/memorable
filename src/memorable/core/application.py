@@ -16,6 +16,8 @@ from memorable.core.ports import (
     EntityRepository,
     MemorySpaceRepository,
     TaskRepository,
+    TemporalRecord,
+    TemporalRecordRepository,
 )
 from memorable.core.profile import MemoryProfile, load_profile_from_yaml
 from memorable.core.temporal import make_episode_id
@@ -253,43 +255,54 @@ class RememberDecisionService:
 
 
 class CurrentTruthService:
-    """Application service that follows supersession chain to find current Decision."""
+    """Application service that follows supersession chain to find the current record.
 
-    def __init__(self, repository: DecisionRepository) -> None:
+    Works with any repository satisfying TemporalRecordRepository: the returned
+    record must have id, superseded_by, and lifecycle_state attributes.
+    """
+
+    def __init__(self, repository: TemporalRecordRepository) -> None:
         self._repository = repository
 
-    def current(self, *, space: str, decision_id: str) -> Decision | None:
-        """Return the current Decision, following the supersession chain."""
-        decision = self._repository.get(space=space, decision_id=decision_id)
-        if decision is None:
+    def current(self, *, space: str, record_id: str) -> TemporalRecord | None:
+        """Return the current record, following the supersession chain."""
+        # Positional call: DecisionRepository.get() uses 'decision_id' while
+        # TemporalRecordRepository uses 'record_id'. Positional avoids mismatch.
+        record = self._repository.get(space, record_id)
+        if record is None:
             return None
-        visited: set[str] = {decision.id}
-        while decision.superseded_by is not None:
-            if decision.superseded_by in visited:
+        visited: set[str] = {record.id}
+        while record.superseded_by is not None:
+            if record.superseded_by in visited:
                 break
-            visited.add(decision.superseded_by)
-            next_decision = self._repository.get(
-                space=space, decision_id=decision.superseded_by
-            )
-            if next_decision is None:
+            visited.add(record.superseded_by)
+            next_record = self._repository.get(space, record.superseded_by)
+            if next_record is None:
                 break
-            decision = next_decision
-        return decision
+            record = next_record
+        return record
 
 
 class PointInTimeTruthService:
-    """Application service that returns the Decision valid at a specific time."""
+    """Application service that returns the record valid at a specific time.
 
-    def __init__(self, repository: DecisionRepository) -> None:
+    Works with any repository satisfying TemporalRecordRepository: the returned
+    record must have id, superseded_by, invalidation_time, and lifecycle_state.
+    """
+
+    def __init__(self, repository: TemporalRecordRepository) -> None:
         self._repository = repository
 
-    def at(self, *, space: str, decision_id: str, at: datetime) -> Decision | None:
-        """Return the Decision that was valid at the given time."""
-        decision = self._repository.get(space=space, decision_id=decision_id)
-        if decision is None:
+    def at(
+        self, *, space: str, record_id: str, at: datetime,
+    ) -> TemporalRecord | None:
+        """Return the record that was valid at the given time."""
+        # Positional call: avoids keyword name mismatch across repositories.
+        record = self._repository.get(space, record_id)
+        if record is None:
             return None
-        visited: set[str] = {decision.id}
-        current = decision
+        visited: set[str] = {record.id}
+        current = record
         while True:
             if current.invalidation_time is None or at < current.invalidation_time:
                 return current
@@ -298,39 +311,44 @@ class PointInTimeTruthService:
             if current.superseded_by in visited:
                 return current
             visited.add(current.superseded_by)
-            next_decision = self._repository.get(
-                space=space, decision_id=current.superseded_by
-            )
-            if next_decision is None:
+            next_record = self._repository.get(space, current.superseded_by)
+            if next_record is None:
                 return current
-            current = next_decision
+            current = next_record
 
 
-class InspectDecisionHistoryService:
-    """Application service that returns the full supersession chain for a Decision."""
+class InspectHistoryService:
+    """Return the full supersession chain for a temporal record.
 
-    def __init__(self, repository: DecisionRepository) -> None:
+    Works with any repository satisfying TemporalRecordRepository:
+    the returned records must have id and superseded_by attributes.
+    """
+
+    def __init__(self, repository: TemporalRecordRepository) -> None:
         self._repository = repository
 
-    def history(self, *, space: str, decision_id: str) -> list[Decision]:
-        """Return the supersession chain starting from the given Decision."""
-        decision = self._repository.get(space=space, decision_id=decision_id)
-        if decision is None:
+    def history(self, *, space: str, record_id: str) -> list[TemporalRecord]:
+        """Return the supersession chain starting from the given record."""
+        # Positional call: avoids keyword name mismatch across repositories.
+        record = self._repository.get(space, record_id)
+        if record is None:
             return []
-        chain = [decision]
-        visited: set[str] = {decision.id}
-        while decision.superseded_by is not None:
-            if decision.superseded_by in visited:
+        chain = [record]
+        visited: set[str] = {record.id}
+        while record.superseded_by is not None:
+            if record.superseded_by in visited:
                 break
-            visited.add(decision.superseded_by)
-            next_decision = self._repository.get(
-                space=space, decision_id=decision.superseded_by
-            )
-            if next_decision is None:
+            visited.add(record.superseded_by)
+            next_record = self._repository.get(space, record.superseded_by)
+            if next_record is None:
                 break
-            chain.append(next_decision)
-            decision = next_decision
+            chain.append(next_record)
+            record = next_record
         return chain
+
+
+# Backward-compatibility alias for code that imports the old name.
+InspectDecisionHistoryService = InspectHistoryService
 
 
 class InspectProvenanceService:

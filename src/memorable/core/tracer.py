@@ -155,7 +155,7 @@ class TracerService:
     def _verify_current_truth(self, ctx: ApplicationContext) -> dict[str, object]:
         svc = CurrentTruthService(repository=ctx.decision_repo)
         decision = svc.current(
-            space="memorable", decision_id="decision:storage-path:v1"
+            space="memorable", record_id="decision:storage-path:v1"
         )
         return {
             "decision_id": decision.id,
@@ -168,7 +168,7 @@ class TracerService:
         svc = PointInTimeTruthService(repository=ctx.decision_repo)
         decision = svc.at(
             space="memorable",
-            decision_id="decision:storage-path:v1",
+            record_id="decision:storage-path:v1",
             at=QUERY_AT_10_17,
         )
         return {
@@ -182,7 +182,7 @@ class TracerService:
         svc = PointInTimeTruthService(repository=ctx.decision_repo)
         decision = svc.at(
             space="memorable",
-            decision_id="decision:storage-path:v1",
+            record_id="decision:storage-path:v1",
             at=QUERY_AT_10_21,
         )
         return {
