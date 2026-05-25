@@ -178,13 +178,31 @@ class TestEntryPointWiring:
         """Verify __main__.main() calls mcp_server.run() with stdio transport.
 
         We patch mcp_server.run to capture the call instead of actually
-        starting a stdio loop.
+        starting a stdio loop. Also patches production context to avoid
+        requiring a real Neo4j connection.
         """
-        from unittest.mock import patch
+        from unittest.mock import MagicMock, patch
 
+        from memorable.config import RuntimeConfig
+        from memorable.core.context import ApplicationContext
         from memorable.mcp.server import mcp_server
 
-        with patch.object(mcp_server, "run") as mock_run:
+        ctx = ApplicationContext()
+        mock_driver = MagicMock()
+        mock_driver.verify_connectivity.return_value = None
+
+        with (
+            patch.object(mcp_server, "run") as mock_run,
+            patch(
+                "memorable.mcp.__main__.build_production_context",
+                return_value=(ctx, mock_driver),
+            ),
+            patch(
+                "memorable.mcp.__main__.load_runtime_config",
+                return_value=RuntimeConfig(),
+            ),
+            patch("memorable.mcp.__main__.set_mcp_context"),
+        ):
             from memorable.mcp.__main__ import main
 
             main()
@@ -192,11 +210,28 @@ class TestEntryPointWiring:
 
     def test_main_does_not_raise_system_exit(self) -> None:
         """After wiring, main() should not raise SystemExit."""
-        from unittest.mock import patch
+        from unittest.mock import MagicMock, patch
 
+        from memorable.config import RuntimeConfig
+        from memorable.core.context import ApplicationContext
         from memorable.mcp.server import mcp_server
 
-        with patch.object(mcp_server, "run"):
+        ctx = ApplicationContext()
+        mock_driver = MagicMock()
+        mock_driver.verify_connectivity.return_value = None
+
+        with (
+            patch.object(mcp_server, "run"),
+            patch(
+                "memorable.mcp.__main__.build_production_context",
+                return_value=(ctx, mock_driver),
+            ),
+            patch(
+                "memorable.mcp.__main__.load_runtime_config",
+                return_value=RuntimeConfig(),
+            ),
+            patch("memorable.mcp.__main__.set_mcp_context"),
+        ):
             from memorable.mcp.__main__ import main
 
             # Should not raise

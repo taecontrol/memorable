@@ -545,13 +545,9 @@ class TestInspectTaskService:
 # =====================================================================
 
 
+@pytest.mark.usefixtures("cli_in_memory_context")
 class TestCLIRememberTask:
     """CLI `memorable remember task` writes a Task."""
-
-    def setup_method(self) -> None:
-        from memorable.core.context import default_context
-
-        default_context.reset()
 
     def test_remember_task_command(self, capsys) -> None:
         from memorable.cli import main
@@ -607,13 +603,9 @@ class TestCLIRememberTask:
         assert output["record_kind"] == "task"
 
 
+@pytest.mark.usefixtures("cli_in_memory_context")
 class TestCLICompleteTask:
     """CLI `memorable complete task` completes a Task."""
-
-    def setup_method(self) -> None:
-        from memorable.core.context import default_context
-
-        default_context.reset()
 
     def test_complete_task_command(self, capsys) -> None:
         from memorable.cli import main
@@ -656,13 +648,9 @@ class TestCLICompleteTask:
         assert "completed" in output
 
 
+@pytest.mark.usefixtures("cli_in_memory_context")
 class TestCLITaskInspect:
     """CLI `memorable task inspect` shows task lifecycle."""
-
-    def setup_method(self) -> None:
-        from memorable.core.context import default_context
-
-        default_context.reset()
 
     def test_task_inspect_command(self, capsys) -> None:
         from memorable.cli import main

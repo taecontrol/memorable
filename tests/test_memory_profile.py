@@ -163,34 +163,72 @@ class TestInitService:
 
 
 class TestCLIInit:
-    """Tests for the `memorable init` CLI command."""
+    """Tests for the `memorable init` CLI command.
+
+    These tests mock the production context factory since no real Neo4j
+    is available in unit tests.
+    """
 
     def test_init_command_succeeds_with_valid_profile(self, tmp_path) -> None:
         """memorable init reads .memorable/memory.yaml and reports success."""
+        from unittest.mock import MagicMock, patch
+
         from memorable.cli import main
+        from memorable.config import RuntimeConfig
+        from memorable.core.context import ApplicationContext
 
         profile_dir = tmp_path / ".memorable"
         profile_dir.mkdir()
         (profile_dir / "memory.yaml").write_text(VALID_PROFILE_YAML)
 
-        exit_code = main(["init", "--path", str(tmp_path)])
+        ctx = ApplicationContext()
+        mock_driver = MagicMock()
+
+        with (
+            patch(
+                "memorable.cli.build_production_context",
+                return_value=(ctx, mock_driver),
+            ),
+            patch("memorable.cli.ensure_all_constraints"),
+            patch("memorable.cli.load_runtime_config", return_value=RuntimeConfig()),
+        ):
+            exit_code = main(["init", "--path", str(tmp_path)])
         assert exit_code == 0
 
     def test_init_command_fails_with_invalid_profile(self, tmp_path, capsys) -> None:
         """memorable init reports validation errors to stderr."""
+        from unittest.mock import MagicMock, patch
+
         from memorable.cli import main
+        from memorable.config import RuntimeConfig
+        from memorable.core.context import ApplicationContext
 
         profile_dir = tmp_path / ".memorable"
         profile_dir.mkdir()
         (profile_dir / "memory.yaml").write_text("version: 99\nspace:\n  name: x\n")
 
-        exit_code = main(["init", "--path", str(tmp_path)])
+        ctx = ApplicationContext()
+        mock_driver = MagicMock()
+
+        with (
+            patch(
+                "memorable.cli.build_production_context",
+                return_value=(ctx, mock_driver),
+            ),
+            patch("memorable.cli.ensure_all_constraints"),
+            patch("memorable.cli.load_runtime_config", return_value=RuntimeConfig()),
+        ):
+            exit_code = main(["init", "--path", str(tmp_path)])
         assert exit_code == 1
         captured = capsys.readouterr()
         assert "version" in captured.err.lower()
 
     def test_init_command_fails_when_no_profile_exists(self, tmp_path, capsys) -> None:
-        """memorable init reports missing profile file."""
+        """memorable init reports missing profile file.
+
+        No production context is built because the profile file check
+        happens before the Neo4j connection attempt.
+        """
         from memorable.cli import main
 
         exit_code = main(["init", "--path", str(tmp_path)])
