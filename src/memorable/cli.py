@@ -580,7 +580,9 @@ def main(argv: list[str] | None = None) -> int:
     elif args.command == "search":
         return _cmd_search(args)
 
-    return 0
+    # All subparsers use required=True, so argparse rejects unknown
+    # commands before we reach here. Guard against future additions.
+    raise AssertionError(f"unhandled command: {args.command}")
 
 
 if __name__ == "__main__":

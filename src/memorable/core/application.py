@@ -17,6 +17,7 @@ from memorable.core.ports import (
     DecisionRepository,
     EntityRepository,
     MemorySpaceRepository,
+    TaskRepository,
 )
 from memorable.core.profile import MemoryProfile, load_profile_from_yaml
 from memorable.core.temporal import make_episode_id
@@ -312,7 +313,7 @@ class RememberTaskService:
     Validates that the MemoryProfile has at least one record that extends Task.
     """
 
-    def __init__(self, repository: object, profile: MemoryProfile) -> None:
+    def __init__(self, repository: TaskRepository, profile: MemoryProfile) -> None:
         self._repository = repository
         self._profile = profile
 
@@ -381,7 +382,7 @@ class CompleteTaskService:
     Uses append-first semantics: the original task is updated, not deleted.
     """
 
-    def __init__(self, repository: object) -> None:
+    def __init__(self, repository: TaskRepository) -> None:
         self._repository = repository
 
     def complete(
@@ -401,7 +402,9 @@ class CompleteTaskService:
         if task.lifecycle_state == "completed":
             raise ValueError(f"Task '{task_id}' is already completed.")
 
-        # Build event id from task id suffix
+        # Derive a deterministic event ID so completion events are
+        # idempotent-safe and traceable back to the task they closed.
+        # Format: event:complete-task:<task-suffix>
         task_suffix = task_id.split(":", 1)[-1] if ":" in task_id else task_id
         event_id = f"event:complete-task:{task_suffix}"
 
@@ -419,7 +422,7 @@ class CompleteTaskService:
 class InspectTaskService:
     """Application service that inspects task lifecycle at current or as-of time."""
 
-    def __init__(self, repository: object) -> None:
+    def __init__(self, repository: TaskRepository) -> None:
         self._repository = repository
 
     def inspect(

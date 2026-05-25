@@ -15,6 +15,8 @@ from memorable.core.models import (
     Entity,
     MemorySpace,
     Provenance,
+    Task,
+    TaskProvenance,
 )
 
 
@@ -85,4 +87,35 @@ class DecisionRepository(Protocol):
         invalidation_time: datetime,
     ) -> None:
         """Mark a Decision as superseded by another."""
+        ...
+
+
+class TaskRepository(Protocol):
+    """Port for Task persistence with provenance and temporal queries."""
+
+    def save(self, task: Task, provenance: TaskProvenance) -> None:
+        """Persist a Task with its provenance record."""
+        ...
+
+    def get(self, *, space: str, task_id: str) -> Task | None:
+        """Retrieve a Task by space and id, or None if not found."""
+        ...
+
+    def get_provenance(self, *, space: str, task_id: str) -> TaskProvenance | None:
+        """Retrieve the provenance for a Task, or None if not found."""
+        ...
+
+    def complete(
+        self,
+        *,
+        space: str,
+        task_id: str,
+        completion_time: datetime,
+        completion_event_id: str,
+    ) -> None:
+        """Record a completion event on a Task (append-first, not delete)."""
+        ...
+
+    def get_at(self, *, space: str, task_id: str, at: datetime) -> Task | None:
+        """Return the Task state as it was at the given point in time."""
         ...
