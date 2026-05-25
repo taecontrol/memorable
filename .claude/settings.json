@@ -1,0 +1,12 @@
+{
+  "permissions": {
+    "allow": [
+      "Bash(gh issue close *)"
+    ]
+  },
+  "autoCompactWindow": 160000,
+  "autoMemoryEnabled": false,
+  "env": {
+    "CLAUDE_CODE_EXPERIMENTAL_AGENT_TEAMS": "1"
+  }
+}
