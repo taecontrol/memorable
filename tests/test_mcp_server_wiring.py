@@ -2,7 +2,7 @@
 
 Verifies:
 - FastMCP server instance is created with name "memorable"
-- All 13 handler functions are registered as MCP tools
+- All 14 handler functions are registered as MCP tools
 - Each tool name uses the memorable_ prefix
 - Tool descriptions use Memorable Core language
 - Tools are callable through call_tool() and return expected shapes
@@ -54,6 +54,7 @@ EXPECTED_TOOL_NAMES = {
     "memorable_inspect_space",
     "memorable_remember_entity",
     "memorable_remember_decision",
+    "memorable_remember_observation",
     "memorable_current_truth",
     "memorable_point_in_time_truth",
     "memorable_inspect_history",
@@ -66,9 +67,9 @@ EXPECTED_TOOL_NAMES = {
 
 
 class TestToolRegistration:
-    def test_all_13_tools_registered(self) -> None:
+    def test_all_14_tools_registered(self) -> None:
         tool_names = _list_tool_names()
-        assert len(tool_names) == 13
+        assert len(tool_names) == 14
 
     def test_all_expected_tool_names_present(self) -> None:
         tool_names = _list_tool_names()
@@ -95,6 +96,7 @@ REQUIRED_DOMAIN_TERMS = {
     "Entity",
     "Decision",
     "Task",
+    "Observation",
     "Source",
     "Episode",
     "Hybrid Retrieval",
