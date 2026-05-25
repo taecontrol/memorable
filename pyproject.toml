@@ -7,8 +7,9 @@ name = "memorable"
 version = "0.1.0"
 description = "Project-scoped GraphRAG memory for agents."
 readme = "docs/product.md"
-requires-python = ">=3.9"
+requires-python = ">=3.14"
 dependencies = [
+    "mcp>=1.27,<2",
     "neo4j>=5.0",
     "openai>=1.0",
     "pyyaml>=6.0",
@@ -22,6 +23,7 @@ dev = [
 
 [project.scripts]
 memorable = "memorable.cli:main"
+memorable-mcp = "memorable.mcp.__main__:main"
 
 [tool.pytest.ini_options]
 testpaths = ["tests"]
@@ -32,7 +34,7 @@ markers = [
 
 [tool.ruff]
 line-length = 88
-target-version = "py39"
+target-version = "py314"
 
 [tool.ruff.lint]
 select = ["E", "F", "I", "UP", "B"]
