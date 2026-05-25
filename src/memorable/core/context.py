@@ -41,6 +41,8 @@ records:
     extends: Decision
   - name: FollowUp
     extends: Task
+  - name: GeneralObservation
+    extends: Observation
 """
 
 

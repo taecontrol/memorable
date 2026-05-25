@@ -15,6 +15,7 @@ from memorable.core.application import (
     PointInTimeTruthService,
     RememberDecisionService,
     RememberEntityService,
+    RememberObservationService,
     RememberTaskService,
     build_status_payload,
 )
@@ -245,6 +246,67 @@ def remember_decision_tool(
 
 
 @mcp_server.tool(
+    name="memorable_remember_observation",
+    description=(
+        "Remember an Observation with Provenance in a MemorySpace. "
+        "Supports Supersession to replace an earlier Observation."
+    ),
+)
+def remember_observation_tool(
+    space: str,
+    observation_id: str,
+    statement: str,
+    source: str,
+    at: str,
+    supersedes: str | None = None,
+    writer: str = "agent:memorable",
+    reason: str = "",
+) -> dict[str, object]:
+    """Remember an Observation with provenance in a MemorySpace.
+
+    Returns a dict with observation and provenance info on success,
+    or an error dict on failure.
+    """
+    try:
+        profile = _context.load_profile(space)
+    except ProfileValidationError as e:
+        return {"error": str(e)}
+
+    service = RememberObservationService(
+        repository=_context.observation_repo, profile=profile
+    )
+
+    timestamp = parse_iso_timestamp(at)
+
+    try:
+        result = service.remember(
+            space=space,
+            observation_id=observation_id,
+            statement=statement,
+            source_id=source,
+            at=timestamp,
+            writer=writer,
+            reason=reason,
+            supersedes=supersedes,
+        )
+    except ValueError as e:
+        return {"error": str(e)}
+
+    return {
+        "observation_id": result.observation.id,
+        "statement": result.observation.statement,
+        "space": result.observation.space,
+        "record_id": result.provenance.record_id,
+        "record_kind": result.provenance.record_kind,
+        "source": result.provenance.source_id,
+        "episode": result.provenance.episode_id,
+        "creation_time": result.provenance.creation_time.isoformat(),
+        "validity_time": result.provenance.validity_time.isoformat(),
+        "lifecycle_state": result.observation.lifecycle_state,
+    }
+
+
+@mcp_server.tool(
     name="memorable_current_truth",
     description=(
         "Get the Current Truth for a Decision by following its Supersession chain. "
@@ -336,10 +398,12 @@ def inspect_history_tool(
     """
     if record_type == "decision":
         repository = _context.decision_repo
+    elif record_type == "observation":
+        repository = _context.observation_repo
     else:
         return {
             "error": f"Unknown record_type '{record_type}'. "
-            f"Supported types: decision."
+            f"Supported types: decision, observation."
         }
 
     service = InspectHistoryService(repository=repository)
