@@ -70,13 +70,14 @@ Spawn a `python-developer` subagent with the following prompt structure:
 >
 > ## Instructions
 >
-> Use the `tdd` skill to implement this slice. Read the acceptance criteria
-> in the slice and encode them as tests. For each acceptance criterion,
-> write a RED test first, then make it GREEN with minimal code.
+> Use the `tdd` skill to implement this slice.
 >
 > After implementation, run the full test suite: `uv run pytest tests/ -v --tb=short`
->
-> [If round 2, append review findings from the previous round here]
+
+**Do NOT prescribe TDD mechanics** (cycle length, RED/GREEN steps, commit
+granularity, test naming) in the implementer prompt — the `tdd` skill handles
+all of that. Only provide: the issue context (parent + slice + comments) and
+the instruction to use the `tdd` skill.
 
 ## Step 6: Review (Subagent Round)
 
@@ -100,8 +101,10 @@ Spawn a `python-developer` subagent:
 ## Step 7: Feedback Loop
 
 - If review is **CLEAN** → proceed to step 8.
-- If review **HAS FINDINGS** and this is round 1 → go to step 5 with
-  findings appended to the implementer prompt.
+- If review **HAS FINDINGS** and this is round 1 → spawn a **new
+  implementer subagent** (step 5) with the review findings appended to the
+  prompt. Do NOT fix the code yourself. The implementer applies fixes and
+  re-runs tests. Then go to step 6 for a second review.
 - If review **HAS FINDINGS** and this is round 2 → proceed to step 8,
   surface remaining findings to the user.
 
