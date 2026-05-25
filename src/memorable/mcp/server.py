@@ -25,10 +25,21 @@ from memorable.core.temporal import parse_iso_timestamp
 mcp_server = FastMCP("memorable")
 
 
+@mcp_server.tool(
+    name="memorable/status",
+    description="Return Memorable service diagnostics for the current MemorySpace scope.",
+)
 def status_tool() -> dict[str, object]:
     return build_status_payload()
 
 
+@mcp_server.tool(
+    name="memorable/init_space",
+    description=(
+        "Initialize a MemorySpace from a project's MemoryProfile "
+        "(.memorable/memory.yaml). Returns space info or an error."
+    ),
+)
 def init_space_tool(base_path: str) -> dict[str, object]:
     """Initialize a MemorySpace from a project's .memorable/memory.yaml.
 
@@ -58,6 +69,13 @@ def init_space_tool(base_path: str) -> dict[str, object]:
     }
 
 
+@mcp_server.tool(
+    name="memorable/inspect_space",
+    description=(
+        "Inspect a project's MemoryProfile without initializing the MemorySpace. "
+        "Returns Entity types, MemoryRecord types, and Write Policy."
+    ),
+)
 def inspect_space_tool(base_path: str) -> dict[str, object]:
     """Inspect a project's MemoryProfile without initializing.
 
@@ -90,6 +108,13 @@ def inspect_space_tool(base_path: str) -> dict[str, object]:
     }
 
 
+@mcp_server.tool(
+    name="memorable/remember_entity",
+    description=(
+        "Remember an Entity with Provenance in a MemorySpace. "
+        "Records the Source, Episode, Validity Time, and writer."
+    ),
+)
 def remember_entity_tool(
     space: str,
     entity_id: str,
@@ -144,6 +169,13 @@ def remember_entity_tool(
     }
 
 
+@mcp_server.tool(
+    name="memorable/remember_decision",
+    description=(
+        "Remember a Decision with Provenance in a MemorySpace. "
+        "Supports Supersession to replace an earlier Decision."
+    ),
+)
 def remember_decision_tool(
     space: str,
     decision_id: str,
@@ -198,6 +230,13 @@ def remember_decision_tool(
     }
 
 
+@mcp_server.tool(
+    name="memorable/current_truth",
+    description=(
+        "Get the Current Truth for a Decision by following its Supersession chain. "
+        "Returns the active Decision or an error if not found."
+    ),
+)
 def current_truth_tool(
     space: str,
     decision_id: str,
@@ -223,6 +262,13 @@ def current_truth_tool(
     }
 
 
+@mcp_server.tool(
+    name="memorable/point_in_time_truth",
+    description=(
+        "Get the Point-In-Time Truth for a Decision at a specific timestamp. "
+        "Returns the Decision that was valid at that time."
+    ),
+)
 def point_in_time_truth_tool(
     space: str,
     decision_id: str,
@@ -251,6 +297,13 @@ def point_in_time_truth_tool(
     }
 
 
+@mcp_server.tool(
+    name="memorable/inspect_decision_history",
+    description=(
+        "Inspect the full Supersession chain for a Decision. "
+        "Returns Lifecycle State, Validity Time, and Invalidation Time for each version."
+    ),
+)
 def inspect_decision_history_tool(
     space: str,
     decision_id: str,
@@ -286,6 +339,13 @@ def inspect_decision_history_tool(
     }
 
 
+@mcp_server.tool(
+    name="memorable/inspect_provenance",
+    description=(
+        "Inspect Provenance for a remembered Entity. "
+        "Returns Source, Episode, writer, reason, Creation Time, and Validity Time."
+    ),
+)
 def inspect_provenance_tool(
     space: str,
     entity_id: str,
@@ -314,6 +374,13 @@ def inspect_provenance_tool(
     }
 
 
+@mcp_server.tool(
+    name="memorable/remember_task",
+    description=(
+        "Remember a Task with Provenance in a MemorySpace. "
+        "Tasks have a Lifecycle State and support completion transitions."
+    ),
+)
 def remember_task_tool(
     space: str,
     task_id: str,
@@ -364,6 +431,13 @@ def remember_task_tool(
     }
 
 
+@mcp_server.tool(
+    name="memorable/complete_task",
+    description=(
+        "Complete a Task in a MemorySpace. "
+        "Records the Lifecycle State transition and completion Event."
+    ),
+)
 def complete_task_tool(
     space: str,
     task_id: str,
@@ -398,6 +472,14 @@ def complete_task_tool(
     }
 
 
+@mcp_server.tool(
+    name="memorable/search_memory",
+    description=(
+        "Search memory using Hybrid Retrieval (GraphRAG). "
+        "Combines semantic similarity, graph expansion, temporal filtering, "
+        "and Provenance-aware explanation. Supports Current Truth and Point-In-Time Truth modes."
+    ),
+)
 def search_memory_tool(
     space: str,
     query: str,
@@ -446,6 +528,14 @@ def search_memory_tool(
     }
 
 
+@mcp_server.tool(
+    name="memorable/tracer_run",
+    description=(
+        "Run the tracer-bullet fixture and return structured verification results. "
+        "Proves end-to-end composition across Entity, Decision, Task, "
+        "Provenance, Supersession, and Hybrid Retrieval."
+    ),
+)
 def tracer_run_tool() -> dict[str, object]:
     """Run the tracer-bullet fixture and return structured verification results.
 
@@ -459,6 +549,13 @@ def tracer_run_tool() -> dict[str, object]:
     return service.run()
 
 
+@mcp_server.tool(
+    name="memorable/inspect_task",
+    description=(
+        "Inspect a Task's Lifecycle State at the current time or as-of a Point-In-Time. "
+        "Returns Task details including completion Event if completed."
+    ),
+)
 def inspect_task_tool(
     space: str,
     task_id: str,
