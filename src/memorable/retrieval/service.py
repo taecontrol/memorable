@@ -42,6 +42,8 @@ class HybridRetrievalService:
         task_repo: TaskRepository,
         embedding_provider: EmbeddingProvider,
         dimensions: int = 32,
+        point_in_time_service: PointInTimeTruthService | None = None,
+        inspect_task_service: InspectTaskService | None = None,
     ) -> None:
         self._entity_repo = entity_repo
         self._decision_repo = decision_repo
@@ -49,6 +51,16 @@ class HybridRetrievalService:
         self._embedding_provider = embedding_provider
         self._dimensions = dimensions
         self._index = InMemoryEmbeddingIndex()
+        self._point_in_time_service = (
+            point_in_time_service
+            if point_in_time_service is not None
+            else PointInTimeTruthService(repository=decision_repo)
+        )
+        self._inspect_task_service = (
+            inspect_task_service
+            if inspect_task_service is not None
+            else InspectTaskService(repository=task_repo)
+        )
 
     def _rebuild_index(self, space: str) -> None:
         """Rebuild the embedding index from all records in the space.
@@ -327,7 +339,7 @@ class HybridRetrievalService:
                 return None
             lifecycle_state = decision.lifecycle_state
         elif mode == "as-of" and as_of is not None:
-            pit_decision = PointInTimeTruthService(repository=self._decision_repo).at(
+            pit_decision = self._point_in_time_service.at(
                 space=space, decision_id=decision.id, at=as_of
             )
             if pit_decision is None:
@@ -415,7 +427,7 @@ class HybridRetrievalService:
         explanation: list[str] = []
 
         if mode == "as-of" and as_of is not None:
-            pit_task = InspectTaskService(repository=self._task_repo).inspect(
+            pit_task = self._inspect_task_service.inspect(
                 space=space, task_id=task.id, as_of=as_of
             )
             if pit_task is None:
