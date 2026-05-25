@@ -204,17 +204,22 @@ class TestMCPInit:
 
     def test_mcp_init_space_returns_space_info(self, tmp_path) -> None:
         """MCP init_space_tool initializes a space using the same service."""
+        from memorable.core.context import default_context
         from memorable.mcp.server import init_space_tool
 
         profile_dir = tmp_path / ".memorable"
         profile_dir.mkdir()
         (profile_dir / "memory.yaml").write_text(VALID_PROFILE_YAML)
 
-        result = init_space_tool(str(tmp_path))
+        default_context.reset()
+        try:
+            result = init_space_tool(str(tmp_path))
 
-        assert result["space"] == "memorable"
-        assert result["status"] == "initialized"
-        assert result["profile_version"] == 1
+            assert result["space"] == "memorable"
+            assert result["status"] == "initialized"
+            assert result["profile_version"] == 1
+        finally:
+            default_context.reset()
 
     def test_mcp_init_space_returns_error_for_invalid_profile(self, tmp_path) -> None:
         """MCP init_space_tool returns error info for invalid profiles."""
