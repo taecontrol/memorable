@@ -694,6 +694,24 @@ class TestProvenanceAwareExplanation:
         assert result.provenance_summary.get("source_id") == SOURCE_ID
         assert "episode_id" in result.provenance_summary
 
+    def test_provenance_summary_uses_only_shared_fields(self) -> None:
+        """Retrieval provenance summary uses unified fields, not type-specific ones."""
+        service, *_ = _build_fixture()
+
+        results = service.search(
+            space="memorable",
+            query="storage implementation decision Memorable task",
+            mode="current",
+        )
+
+        type_specific_fields = {"entity_id", "decision_id", "task_id"}
+        for result in results:
+            for field in type_specific_fields:
+                assert field not in result.provenance_summary, (
+                    f"Type-specific field '{field}' found in"
+                    f" provenance_summary for {result.source_id}"
+                )
+
     def test_result_includes_lifecycle_state(self) -> None:
         service, *_ = _build_fixture()
 

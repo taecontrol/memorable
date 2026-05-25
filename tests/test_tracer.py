@@ -188,6 +188,17 @@ class TestTracerCLI:
         for section in expected_sections:
             assert section in parsed, f"CLI output missing section: {section}"
 
+    def test_tracer_cli_provenance_has_unified_fields(self, capsys) -> None:
+        """CLI tracer output provenance section includes record_id and record_kind."""
+        from memorable.cli import main
+
+        main(["tracer", "run"])
+        parsed = json.loads(capsys.readouterr().out)
+        prov = parsed["provenance"]
+
+        assert prov["record_id"] == "decision:storage-path:v2"
+        assert prov["record_kind"] == "decision"
+
 
 # =====================================================================
 # 3. MCP adapter
@@ -218,6 +229,16 @@ class TestTracerMCP:
         ]
         for section in expected_sections:
             assert section in result, f"MCP output missing section: {section}"
+
+    def test_tracer_mcp_provenance_has_unified_fields(self) -> None:
+        """MCP tracer output provenance section includes record_id and record_kind."""
+        from memorable.mcp.server import tracer_run_tool
+
+        result = tracer_run_tool()
+        prov = result["provenance"]
+
+        assert prov["record_id"] == "decision:storage-path:v2"
+        assert prov["record_kind"] == "decision"
 
 
 # =====================================================================
