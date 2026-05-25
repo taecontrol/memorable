@@ -422,6 +422,7 @@ def inspect_history_tool(
         "history": [
             {
                 "record_id": r.id,
+                "statement": r.statement,
                 "lifecycle_state": r.lifecycle_state,
                 "validity_time": r.validity_time.isoformat(),
                 "invalidation_time": (

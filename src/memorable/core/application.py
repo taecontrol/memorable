@@ -435,9 +435,6 @@ class InspectHistoryService:
         return chain
 
 
-# Backward-compatibility alias for code that imports the old name.
-InspectDecisionHistoryService = InspectHistoryService
-
 
 @dataclass(frozen=True)
 class InvalidateResult:

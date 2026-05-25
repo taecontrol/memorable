@@ -598,12 +598,12 @@ class TestPointInTimeTruthService:
         assert result is None
 
 
-class TestInspectDecisionHistoryService:
-    """InspectDecisionHistoryService returns the supersession chain."""
+class TestInspectHistoryService:
+    """InspectHistoryService returns the supersession chain."""
 
     def _setup_chain(self):
         from memorable.core.application import (
-            InspectDecisionHistoryService,
+            InspectHistoryService,
             RememberDecisionService,
         )
         from memorable.core.profile import load_profile_from_yaml
@@ -631,7 +631,7 @@ class TestInspectDecisionHistoryService:
             supersedes=V1_ID,
         )
 
-        return InspectDecisionHistoryService(repository=repo), repo
+        return InspectHistoryService(repository=repo), repo
 
     def test_history_returns_full_chain(self) -> None:
         service, _repo = self._setup_chain()
@@ -644,7 +644,7 @@ class TestInspectDecisionHistoryService:
 
     def test_history_single_when_not_superseded(self) -> None:
         from memorable.core.application import (
-            InspectDecisionHistoryService,
+            InspectHistoryService,
             RememberDecisionService,
         )
         from memorable.core.profile import load_profile_from_yaml
@@ -664,7 +664,7 @@ class TestInspectDecisionHistoryService:
             at=FIXTURE_TIMESTAMP_V1,
         )
 
-        service = InspectDecisionHistoryService(repository=repo)
+        service = InspectHistoryService(repository=repo)
         history = service.history(space="memorable", record_id=V1_ID)
 
         assert len(history) == 1
@@ -672,14 +672,14 @@ class TestInspectDecisionHistoryService:
 
     def test_history_returns_empty_for_missing(self) -> None:
         from memorable.core.application import (
-            InspectDecisionHistoryService,
+            InspectHistoryService,
         )
         from memorable.core.repositories import (
             InMemoryDecisionRepository,
         )
 
         repo = InMemoryDecisionRepository()
-        service = InspectDecisionHistoryService(repository=repo)
+        service = InspectHistoryService(repository=repo)
 
         history = service.history(space="memorable", record_id="decision:missing")
         assert history == []
@@ -1117,7 +1117,7 @@ class TestMCPPointInTimeTruth:
         assert result["decision_id"] == V1_ID
 
 
-class TestMCPInspectDecisionHistory:
+class TestMCPInspectHistory:
     """MCP inspect_history_tool returns the chain for decisions."""
 
     def setup_method(self) -> None:
@@ -1414,8 +1414,8 @@ class TestDecisionRepositoryHasNoGetHistory:
         assert not hasattr(repo, "get_history")
 
 
-class TestInspectDecisionHistoryServiceOwnsChainTraversal:
-    """InspectDecisionHistoryService owns the supersession chain traversal logic.
+class TestInspectHistoryServiceOwnsChainTraversal:
+    """InspectHistoryService owns the supersession chain traversal logic.
 
     This replaces the former repo-level test_get_history_returns_supersession_chain.
     The service composes thin repo.get() calls to walk the chain following
@@ -1424,7 +1424,7 @@ class TestInspectDecisionHistoryServiceOwnsChainTraversal:
 
     def _setup_chain(self):
         from memorable.core.application import (
-            InspectDecisionHistoryService,
+            InspectHistoryService,
             RememberDecisionService,
         )
         from memorable.core.profile import load_profile_from_yaml
@@ -1450,7 +1450,7 @@ class TestInspectDecisionHistoryServiceOwnsChainTraversal:
             supersedes=V1_ID,
         )
 
-        return InspectDecisionHistoryService(repository=repo), repo
+        return InspectHistoryService(repository=repo), repo
 
     def test_service_walks_supersession_chain(self) -> None:
         """Service walks v1 -> v2 chain via repo.get() calls."""
@@ -1464,7 +1464,7 @@ class TestInspectDecisionHistoryServiceOwnsChainTraversal:
 
     def test_service_returns_single_when_not_superseded(self) -> None:
         from memorable.core.application import (
-            InspectDecisionHistoryService,
+            InspectHistoryService,
             RememberDecisionService,
         )
         from memorable.core.profile import load_profile_from_yaml
@@ -1482,18 +1482,18 @@ class TestInspectDecisionHistoryServiceOwnsChainTraversal:
             at=FIXTURE_TIMESTAMP_V1,
         )
 
-        service = InspectDecisionHistoryService(repository=repo)
+        service = InspectHistoryService(repository=repo)
         history = service.history(space="memorable", record_id=V1_ID)
 
         assert len(history) == 1
         assert history[0].id == V1_ID
 
     def test_service_returns_empty_for_missing(self) -> None:
-        from memorable.core.application import InspectDecisionHistoryService
+        from memorable.core.application import InspectHistoryService
         from memorable.core.repositories import InMemoryDecisionRepository
 
         repo = InMemoryDecisionRepository()
-        service = InspectDecisionHistoryService(repository=repo)
+        service = InspectHistoryService(repository=repo)
 
         history = service.history(space="memorable", record_id="decision:missing")
         assert history == []
@@ -1595,11 +1595,11 @@ class TestChainWalkingCycleProtection:
         assert result.id in {V1_ID, V2_ID}
 
     def test_history_terminates_on_cycle(self) -> None:
-        """InspectDecisionHistoryService.history() must not hang on a cyclic chain."""
-        from memorable.core.application import InspectDecisionHistoryService
+        """InspectHistoryService.history() must not hang on a cyclic chain."""
+        from memorable.core.application import InspectHistoryService
 
         repo = self._make_cyclic_repo()
-        service = InspectDecisionHistoryService(repository=repo)
+        service = InspectHistoryService(repository=repo)
 
         history = service.history(space="memorable", record_id=V1_ID)
 

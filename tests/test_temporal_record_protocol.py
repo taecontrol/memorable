@@ -240,13 +240,6 @@ class TestInspectHistoryServiceGeneric:
         history = service.history(space="s", record_id="missing")
         assert history == []
 
-    def test_backward_compat_alias_exists(self) -> None:
-        """InspectDecisionHistoryService still importable as backward-compat alias."""
-        from memorable.core.application import InspectDecisionHistoryService
-
-        repo = FakeTemporalRecordRepository()
-        service = InspectDecisionHistoryService(repository=repo)
-        assert service is not None
 
 
 class TestMCPInspectHistoryTool:
