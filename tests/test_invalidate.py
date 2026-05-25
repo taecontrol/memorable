@@ -344,3 +344,102 @@ class TestInvalidateServiceWithObservation:
                 record_id=OBSERVATION_ID,
                 at=INVALIDATION_TIMESTAMP,
             )
+
+
+# =====================================================================
+# MCP tool tests
+# =====================================================================
+
+
+class TestMCPInvalidateTool:
+    """MCP memorable_invalidate tool marks any temporal record as invalidated."""
+
+    def setup_method(self) -> None:
+        from memorable.core.context import default_context
+
+        default_context.reset()
+
+    def test_invalidate_decision_via_mcp(self) -> None:
+        from memorable.mcp.server import invalidate_tool, remember_decision_tool
+
+        remember_decision_tool(
+            space="memorable",
+            decision_id=DECISION_ID,
+            statement="Use Graphiti for storage.",
+            source=SOURCE_ID,
+            at="2026-05-25T09:00:00Z",
+        )
+
+        result = invalidate_tool(
+            space="memorable",
+            record_id=DECISION_ID,
+            record_type="decision",
+            at="2026-05-25T10:00:00Z",
+        )
+
+        assert "error" not in result
+        assert result["record_id"] == DECISION_ID
+        assert result["lifecycle_state"] == "invalidated"
+
+    def test_invalidate_observation_via_mcp(self) -> None:
+        from memorable.mcp.server import invalidate_tool, remember_observation_tool
+
+        remember_observation_tool(
+            space="memorable",
+            observation_id=OBSERVATION_ID,
+            statement="The team prefers async communication.",
+            source=SOURCE_ID,
+            at="2026-05-25T09:00:00Z",
+        )
+
+        result = invalidate_tool(
+            space="memorable",
+            record_id=OBSERVATION_ID,
+            record_type="observation",
+            at="2026-05-25T10:00:00Z",
+        )
+
+        assert "error" not in result
+        assert result["record_id"] == OBSERVATION_ID
+        assert result["lifecycle_state"] == "invalidated"
+
+    def test_invalidate_rejects_already_invalidated_via_mcp(self) -> None:
+        from memorable.mcp.server import invalidate_tool, remember_decision_tool
+
+        remember_decision_tool(
+            space="memorable",
+            decision_id=DECISION_ID,
+            statement="Use Graphiti for storage.",
+            source=SOURCE_ID,
+            at="2026-05-25T09:00:00Z",
+        )
+
+        invalidate_tool(
+            space="memorable",
+            record_id=DECISION_ID,
+            record_type="decision",
+            at="2026-05-25T10:00:00Z",
+        )
+
+        result = invalidate_tool(
+            space="memorable",
+            record_id=DECISION_ID,
+            record_type="decision",
+            at="2026-05-25T10:00:00Z",
+        )
+
+        assert "error" in result
+        assert "already invalidated" in result["error"]
+
+    def test_invalidate_unknown_record_type(self) -> None:
+        from memorable.mcp.server import invalidate_tool
+
+        result = invalidate_tool(
+            space="memorable",
+            record_id="something:v1",
+            record_type="unknown",
+            at="2026-05-25T10:00:00Z",
+        )
+
+        assert "error" in result
+        assert "Unknown record_type" in result["error"]
