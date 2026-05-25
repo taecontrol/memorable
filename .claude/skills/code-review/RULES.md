@@ -59,21 +59,49 @@ Evaluate every rule. Mark ✅, ❌, or 🟡 with a concrete note.
     Flag unreachable branches (e.g., code after `argparse` with
     `required=True`), unused imports, or commented-out code blocks.
 
+## Comments
+
+16. **Comments describe what is not obvious from the code.**
+    A good comment captures intent, rationale, or non-obvious constraints —
+    things the reader cannot quickly derive from reading the code itself.
+    Flag comments that merely restate the code ("increment counter",
+    "return the result") and flag missing comments on code whose purpose,
+    danger, or subtlety would surprise a future reader.
+
+17. **Interface comments state what, not how.**
+    Docstrings on public functions, classes, and modules should describe
+    *what* the abstraction does, its preconditions, postconditions, and
+    side effects — not the implementation steps. Callers should be able to
+    use the interface without reading the body.
+
+18. **Comments that reference documentation must cite durable artifacts only.**
+    Comments may reference ADRs (`docs/adr/`), `docs/product.md`, or
+    `docs/ubiquitous-language.md`. Flag references to ephemeral sources —
+    Slack threads, PR descriptions, issue comments, meeting notes, or
+    personal documents — because those links rot and leave the comment
+    meaningless.
+
+19. **Cross-module decisions and non-obvious "why" deserve a comment.**
+    When a piece of code exists because of a decision made elsewhere —
+    a workaround, a performance choice, a constraint from another module,
+    or a deliberate deviation from the obvious approach — a short comment
+    explaining *why* prevents future developers from "fixing" it back.
+
 ## Testing
 
-12. **Tests exist for changed behavior.**
+20. **Tests exist for changed behavior.**
     Every new or changed behavior must have at least one test covering the
     happy path. Missing coverage is ❌.
 
-13. **TDD commit order when required.**
+21. **TDD commit order when required.**
     If the issue has a `TDD` label or TDD rule, verify RED tests were
     committed before GREEN implementation. Check `git log --reverse`.
 
-14. **External systems mocked at boundary.**
+22. **External systems mocked at boundary.**
     Tests must not call real databases, APIs, or filesystems for unit tests.
     Mocks and stubs should be injected at the adapter boundary, not deep
     inside domain code.
 
-15. **Regression tests for bug fixes.**
+23. **Regression tests for bug fixes.**
     If the change fixes a bug, there must be a test that would have caught
     the original bug. Missing regression test is ❌.

@@ -3,8 +3,8 @@ name: code-review
 description: >
   Review code changes against Memorable's Python architecture rules and coding
   guidelines. Produces a structured checklist verdict (✅/❌/🟡) covering
-  boundary duplication, domain language, lint, tests, TDD order, typing, and
-  module design. Use when the user asks to review code, review a PR, review a
+  boundary duplication, domain language, lint, tests, TDD order, typing,
+  comment quality, and module design. Use when the user asks to review code, review a PR, review a
   diff, check code quality, or says "code review".
 ---
 
