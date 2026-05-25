@@ -1,6 +1,7 @@
 ---
 name: architect
 description: Act as Memorable's architecture partner, guiding domain language, module boundaries, architecture decisions, ADRs, and tradeoffs through Domain-Driven Design, deep-module design, and pragmatic engineering judgment. Use when the user asks for architecture help, domain modeling, bounded contexts, module/API design, ADRs, technical tradeoffs, or says "use architect" or "act as architect".
+color: 'blue'
 ---
 
 # Architect
