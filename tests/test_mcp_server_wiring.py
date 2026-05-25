@@ -180,3 +180,33 @@ class TestCallToolErrorPath:
         error_text = structured["error"].lower()
         assert "node" not in error_text
         assert "edge" not in error_text
+
+
+class TestEntryPointWiring:
+    def test_main_calls_mcp_server_run(self) -> None:
+        """Verify __main__.main() calls mcp_server.run() with stdio transport.
+
+        We patch mcp_server.run to capture the call instead of actually
+        starting a stdio loop.
+        """
+        from unittest.mock import patch
+
+        from memorable.mcp.server import mcp_server
+
+        with patch.object(mcp_server, "run") as mock_run:
+            from memorable.mcp.__main__ import main
+
+            main()
+            mock_run.assert_called_once_with(transport="stdio")
+
+    def test_main_does_not_raise_system_exit(self) -> None:
+        """After wiring, main() should not raise SystemExit."""
+        from unittest.mock import patch
+
+        from memorable.mcp.server import mcp_server
+
+        with patch.object(mcp_server, "run"):
+            from memorable.mcp.__main__ import main
+
+            # Should not raise
+            main()
