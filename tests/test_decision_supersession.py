@@ -264,36 +264,6 @@ class TestDecisionRepositoryPort:
             is None
         )
 
-    def test_get_at_returns_decision_valid_at_time(self) -> None:
-        from memorable.core.repositories import (
-            InMemoryDecisionRepository,
-        )
-
-        repo = InMemoryDecisionRepository()
-        v1, prov1 = self._make_decision_v1()
-        v2, prov2 = self._make_decision_v2()
-
-        repo.save(v1, prov1)
-        repo.save(v2, prov2)
-        repo.mark_superseded(
-            space="memorable",
-            decision_id=V1_ID,
-            superseded_by=V2_ID,
-            invalidation_time=FIXTURE_TIMESTAMP_V2,
-        )
-
-        # Before supersession: v1 was current
-        at_1017 = datetime(2026, 5, 23, 10, 17, 0, tzinfo=UTC)
-        result = repo.get_at(space="memorable", decision_id=V1_ID, at=at_1017)
-        assert result is not None
-        assert result.id == V1_ID
-
-        # After supersession: v2 is current
-        at_1021 = datetime(2026, 5, 23, 10, 21, 0, tzinfo=UTC)
-        result = repo.get_at(space="memorable", decision_id=V1_ID, at=at_1021)
-        assert result is not None
-        assert result.id == V2_ID
-
     def test_get_history_returns_supersession_chain(self) -> None:
         from memorable.core.repositories import (
             InMemoryDecisionRepository,
@@ -1335,6 +1305,129 @@ class TestCurrentTruthServiceOwnsChainWalking:
         service = CurrentTruthService(repository=repo)
 
         result = service.current(space="memorable", decision_id="decision:missing")
+        assert result is None
+
+
+# =====================================================================
+# Thin repository / service-owned point-in-time projection tests (slice #32)
+# =====================================================================
+
+
+class TestDecisionRepositoryHasNoGetAt:
+    """DecisionRepository protocol must not expose get_at (ADR 0009)."""
+
+    def test_protocol_has_no_get_at(self) -> None:
+        """get_at is not part of the DecisionRepository protocol."""
+        from memorable.core.ports import DecisionRepository
+
+        protocol_methods = {
+            name
+            for name in dir(DecisionRepository)
+            if not name.startswith("_")
+        }
+        assert "get_at" not in protocol_methods
+
+    def test_in_memory_repo_has_no_get_at(self) -> None:
+        """InMemoryDecisionRepository does not implement get_at."""
+        from memorable.core.repositories import InMemoryDecisionRepository
+
+        repo = InMemoryDecisionRepository()
+        assert not hasattr(repo, "get_at")
+
+
+class TestPointInTimeTruthServiceOwnsProjection:
+    """PointInTimeTruthService owns the point-in-time temporal projection logic.
+
+    This replaces the former repo-level test_get_at_returns_decision_valid_at_time.
+    The service composes thin repo.get() calls to walk the chain and check
+    invalidation_time against the query timestamp.
+    """
+
+    def _setup_chain(self):
+        from memorable.core.application import (
+            PointInTimeTruthService,
+            RememberDecisionService,
+        )
+        from memorable.core.profile import load_profile_from_yaml
+        from memorable.core.repositories import InMemoryDecisionRepository
+
+        repo = InMemoryDecisionRepository()
+        profile = load_profile_from_yaml(VALID_PROFILE_YAML)
+        remember = RememberDecisionService(repository=repo, profile=profile)
+
+        remember.remember(
+            space="memorable",
+            decision_id=V1_ID,
+            statement=STATEMENT_V1,
+            source_id=SOURCE_ID,
+            at=FIXTURE_TIMESTAMP_V1,
+        )
+        remember.remember(
+            space="memorable",
+            decision_id=V2_ID,
+            statement=STATEMENT_V2,
+            source_id=SOURCE_ID,
+            at=FIXTURE_TIMESTAMP_V2,
+            supersedes=V1_ID,
+        )
+
+        return PointInTimeTruthService(repository=repo), repo
+
+    def test_service_walks_chain_correctly(self) -> None:
+        """Query at 10:17 returns v1; query at 10:21 returns v2."""
+        service, _repo = self._setup_chain()
+
+        at_1017 = datetime(2026, 5, 23, 10, 17, 0, tzinfo=UTC)
+        result_v1 = service.at(space="memorable", decision_id=V1_ID, at=at_1017)
+
+        assert result_v1 is not None
+        assert result_v1.id == V1_ID
+
+        at_1021 = datetime(2026, 5, 23, 10, 21, 0, tzinfo=UTC)
+        result_v2 = service.at(space="memorable", decision_id=V1_ID, at=at_1021)
+
+        assert result_v2 is not None
+        assert result_v2.id == V2_ID
+
+    def test_service_returns_self_when_not_superseded(self) -> None:
+        from memorable.core.application import (
+            PointInTimeTruthService,
+            RememberDecisionService,
+        )
+        from memorable.core.profile import load_profile_from_yaml
+        from memorable.core.repositories import InMemoryDecisionRepository
+
+        repo = InMemoryDecisionRepository()
+        profile = load_profile_from_yaml(VALID_PROFILE_YAML)
+        remember = RememberDecisionService(repository=repo, profile=profile)
+
+        remember.remember(
+            space="memorable",
+            decision_id=V1_ID,
+            statement=STATEMENT_V1,
+            source_id=SOURCE_ID,
+            at=FIXTURE_TIMESTAMP_V1,
+        )
+
+        service = PointInTimeTruthService(repository=repo)
+        at_1017 = datetime(2026, 5, 23, 10, 17, 0, tzinfo=UTC)
+        result = service.at(space="memorable", decision_id=V1_ID, at=at_1017)
+
+        assert result is not None
+        assert result.id == V1_ID
+
+    def test_service_returns_none_for_missing(self) -> None:
+        from memorable.core.application import PointInTimeTruthService
+        from memorable.core.repositories import InMemoryDecisionRepository
+
+        repo = InMemoryDecisionRepository()
+        service = PointInTimeTruthService(repository=repo)
+
+        result = service.at(
+            space="memorable",
+            decision_id="decision:missing",
+            at=FIXTURE_TIMESTAMP_V1,
+        )
         assert result is None
 
 

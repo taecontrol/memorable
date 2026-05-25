@@ -80,24 +80,6 @@ class InMemoryDecisionRepository:
         """Return all decisions in the given space."""
         return [decision for (s, _), decision in self._decisions.items() if s == space]
 
-    def get_at(self, space: str, decision_id: str, at: datetime) -> Decision | None:
-        decision = self.get(space, decision_id)
-        if decision is None:
-            return None
-        # Walk the chain: find the decision whose validity_time <= at
-        # and whose invalidation_time is None or > at
-        current = decision
-        while True:
-            if current.invalidation_time is None or at < current.invalidation_time:
-                return current
-            # This decision was invalidated before `at`, follow the chain
-            if current.superseded_by is None:
-                return current
-            next_decision = self.get(space, current.superseded_by)
-            if next_decision is None:
-                return current
-            current = next_decision
-
     def get_history(self, space: str, decision_id: str) -> list[Decision]:
         decision = self.get(space, decision_id)
         if decision is None:

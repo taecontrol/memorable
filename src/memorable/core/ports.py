@@ -73,10 +73,6 @@ class DecisionRepository(Protocol):
         """Return all decisions in the given space."""
         ...
 
-    def get_at(self, space: str, decision_id: str, at: datetime) -> Decision | None:
-        """Return the Decision that was valid at the given time."""
-        ...
-
     def get_history(self, space: str, decision_id: str) -> list[Decision]:
         """Return the supersession chain starting from the given Decision."""
         ...

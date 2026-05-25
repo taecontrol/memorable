@@ -281,7 +281,21 @@ class PointInTimeTruthService:
 
     def at(self, *, space: str, decision_id: str, at: datetime) -> Decision | None:
         """Return the Decision that was valid at the given time."""
-        return self._repository.get_at(space=space, decision_id=decision_id, at=at)
+        decision = self._repository.get(space=space, decision_id=decision_id)
+        if decision is None:
+            return None
+        current = decision
+        while True:
+            if current.invalidation_time is None or at < current.invalidation_time:
+                return current
+            if current.superseded_by is None:
+                return current
+            next_decision = self._repository.get(
+                space=space, decision_id=current.superseded_by
+            )
+            if next_decision is None:
+                return current
+            current = next_decision
 
 
 class InspectDecisionHistoryService:
