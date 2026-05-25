@@ -1,7 +1,13 @@
 {
   "permissions": {
     "allow": [
-      "Bash(gh issue close *)"
+      "Bash(gh issue *)",
+      "Bash(grep *)",
+      "Bash(ls *)",
+      "Bash(find *)",
+      "Bash(uv run *)",
+      "Bash(git add *)",
+      "Bash(git commit *)"
     ]
   },
   "autoCompactWindow": 160000,
