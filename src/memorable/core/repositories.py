@@ -172,6 +172,28 @@ class InMemoryObservationRepository:
         )
         self._observations[key] = updated
 
+    def invalidate(
+        self,
+        space: str,
+        record_id: str,
+        invalidation_time: datetime,
+    ) -> None:
+        key = (space, record_id)
+        old = self._observations.get(key)
+        if old is None:
+            return
+        updated = Observation(
+            id=old.id,
+            statement=old.statement,
+            space=old.space,
+            validity_time=old.validity_time,
+            invalidation_time=invalidation_time,
+            lifecycle_state="invalidated",
+            supersedes=old.supersedes,
+            superseded_by=old.superseded_by,
+        )
+        self._observations[key] = updated
+
 
 class InMemoryTaskRepository:
     """In-memory implementation of TaskRepository."""
