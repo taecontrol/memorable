@@ -743,3 +743,111 @@ class TestMCPRememberObservation:
         assert len(result["history"]) == 2
         ids = [h["record_id"] for h in result["history"]]
         assert ids == [V1_ID, V2_ID]
+
+
+# =====================================================================
+# CLI adapter tests
+# =====================================================================
+
+
+@pytest.mark.usefixtures("cli_in_memory_context")
+class TestCLIRememberObservation:
+    """CLI `memorable remember observation` writes an Observation."""
+
+    def test_remember_observation_command(self, capsys) -> None:
+        from memorable.cli import main
+
+        exit_code = main(
+            [
+                "remember",
+                "observation",
+                "--space",
+                "memorable",
+                "--id",
+                V1_ID,
+                "--statement",
+                STATEMENT_V1,
+                "--source",
+                SOURCE_ID,
+                "--at",
+                "2026-05-25T09:00:00Z",
+            ]
+        )
+
+        assert exit_code == 0
+        output = capsys.readouterr().out
+        assert V1_ID in output
+        assert SOURCE_ID in output
+
+    def test_remember_observation_includes_provenance_fields(self, capsys) -> None:
+        """CLI remember observation JSON output includes record_id and record_kind."""
+        import json
+
+        from memorable.cli import main
+
+        exit_code = main(
+            [
+                "remember",
+                "observation",
+                "--space",
+                "memorable",
+                "--id",
+                V1_ID,
+                "--statement",
+                STATEMENT_V1,
+                "--source",
+                SOURCE_ID,
+                "--at",
+                "2026-05-25T09:00:00Z",
+            ]
+        )
+
+        assert exit_code == 0
+        output = json.loads(capsys.readouterr().out)
+        assert output["record_id"] == V1_ID
+        assert output["record_kind"] == "observation"
+
+    def test_remember_observation_with_supersession(self, capsys) -> None:
+        from memorable.cli import main
+
+        # Remember v1
+        main(
+            [
+                "remember",
+                "observation",
+                "--space",
+                "memorable",
+                "--id",
+                V1_ID,
+                "--statement",
+                STATEMENT_V1,
+                "--source",
+                SOURCE_ID,
+                "--at",
+                "2026-05-25T09:00:00Z",
+            ]
+        )
+
+        # Remember v2 superseding v1
+        exit_code = main(
+            [
+                "remember",
+                "observation",
+                "--space",
+                "memorable",
+                "--id",
+                V2_ID,
+                "--statement",
+                STATEMENT_V2,
+                "--supersedes",
+                V1_ID,
+                "--source",
+                SOURCE_ID,
+                "--at",
+                "2026-05-25T09:10:00Z",
+            ]
+        )
+
+        assert exit_code == 0
+        output = capsys.readouterr().out
+        assert V2_ID in output
