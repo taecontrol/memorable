@@ -27,7 +27,10 @@ mcp_server = FastMCP("memorable")
 
 @mcp_server.tool(
     name="memorable/status",
-    description="Return Memorable service diagnostics for the current MemorySpace scope.",
+    description=(
+        "Return Memorable service diagnostics "
+        "for the current MemorySpace scope."
+    ),
 )
 def status_tool() -> dict[str, object]:
     return build_status_payload()
@@ -301,7 +304,8 @@ def point_in_time_truth_tool(
     name="memorable/inspect_decision_history",
     description=(
         "Inspect the full Supersession chain for a Decision. "
-        "Returns Lifecycle State, Validity Time, and Invalidation Time for each version."
+        "Returns Lifecycle State, Validity Time, "
+        "and Invalidation Time for each version."
     ),
 )
 def inspect_decision_history_tool(
@@ -476,8 +480,9 @@ def complete_task_tool(
     name="memorable/search_memory",
     description=(
         "Search memory using Hybrid Retrieval (GraphRAG). "
-        "Combines semantic similarity, graph expansion, temporal filtering, "
-        "and Provenance-aware explanation. Supports Current Truth and Point-In-Time Truth modes."
+        "Combines semantic similarity, graph expansion, "
+        "temporal filtering, and Provenance-aware explanation. "
+        "Supports Current Truth and Point-In-Time Truth modes."
     ),
 )
 def search_memory_tool(
@@ -552,8 +557,9 @@ def tracer_run_tool() -> dict[str, object]:
 @mcp_server.tool(
     name="memorable/inspect_task",
     description=(
-        "Inspect a Task's Lifecycle State at the current time or as-of a Point-In-Time. "
-        "Returns Task details including completion Event if completed."
+        "Inspect a Task's Lifecycle State at the current time "
+        "or as-of a Point-In-Time. "
+        "Returns Task details including completion Event."
     ),
 )
 def inspect_task_tool(
