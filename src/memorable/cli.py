@@ -15,6 +15,7 @@ from memorable.core.application import (
     InspectHistoryService,
     InspectProvenanceService,
     InspectTaskService,
+    InvalidateService,
     PointInTimeTruthService,
     RememberDecisionService,
     RememberEntityService,
@@ -646,6 +647,50 @@ def _cmd_search(args: argparse.Namespace, ctx: ApplicationContext) -> int:
     return 0
 
 
+def _cmd_invalidate(args: argparse.Namespace, ctx: ApplicationContext) -> int:
+    """Invalidate a temporal record (Decision or Observation)."""
+    space = resolve_space(getattr(args, "space", None))
+    record_type = args.record_type
+
+    if record_type == "decision":
+        repository = ctx.decision_repo
+    elif record_type == "observation":
+        repository = ctx.observation_repo
+    else:
+        print(
+            f"Error: Unknown record type '{record_type}'. "
+            f"Supported types: decision, observation.",
+            file=sys.stderr,
+        )
+        return 1
+
+    service = InvalidateService(repository=repository)
+    at = parse_iso_timestamp(args.at)
+
+    try:
+        result = service.invalidate(
+            space=space,
+            record_id=args.id,
+            at=at,
+        )
+    except ValueError as e:
+        print(f"Error: {e}", file=sys.stderr)
+        return 1
+
+    print(
+        json.dumps(
+            {
+                "record_id": result.record_id,
+                "space": result.space,
+                "lifecycle_state": result.lifecycle_state,
+                "invalidation_time": result.invalidation_time.isoformat(),
+            },
+            sort_keys=True,
+        )
+    )
+    return 0
+
+
 # =====================================================================
 # Dispatch helpers
 # =====================================================================
@@ -667,6 +712,7 @@ _CONTEXT_HANDLERS: dict[
     ("inspect", "provenance"): _cmd_inspect_provenance,
     ("inspect", "history"): _cmd_inspect_history,
     ("search", None): _cmd_search,
+    ("invalidate", None): _cmd_invalidate,
 }
 
 # Map command name -> attribute that holds the subtype on argparse.Namespace.
@@ -873,6 +919,19 @@ def main(argv: list[str] | None = None) -> int:
     search_parser.add_argument("--query", required=True)
     search_parser.add_argument("--mode", default="current")
     search_parser.add_argument("--as-of", default=None)
+
+    # invalidate subcommand
+    invalidate_parser = subparsers.add_parser(
+        "invalidate", help="Mark a temporal record as invalidated."
+    )
+    invalidate_parser.add_argument("--space", default=None)
+    invalidate_parser.add_argument("--id", required=True)
+    invalidate_parser.add_argument(
+        "--record-type",
+        required=True,
+        help="Type of record (decision, observation).",
+    )
+    invalidate_parser.add_argument("--at", required=True)
 
     args = parser.parse_args(argv)
 
