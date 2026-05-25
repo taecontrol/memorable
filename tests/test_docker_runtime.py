@@ -18,6 +18,7 @@ from memorable.runtime.docker import (
     ContainerState,
     eject,
     is_remote_uri,
+    resolve_compose_file,
     start,
     status,
     stop,
@@ -198,3 +199,97 @@ class TestRemoteUriDetection:
 
     def test_neo4j_scheme_remote_host_is_remote(self) -> None:
         assert is_remote_uri("neo4j://db.example.com:7687") is True
+
+
+class TestResolveComposeFile:
+    """resolve_compose_file prefers ejected file over packaged template."""
+
+    def test_returns_packaged_template_when_no_project_dir(self) -> None:
+        """Without project_dir, the packaged template is used."""
+        result = resolve_compose_file(project_dir=None)
+        assert result.name == "docker-compose.yml"
+        assert result.exists()
+
+    def test_returns_packaged_template_when_no_ejected_file(
+        self, tmp_path: Path
+    ) -> None:
+        """With project_dir but no ejected file, the packaged template is used."""
+        result = resolve_compose_file(project_dir=tmp_path)
+        assert result.name == "docker-compose.yml"
+        assert result.exists()
+
+    def test_returns_ejected_file_when_present(self, tmp_path: Path) -> None:
+        """With an ejected .memorable/docker-compose.yml, it is preferred."""
+        ejected = tmp_path / ".memorable" / "docker-compose.yml"
+        ejected.parent.mkdir(parents=True)
+        ejected.write_text("custom compose content")
+
+        result = resolve_compose_file(project_dir=tmp_path)
+        assert result == ejected
+
+
+class TestEjectedComposePreferred:
+    """start/stop/status use ejected compose file when present."""
+
+    def test_start_uses_ejected_compose_when_present(self, tmp_path: Path) -> None:
+        """After eject(), start() should use the ejected compose file."""
+        config = RuntimeConfig()
+        ejected = tmp_path / ".memorable" / "docker-compose.yml"
+        ejected.parent.mkdir(parents=True)
+        ejected.write_text("custom compose")
+
+        with patch("memorable.runtime.docker.subprocess.run") as mock_run:
+            mock_run.return_value.returncode = 0
+            start(config, project_dir=tmp_path)
+
+        cmd = mock_run.call_args[0][0]
+        f_index = cmd.index("-f")
+        compose_path = Path(cmd[f_index + 1])
+        assert compose_path == ejected
+
+    def test_stop_uses_ejected_compose_when_present(self, tmp_path: Path) -> None:
+        """stop() should use the ejected compose file when present."""
+        config = RuntimeConfig()
+        ejected = tmp_path / ".memorable" / "docker-compose.yml"
+        ejected.parent.mkdir(parents=True)
+        ejected.write_text("custom compose")
+
+        with patch("memorable.runtime.docker.subprocess.run") as mock_run:
+            mock_run.return_value.returncode = 0
+            stop(config, project_dir=tmp_path)
+
+        cmd = mock_run.call_args[0][0]
+        f_index = cmd.index("-f")
+        compose_path = Path(cmd[f_index + 1])
+        assert compose_path == ejected
+
+    def test_status_uses_ejected_compose_when_present(self, tmp_path: Path) -> None:
+        """status() should use the ejected compose file when present."""
+        config = RuntimeConfig()
+        ejected = tmp_path / ".memorable" / "docker-compose.yml"
+        ejected.parent.mkdir(parents=True)
+        ejected.write_text("custom compose")
+
+        with patch("memorable.runtime.docker.subprocess.run") as mock_run:
+            mock_run.return_value.returncode = 0
+            mock_run.return_value.stdout = "running\n"
+            status(config, project_dir=tmp_path)
+
+        cmd = mock_run.call_args[0][0]
+        f_index = cmd.index("-f")
+        compose_path = Path(cmd[f_index + 1])
+        assert compose_path == ejected
+
+    def test_start_falls_back_to_packaged_when_no_ejected(self) -> None:
+        """start() without project_dir uses packaged template (backward compat)."""
+        config = RuntimeConfig()
+
+        with patch("memorable.runtime.docker.subprocess.run") as mock_run:
+            mock_run.return_value.returncode = 0
+            start(config)
+
+        cmd = mock_run.call_args[0][0]
+        f_index = cmd.index("-f")
+        compose_path = Path(cmd[f_index + 1])
+        assert compose_path.name == "docker-compose.yml"
+        assert compose_path.exists()

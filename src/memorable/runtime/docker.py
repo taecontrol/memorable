@@ -62,13 +62,28 @@ def _compose_env(config: RuntimeConfig) -> dict[str, str]:
     return env
 
 
-def start(config: RuntimeConfig) -> DockerResult:
+def resolve_compose_file(project_dir: Path | None = None) -> Path:
+    """Return the compose file to use.
+
+    If *project_dir* is provided and an ejected
+    ``.memorable/docker-compose.yml`` exists there, prefer it.
+    Otherwise fall back to the packaged template.
+    """
+    if project_dir is not None:
+        ejected = project_dir / ".memorable" / "docker-compose.yml"
+        if ejected.exists():
+            return ejected
+    return _TEMPLATE_PATH
+
+
+def start(config: RuntimeConfig, *, project_dir: Path | None = None) -> DockerResult:
     """Start the local Neo4j container via docker compose up -d."""
+    compose_file = resolve_compose_file(project_dir)
     cmd = [
         "docker",
         "compose",
         "-f",
-        str(_TEMPLATE_PATH),
+        str(compose_file),
         "up",
         "-d",
     ]
@@ -86,13 +101,14 @@ def start(config: RuntimeConfig) -> DockerResult:
     return DockerResult(success=True, message="Neo4j container started.")
 
 
-def stop(config: RuntimeConfig) -> DockerResult:
+def stop(config: RuntimeConfig, *, project_dir: Path | None = None) -> DockerResult:
     """Stop the local Neo4j container via docker compose down."""
+    compose_file = resolve_compose_file(project_dir)
     cmd = [
         "docker",
         "compose",
         "-f",
-        str(_TEMPLATE_PATH),
+        str(compose_file),
         "down",
     ]
     result = subprocess.run(
@@ -109,13 +125,14 @@ def stop(config: RuntimeConfig) -> DockerResult:
     return DockerResult(success=True, message="Neo4j container stopped.")
 
 
-def status(config: RuntimeConfig) -> ContainerState:
+def status(config: RuntimeConfig, *, project_dir: Path | None = None) -> ContainerState:
     """Check the state of the local Neo4j container."""
+    compose_file = resolve_compose_file(project_dir)
     cmd = [
         "docker",
         "compose",
         "-f",
-        str(_TEMPLATE_PATH),
+        str(compose_file),
         "ps",
         "--format",
         "{{.State}}",

@@ -3,6 +3,7 @@ from __future__ import annotations
 import argparse
 import json
 import sys
+from collections.abc import Callable
 from pathlib import Path
 from typing import Literal, cast
 
@@ -112,7 +113,7 @@ def _cmd_db_start(args: argparse.Namespace) -> int:
         )
         return 1
 
-    result = docker_start(config)
+    result = docker_start(config, project_dir=base_path)
     if not result.success:
         print(f"Error: {result.message}", file=sys.stderr)
         return 1
@@ -132,7 +133,7 @@ def _cmd_db_stop(args: argparse.Namespace) -> int:
         )
         return 1
 
-    result = docker_stop(config)
+    result = docker_stop(config, project_dir=base_path)
     if not result.success:
         print(f"Error: {result.message}", file=sys.stderr)
         return 1
@@ -596,71 +597,56 @@ def _cmd_search(args: argparse.Namespace, ctx: ApplicationContext) -> int:
 # Dispatch helpers
 # =====================================================================
 
-# Commands that need a production context (Neo4j-backed).
-# Identified by (command, subtype) tuples.
-_CONTEXT_COMMANDS: set[tuple[str, str | None]] = {
-    ("remember", "entity"),
-    ("remember", "decision"),
-    ("remember", "task"),
-    ("complete", "task"),
-    ("task", "inspect"),
-    ("truth", "current"),
-    ("truth", "as-of"),
-    ("inspect", "provenance"),
-    ("inspect", "history"),
-    ("search", None),
+# Registry mapping (command, subtype) -> handler function.
+# Single source of truth: _needs_production_context and dispatch both use this.
+_CONTEXT_HANDLERS: dict[
+    tuple[str, str | None],
+    Callable[[argparse.Namespace, ApplicationContext], int],
+] = {
+    ("remember", "entity"): _cmd_remember_entity,
+    ("remember", "decision"): _cmd_remember_decision,
+    ("remember", "task"): _cmd_remember_task,
+    ("complete", "task"): _cmd_complete_task,
+    ("task", "inspect"): _cmd_task_inspect,
+    ("truth", "current"): _cmd_truth_current,
+    ("truth", "as-of"): _cmd_truth_as_of,
+    ("inspect", "provenance"): _cmd_inspect_provenance,
+    ("inspect", "history"): _cmd_inspect_history,
+    ("search", None): _cmd_search,
 }
+
+# Map command name -> attribute that holds the subtype on argparse.Namespace.
+_SUBTYPE_ATTRS: dict[str, str] = {
+    "remember": "remember_type",
+    "complete": "complete_type",
+    "task": "task_type",
+    "truth": "truth_type",
+    "inspect": "inspect_type",
+}
+
+
+def _resolve_context_key(
+    args: argparse.Namespace,
+) -> tuple[str, str | None]:
+    """Extract the (command, subtype) key from parsed args."""
+    command = args.command
+    attr = _SUBTYPE_ATTRS.get(command)
+    subtype = getattr(args, attr, None) if attr else None
+    return (command, subtype)
 
 
 def _needs_production_context(args: argparse.Namespace) -> bool:
     """Return True if the parsed command requires a production context."""
-    command = args.command
-    subtype = None
-    if command == "remember":
-        subtype = getattr(args, "remember_type", None)
-    elif command == "complete":
-        subtype = getattr(args, "complete_type", None)
-    elif command == "task":
-        subtype = getattr(args, "task_type", None)
-    elif command == "truth":
-        subtype = getattr(args, "truth_type", None)
-    elif command == "inspect":
-        subtype = getattr(args, "inspect_type", None)
-    elif command == "search":
-        return True
-
-    return (command, subtype) in _CONTEXT_COMMANDS
+    return _resolve_context_key(args) in _CONTEXT_HANDLERS
 
 
 def _dispatch_context_command(args: argparse.Namespace, ctx: ApplicationContext) -> int:
     """Dispatch a command that uses the production context."""
-    if args.command == "remember":
-        if args.remember_type == "entity":
-            return _cmd_remember_entity(args, ctx)
-        elif args.remember_type == "decision":
-            return _cmd_remember_decision(args, ctx)
-        elif args.remember_type == "task":
-            return _cmd_remember_task(args, ctx)
-    elif args.command == "complete":
-        if args.complete_type == "task":
-            return _cmd_complete_task(args, ctx)
-    elif args.command == "task":
-        if args.task_type == "inspect":
-            return _cmd_task_inspect(args, ctx)
-    elif args.command == "truth":
-        if args.truth_type == "current":
-            return _cmd_truth_current(args, ctx)
-        elif args.truth_type == "as-of":
-            return _cmd_truth_as_of(args, ctx)
-    elif args.command == "inspect":
-        if args.inspect_type == "provenance":
-            return _cmd_inspect_provenance(args, ctx)
-        elif args.inspect_type == "history":
-            return _cmd_inspect_history(args, ctx)
-    elif args.command == "search":
-        return _cmd_search(args, ctx)
-
-    raise AssertionError(f"unhandled context command: {args.command}")
+    key = _resolve_context_key(args)
+    handler = _CONTEXT_HANDLERS.get(key)
+    if handler is None:
+        raise AssertionError(f"unhandled context command: {args.command}")
+    return handler(args, ctx)
 
 
 def main(argv: list[str] | None = None) -> int:

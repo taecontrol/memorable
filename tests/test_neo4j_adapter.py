@@ -474,6 +474,51 @@ class TestNeo4jEntityRepository:
         results = repo.list_by_space("proj-a")
         assert len(results) == 1
 
+    def test_resave_updates_provenance_not_accumulates(self) -> None:
+        """Re-saving an entity overwrites provenance instead of accumulating."""
+        from memorable.storage.neo4j.repository import Neo4jEntityRepository
+
+        repo = Neo4jEntityRepository(driver=FakeDriver())
+        entity = Entity(
+            id="ent-1", entity_type="component", name="Auth", space="proj-a"
+        )
+        ts1 = datetime(2025, 1, 1, 10, 0, 0, tzinfo=UTC)
+        prov_a = Provenance(
+            record_id="rec-a",
+            record_kind="entity",
+            source_id="src-old",
+            episode_id="ep-old",
+            writer="agent-old",
+            reason="initial discovery",
+            creation_time=ts1,
+            validity_time=ts1,
+        )
+
+        repo.save(entity, prov_a)
+
+        # Re-save with different provenance
+        ts2 = datetime(2025, 6, 1, 12, 0, 0, tzinfo=UTC)
+        prov_b = Provenance(
+            record_id="rec-b",
+            record_kind="entity",
+            source_id="src-new",
+            episode_id="ep-new",
+            writer="agent-new",
+            reason="updated observation",
+            creation_time=ts2,
+            validity_time=ts2,
+        )
+
+        repo.save(entity, prov_b)
+
+        # get_provenance should return prov_b (the latest), not prov_a
+        result = repo.get_provenance("proj-a", "ent-1")
+        assert result is not None
+        assert result.record_id == "rec-b"
+        assert result.source_id == "src-new"
+        assert result.writer == "agent-new"
+        assert result.reason == "updated observation"
+
 
 # --- Decision adapter tests ---
 

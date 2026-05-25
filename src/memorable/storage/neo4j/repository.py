@@ -127,15 +127,15 @@ class Neo4jEntityRepository:
                 "MERGE (e:Entity {space: $space, id: $id}) "
                 "SET e.entity_type = $entity_type, e.name = $name "
                 "WITH e "
-                "MERGE (p:Provenance "
-                "{record_id: $record_id, record_kind: $record_kind}) "
-                "SET p.source_id = $source_id, "
+                "MERGE (e)<-[:PROVENANCE_OF]-(p:Provenance "
+                "{record_kind: $record_kind}) "
+                "SET p.record_id = $record_id, "
+                "    p.source_id = $source_id, "
                 "    p.episode_id = $episode_id, "
                 "    p.writer = $writer, "
                 "    p.reason = $reason, "
                 "    p.creation_time = $creation_time, "
-                "    p.validity_time = $validity_time "
-                "MERGE (p)-[:PROVENANCE_OF]->(e)",
+                "    p.validity_time = $validity_time",
                 space=entity.space,
                 id=entity.id,
                 entity_type=entity.entity_type,
