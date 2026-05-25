@@ -7,7 +7,9 @@
       "Bash(find *)",
       "Bash(uv run *)",
       "Bash(git add *)",
-      "Bash(git commit *)"
+      "Bash(git commit *)",
+      "Bash(git -C * status)",
+      "Bash(git -C * diff)"
     ]
   },
   "autoCompactWindow": 160000,
