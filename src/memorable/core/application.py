@@ -382,7 +382,11 @@ class PointInTimeTruthService:
         self._repository = repository
 
     def at(
-        self, *, space: str, record_id: str, at: datetime,
+        self,
+        *,
+        space: str,
+        record_id: str,
+        at: datetime,
     ) -> TemporalRecord | None:
         """Return the record that was valid at the given time."""
         # Positional call: avoids keyword name mismatch across repositories.
@@ -435,7 +439,6 @@ class InspectHistoryService:
         return chain
 
 
-
 @dataclass(frozen=True)
 class InvalidateResult:
     """Result of invalidating a temporal record."""
@@ -477,8 +480,7 @@ class InvalidateService:
             )
         if record.lifecycle_state == "invalidated":
             raise ValueError(
-                f"Record '{record_id}' is already invalidated "
-                f"in MemorySpace '{space}'."
+                f"Record '{record_id}' is already invalidated in MemorySpace '{space}'."
             )
 
         self._repository.invalidate(
@@ -492,6 +494,95 @@ class InvalidateService:
             space=space,
             lifecycle_state="invalidated",
             invalidation_time=at,
+        )
+
+
+@dataclass(frozen=True)
+class CorrectResult:
+    """Result of correcting a temporal record's statement in place."""
+
+    record_id: str
+    space: str
+    old_statement: str
+    new_statement: str
+
+
+class CorrectService:
+    """Generic application service that corrects any temporal record in place.
+
+    Correction means the old statement was never true — it was a mistake.
+    The record's statement is updated in place, and provenance is replaced
+    with new provenance reflecting the correction source.
+
+    Works with any repository satisfying TemporalRecordRepository.
+    """
+
+    def __init__(self, repository: TemporalRecordRepository) -> None:
+        self._repository = repository
+
+    def correct(
+        self,
+        *,
+        space: str,
+        record_id: str,
+        new_statement: str,
+        record_kind: str,
+        source: str,
+        writer: str,
+        at: datetime,
+        reason: str = "",
+    ) -> CorrectResult:
+        """Correct a temporal record's statement in place.
+
+        Raises ValueError if the record is not found or already invalidated.
+        """
+        record = self._repository.get(space, record_id)
+        if record is None:
+            raise ValueError(
+                f"Record '{record_id}' not found in MemorySpace '{space}'."
+            )
+        if record.lifecycle_state == "invalidated":
+            raise ValueError(
+                f"Record '{record_id}' is already invalidated "
+                f"in MemorySpace '{space}'. Cannot correct an invalidated record."
+            )
+
+        old_statement = record.statement
+
+        self._repository.correct(
+            space=space,
+            record_id=record_id,
+            new_statement=new_statement,
+        )
+
+        # Build correction provenance
+        episode_id = make_episode_id(source, at)
+        if reason:
+            provenance_reason = f"Corrected from: '{old_statement}'. Reason: {reason}."
+        else:
+            provenance_reason = f"Corrected from: '{old_statement}'."
+
+        provenance = Provenance(
+            record_id=record_id,
+            record_kind=record_kind,
+            source_id=source,
+            episode_id=episode_id,
+            writer=writer,
+            reason=provenance_reason,
+            creation_time=at,
+            validity_time=at,
+        )
+        self._repository.save_provenance(
+            space=space,
+            record_id=record_id,
+            provenance=provenance,
+        )
+
+        return CorrectResult(
+            record_id=record_id,
+            space=space,
+            old_statement=old_statement,
+            new_statement=new_statement,
         )
 
 

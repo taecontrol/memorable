@@ -7,6 +7,7 @@ from mcp.server.fastmcp import FastMCP
 
 from memorable.core.application import (
     CompleteTaskService,
+    CorrectService,
     CurrentTruthService,
     InitService,
     InspectHistoryService,
@@ -411,10 +412,7 @@ def inspect_history_tool(
     history = service.history(space=space, record_id=record_id)
 
     if not history:
-        return {
-            "error": f"No record found for '{record_id}' "
-            f"in MemorySpace '{space}'."
-        }
+        return {"error": f"No record found for '{record_id}' in MemorySpace '{space}'."}
 
     return {
         "record_id": record_id,
@@ -719,4 +717,70 @@ def invalidate_tool(
         "space": result.space,
         "lifecycle_state": result.lifecycle_state,
         "invalidation_time": result.invalidation_time.isoformat(),
+    }
+
+
+@mcp_server.tool(
+    name="memorable_correct",
+    description=(
+        "Correct a temporal record's statement in place in a MemorySpace. "
+        "Correction means the old statement was never true — it was a mistake. "
+        "Updates the statement and replaces Provenance with Correction source. "
+        "Accepts record_type to select the repository (decision, observation)."
+    ),
+)
+def correct_tool(
+    space: str,
+    record_id: str,
+    record_type: str,
+    new_statement: str,
+    source: str,
+    at: str,
+    reason: str = "",
+) -> dict[str, object]:
+    """Correct a temporal record's statement in place.
+
+    Args:
+        space: MemorySpace containing the record.
+        record_id: ID of the record to correct.
+        record_type: Type of record ("decision" or "observation").
+        new_statement: The corrected statement.
+        source: Source ID for the correction provenance.
+        at: ISO timestamp for the correction.
+        reason: Optional reason for the correction.
+
+    Returns a dict with correction info on success, or an error dict.
+    """
+    if record_type == "decision":
+        repository = _context.decision_repo
+    elif record_type == "observation":
+        repository = _context.observation_repo
+    else:
+        return {
+            "error": f"Unknown record_type '{record_type}'. "
+            f"Supported types: decision, observation."
+        }
+
+    service = CorrectService(repository=repository)
+    timestamp = parse_iso_timestamp(at)
+
+    try:
+        result = service.correct(
+            space=space,
+            record_id=record_id,
+            new_statement=new_statement,
+            record_kind=record_type,
+            source=source,
+            writer="agent:memorable",
+            at=timestamp,
+            reason=reason,
+        )
+    except ValueError as e:
+        return {"error": str(e)}
+
+    return {
+        "record_id": result.record_id,
+        "space": result.space,
+        "old_statement": result.old_statement,
+        "new_statement": result.new_statement,
     }

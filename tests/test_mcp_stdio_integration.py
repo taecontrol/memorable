@@ -81,17 +81,18 @@ class TestListToolsOverStdio:
             "memorable_search_memory",
             "memorable_inspect_task",
             "memorable_invalidate",
+            "memorable_correct",
         }
         assert tool_names == expected
 
     @pytest.mark.anyio
-    async def test_list_tools_returns_15_tools(self) -> None:
+    async def test_list_tools_returns_16_tools(self) -> None:
         async def _check(session):
             result = await session.list_tools()
             return len(result.tools)
 
         count = await _connect_and_run(_check)
-        assert count == 15
+        assert count == 16
 
 
 class TestCallToolOverStdio:

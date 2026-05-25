@@ -62,7 +62,8 @@ class FakeSession:
             return FakeResult()
 
         # --- Provenance retrieval (must be checked BEFORE record MATCH) ---
-        if "Provenance" in query and "MATCH" in query:
+        # Exclude SET queries — those are save_provenance writes handled later.
+        if "Provenance" in query and "MATCH" in query and "SET" not in query:
             space = str(params.get("space", ""))
             record_id = str(params.get("id", ""))
             provs = self._store.get("Provenance", {})
@@ -149,18 +150,40 @@ class FakeSession:
                 }
             return FakeResult()
 
-        # --- Decision mark_superseded (MATCH + SET) ---
+        # --- Decision save_provenance (Provenance + Decision + SET) ---
+        if "Provenance" in query and "Decision" in query and "SET" in query:
+            space = str(params.get("space", ""))
+            record_id = str(params.get("id", ""))
+            provs = self._store.setdefault("Provenance", {})
+            provs[("decision", space, record_id)] = {
+                "record_id": params.get("record_id", ""),
+                "record_kind": params.get("record_kind", ""),
+                "source_id": params.get("source_id", ""),
+                "episode_id": params.get("episode_id", ""),
+                "writer": params.get("writer", ""),
+                "reason": params.get("reason", ""),
+                "creation_time": params.get("creation_time", ""),
+                "validity_time": params.get("validity_time", ""),
+            }
+            return FakeResult()
+
+        # --- Decision MATCH + SET (mark_superseded, invalidate, correct) ---
         if "Decision" in query and "SET" in query:
             space = str(params.get("space", ""))
             decision_id = str(params.get("id", ""))
             decisions = self._store.get("Decision", {})
             key = (space, decision_id)
             if key in decisions:
-                decisions[key]["superseded_by"] = params.get("superseded_by")
-                decisions[key]["invalidation_time"] = params.get("invalidation_time")
-                decisions[key]["lifecycle_state"] = params.get(
-                    "lifecycle_state", "superseded"
-                )
+                if "superseded_by" in params:
+                    decisions[key]["superseded_by"] = params.get("superseded_by")
+                if "invalidation_time" in params:
+                    decisions[key]["invalidation_time"] = params.get(
+                        "invalidation_time"
+                    )
+                if "lifecycle_state" in params:
+                    decisions[key]["lifecycle_state"] = params.get("lifecycle_state")
+                if "statement" in params:
+                    decisions[key]["statement"] = params.get("statement")
             return FakeResult()
 
         # --- Decision MATCH (single or list) ---
@@ -690,6 +713,98 @@ class TestNeo4jDecisionRepository:
 
         repo = Neo4jDecisionRepository(driver=FakeDriver())
         assert repo.get_provenance("proj-a", "nonexistent") is None
+
+    def test_invalidate_sets_lifecycle_and_time(self) -> None:
+        """invalidate sets lifecycle_state to invalidated and records time."""
+        from memorable.storage.neo4j.repository import Neo4jDecisionRepository
+
+        repo = Neo4jDecisionRepository(driver=FakeDriver())
+        ts = datetime(2025, 2, 1, 9, 0, 0, tzinfo=UTC)
+        inv_time = datetime(2025, 3, 1, 12, 0, 0, tzinfo=UTC)
+
+        decision = Decision(
+            id="dec-1",
+            statement="Use MySQL",
+            space="proj-a",
+            validity_time=ts,
+            invalidation_time=None,
+            lifecycle_state="current",
+            supersedes=None,
+            superseded_by=None,
+        )
+        repo.save(decision, _make_provenance("dec-1", "decision"))
+
+        repo.invalidate("proj-a", "dec-1", inv_time)
+
+        result = repo.get("proj-a", "dec-1")
+        assert result is not None
+        assert result.lifecycle_state == "invalidated"
+        assert result.invalidation_time == inv_time
+
+    def test_correct_updates_statement_in_place(self) -> None:
+        """correct updates the statement without changing other fields."""
+        from memorable.storage.neo4j.repository import Neo4jDecisionRepository
+
+        repo = Neo4jDecisionRepository(driver=FakeDriver())
+        ts = datetime(2025, 2, 1, 9, 0, 0, tzinfo=UTC)
+
+        decision = Decision(
+            id="dec-1",
+            statement="Use Graphiti for storage.",
+            space="proj-a",
+            validity_time=ts,
+            invalidation_time=None,
+            lifecycle_state="current",
+            supersedes=None,
+            superseded_by=None,
+        )
+        repo.save(decision, _make_provenance("dec-1", "decision"))
+
+        repo.correct("proj-a", "dec-1", "Use Neo4j for storage.")
+
+        result = repo.get("proj-a", "dec-1")
+        assert result is not None
+        assert result.statement == "Use Neo4j for storage."
+        assert result.lifecycle_state == "current"
+        assert result.invalidation_time is None
+
+    def test_save_provenance_replaces_existing(self) -> None:
+        """save_provenance replaces the provenance for a decision."""
+        from memorable.storage.neo4j.repository import Neo4jDecisionRepository
+
+        repo = Neo4jDecisionRepository(driver=FakeDriver())
+        ts = datetime(2025, 2, 1, 9, 0, 0, tzinfo=UTC)
+        correction_ts = datetime(2025, 3, 1, 12, 0, 0, tzinfo=UTC)
+
+        decision = Decision(
+            id="dec-1",
+            statement="Use Neo4j",
+            space="proj-a",
+            validity_time=ts,
+            invalidation_time=None,
+            lifecycle_state="current",
+            supersedes=None,
+            superseded_by=None,
+        )
+        repo.save(decision, _make_provenance("dec-1", "decision"))
+
+        new_prov = Provenance(
+            record_id="dec-1",
+            record_kind="decision",
+            source_id="src-correction",
+            episode_id="ep-correction",
+            writer="human:reviewer",
+            reason="Corrected from: 'Use Graphiti'.",
+            creation_time=correction_ts,
+            validity_time=correction_ts,
+        )
+        repo.save_provenance("proj-a", "dec-1", new_prov)
+
+        result = repo.get_provenance("proj-a", "dec-1")
+        assert result is not None
+        assert result.source_id == "src-correction"
+        assert result.writer == "human:reviewer"
+        assert "Corrected from" in result.reason
 
 
 # --- Task adapter tests ---

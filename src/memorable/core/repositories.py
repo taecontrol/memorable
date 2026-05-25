@@ -126,6 +126,36 @@ class InMemoryDecisionRepository:
         )
         self._decisions[key] = updated
 
+    def correct(
+        self,
+        space: str,
+        record_id: str,
+        new_statement: str,
+    ) -> None:
+        key = (space, record_id)
+        old = self._decisions.get(key)
+        if old is None:
+            return
+        updated = Decision(
+            id=old.id,
+            statement=new_statement,
+            space=old.space,
+            validity_time=old.validity_time,
+            invalidation_time=old.invalidation_time,
+            lifecycle_state=old.lifecycle_state,
+            supersedes=old.supersedes,
+            superseded_by=old.superseded_by,
+        )
+        self._decisions[key] = updated
+
+    def save_provenance(
+        self,
+        space: str,
+        record_id: str,
+        provenance: Provenance,
+    ) -> None:
+        self._provenance[(space, record_id)] = provenance
+
 
 class InMemoryObservationRepository:
     """In-memory implementation of ObservationRepository."""
@@ -193,6 +223,36 @@ class InMemoryObservationRepository:
             superseded_by=old.superseded_by,
         )
         self._observations[key] = updated
+
+    def correct(
+        self,
+        space: str,
+        record_id: str,
+        new_statement: str,
+    ) -> None:
+        key = (space, record_id)
+        old = self._observations.get(key)
+        if old is None:
+            return
+        updated = Observation(
+            id=old.id,
+            statement=new_statement,
+            space=old.space,
+            validity_time=old.validity_time,
+            invalidation_time=old.invalidation_time,
+            lifecycle_state=old.lifecycle_state,
+            supersedes=old.supersedes,
+            superseded_by=old.superseded_by,
+        )
+        self._observations[key] = updated
+
+    def save_provenance(
+        self,
+        space: str,
+        record_id: str,
+        provenance: Provenance,
+    ) -> None:
+        self._provenance[(space, record_id)] = provenance
 
 
 class InMemoryTaskRepository:

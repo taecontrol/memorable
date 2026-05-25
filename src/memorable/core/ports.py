@@ -71,6 +71,32 @@ class TemporalRecordRepository(Protocol):
         """Mark a temporal record as invalidated (no replacement)."""
         ...
 
+    def correct(
+        self,
+        space: str,
+        record_id: str,
+        new_statement: str,
+    ) -> None:
+        """Correct a temporal record's statement in place."""
+        ...
+
+    def save_provenance(
+        self,
+        space: str,
+        record_id: str,
+        provenance: Provenance,
+    ) -> None:
+        """Replace the provenance for a temporal record."""
+        ...
+
+    def get_provenance(
+        self,
+        space: str,
+        record_id: str,
+    ) -> Provenance | None:
+        """Retrieve the provenance for a temporal record, or None."""
+        ...
+
 
 class MemorySpaceRepository(Protocol):
     """Port for MemorySpace persistence."""

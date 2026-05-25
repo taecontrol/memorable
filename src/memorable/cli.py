@@ -10,6 +10,7 @@ from typing import Literal, cast
 from memorable.config import load_runtime_config
 from memorable.core.application import (
     CompleteTaskService,
+    CorrectService,
     CurrentTruthService,
     InitService,
     InspectHistoryService,
@@ -691,6 +692,55 @@ def _cmd_invalidate(args: argparse.Namespace, ctx: ApplicationContext) -> int:
     return 0
 
 
+def _cmd_correct(args: argparse.Namespace, ctx: ApplicationContext) -> int:
+    """Correct a temporal record's statement in place (Decision or Observation)."""
+    space = resolve_space(getattr(args, "space", None))
+    record_type = args.record_type
+
+    if record_type == "decision":
+        repository = ctx.decision_repo
+    elif record_type == "observation":
+        repository = ctx.observation_repo
+    else:
+        print(
+            f"Error: Unknown record type '{record_type}'. "
+            f"Supported types: decision, observation.",
+            file=sys.stderr,
+        )
+        return 1
+
+    service = CorrectService(repository=repository)
+    at = parse_iso_timestamp(args.at)
+
+    try:
+        result = service.correct(
+            space=space,
+            record_id=args.id,
+            new_statement=args.new_statement,
+            record_kind=record_type,
+            source=args.source,
+            writer="agent:memorable",
+            at=at,
+            reason=getattr(args, "reason", "") or "",
+        )
+    except ValueError as e:
+        print(f"Error: {e}", file=sys.stderr)
+        return 1
+
+    print(
+        json.dumps(
+            {
+                "record_id": result.record_id,
+                "space": result.space,
+                "old_statement": result.old_statement,
+                "new_statement": result.new_statement,
+            },
+            sort_keys=True,
+        )
+    )
+    return 0
+
+
 # =====================================================================
 # Dispatch helpers
 # =====================================================================
@@ -713,6 +763,7 @@ _CONTEXT_HANDLERS: dict[
     ("inspect", "history"): _cmd_inspect_history,
     ("search", None): _cmd_search,
     ("invalidate", None): _cmd_invalidate,
+    ("correct", None): _cmd_correct,
 }
 
 # Map command name -> attribute that holds the subtype on argparse.Namespace.
@@ -932,6 +983,22 @@ def main(argv: list[str] | None = None) -> int:
         help="Type of record (decision, observation).",
     )
     invalidate_parser.add_argument("--at", required=True)
+
+    # correct subcommand
+    correct_parser = subparsers.add_parser(
+        "correct", help="Correct a temporal record's statement in place."
+    )
+    correct_parser.add_argument("--space", default=None)
+    correct_parser.add_argument("--id", required=True)
+    correct_parser.add_argument(
+        "--record-type",
+        required=True,
+        help="Type of record (decision, observation).",
+    )
+    correct_parser.add_argument("--new-statement", required=True)
+    correct_parser.add_argument("--source", required=True)
+    correct_parser.add_argument("--at", required=True)
+    correct_parser.add_argument("--reason", default="")
 
     args = parser.parse_args(argv)
 

@@ -45,6 +45,7 @@ class FakeTemporalRecordRepository:
 
     def __init__(self) -> None:
         self._records: dict[tuple[str, str], FakeTemporalRecord] = {}
+        self._provenance: dict[tuple[str, str], object] = {}
 
     def get(self, space: str, record_id: str) -> FakeTemporalRecord | None:
         return self._records.get((space, record_id))
@@ -76,6 +77,33 @@ class FakeTemporalRecordRepository:
             return
         old.lifecycle_state = "invalidated"
         old.invalidation_time = invalidation_time
+
+    def correct(
+        self,
+        space: str,
+        record_id: str,
+        new_statement: str,
+    ) -> None:
+        key = (space, record_id)
+        old = self._records.get(key)
+        if old is None:
+            return
+        old.statement = new_statement
+
+    def save_provenance(
+        self,
+        space: str,
+        record_id: str,
+        provenance: object,
+    ) -> None:
+        self._provenance[(space, record_id)] = provenance
+
+    def get_provenance(
+        self,
+        space: str,
+        record_id: str,
+    ) -> object | None:
+        return self._provenance.get((space, record_id))
 
     def put(self, record: FakeTemporalRecord) -> None:
         """Helper to seed test data."""
@@ -127,13 +155,21 @@ class TestCurrentTruthServiceGeneric:
         from memorable.core.application import CurrentTruthService
 
         repo = FakeTemporalRecordRepository()
-        repo.put(FakeTemporalRecord(
-            id="r1", space="s",
-            superseded_by="r2", lifecycle_state="superseded",
-        ))
-        repo.put(FakeTemporalRecord(
-            id="r2", space="s", lifecycle_state="current",
-        ))
+        repo.put(
+            FakeTemporalRecord(
+                id="r1",
+                space="s",
+                superseded_by="r2",
+                lifecycle_state="superseded",
+            )
+        )
+        repo.put(
+            FakeTemporalRecord(
+                id="r2",
+                space="s",
+                lifecycle_state="current",
+            )
+        )
 
         service = CurrentTruthService(repository=repo)
         result = service.current(space="s", record_id="r1")
@@ -163,13 +199,22 @@ class TestPointInTimeTruthServiceGeneric:
         t2 = datetime(2026, 1, 1, 10, 5, tzinfo=UTC)
 
         repo = FakeTemporalRecordRepository()
-        repo.put(FakeTemporalRecord(
-            id="r1", space="s", superseded_by="r2",
-            invalidation_time=t2, lifecycle_state="superseded",
-        ))
-        repo.put(FakeTemporalRecord(
-            id="r2", space="s", lifecycle_state="current",
-        ))
+        repo.put(
+            FakeTemporalRecord(
+                id="r1",
+                space="s",
+                superseded_by="r2",
+                invalidation_time=t2,
+                lifecycle_state="superseded",
+            )
+        )
+        repo.put(
+            FakeTemporalRecord(
+                id="r2",
+                space="s",
+                lifecycle_state="current",
+            )
+        )
 
         service = PointInTimeTruthService(repository=repo)
 
@@ -194,7 +239,8 @@ class TestPointInTimeTruthServiceGeneric:
         service = PointInTimeTruthService(repository=repo)
 
         result = service.at(
-            space="s", record_id="missing",
+            space="s",
+            record_id="missing",
             at=datetime(2026, 1, 1, tzinfo=UTC),
         )
         assert result is None
@@ -216,13 +262,21 @@ class TestInspectHistoryServiceGeneric:
         from memorable.core.application import InspectHistoryService
 
         repo = FakeTemporalRecordRepository()
-        repo.put(FakeTemporalRecord(
-            id="r1", space="s",
-            superseded_by="r2", lifecycle_state="superseded",
-        ))
-        repo.put(FakeTemporalRecord(
-            id="r2", space="s", lifecycle_state="current",
-        ))
+        repo.put(
+            FakeTemporalRecord(
+                id="r1",
+                space="s",
+                superseded_by="r2",
+                lifecycle_state="superseded",
+            )
+        )
+        repo.put(
+            FakeTemporalRecord(
+                id="r2",
+                space="s",
+                lifecycle_state="current",
+            )
+        )
 
         service = InspectHistoryService(repository=repo)
         history = service.history(space="s", record_id="r1")
@@ -239,7 +293,6 @@ class TestInspectHistoryServiceGeneric:
 
         history = service.history(space="s", record_id="missing")
         assert history == []
-
 
 
 class TestMCPInspectHistoryTool:
