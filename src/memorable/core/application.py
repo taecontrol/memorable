@@ -8,6 +8,7 @@ from memorable.core.models import (
     Decision,
     Entity,
     MemorySpace,
+    Observation,
     Provenance,
     Task,
 )
@@ -15,6 +16,7 @@ from memorable.core.ports import (
     DecisionRepository,
     EntityRepository,
     MemorySpaceRepository,
+    ObservationRepository,
     TaskRepository,
     TemporalRecord,
     TemporalRecordRepository,
@@ -252,6 +254,88 @@ class RememberDecisionService:
             )
 
         return RememberDecisionResult(decision=decision, provenance=provenance)
+
+
+@dataclass(frozen=True)
+class RememberObservationResult:
+    """Result of remembering an Observation with provenance."""
+
+    observation: Observation
+    provenance: Provenance
+
+
+class RememberObservationService:
+    """Application service that validates and persists an Observation with provenance.
+
+    Validates that the MemoryProfile has at least one record that extends Observation.
+    When supersedes is provided, marks the old observation as superseded.
+    """
+
+    def __init__(self, repository: ObservationRepository, profile: MemoryProfile) -> None:
+        self._repository = repository
+        self._profile = profile
+
+    def remember(
+        self,
+        *,
+        space: str,
+        observation_id: str,
+        statement: str,
+        source_id: str,
+        at: datetime,
+        writer: str = "agent:memorable",
+        reason: str = "",
+        supersedes: str | None = None,
+    ) -> RememberObservationResult:
+        """Validate record type against MemoryProfile, create provenance, persist.
+
+        Raises ValueError if the profile has no record type extending Observation.
+        """
+        has_observation_record = any(
+            r.extends == "Observation" for r in self._profile.records
+        )
+        if not has_observation_record:
+            raise ValueError(
+                f"No record type extending Observation is declared in the "
+                f"MemoryProfile for space '{self._profile.space.name}'. "
+                f"Add a record with 'extends: Observation' to your profile."
+            )
+
+        observation = Observation(
+            id=observation_id,
+            statement=statement,
+            space=space,
+            validity_time=at,
+            invalidation_time=None,
+            lifecycle_state="current",
+            supersedes=supersedes,
+            superseded_by=None,
+        )
+
+        episode_id = make_episode_id(source_id, at)
+
+        provenance = Provenance(
+            record_id=observation_id,
+            record_kind="observation",
+            source_id=source_id,
+            episode_id=episode_id,
+            writer=writer,
+            reason=reason,
+            creation_time=at,
+            validity_time=at,
+        )
+
+        self._repository.save(observation, provenance)
+
+        if supersedes is not None:
+            self._repository.mark_superseded(
+                space=space,
+                observation_id=supersedes,
+                superseded_by=observation_id,
+                invalidation_time=at,
+            )
+
+        return RememberObservationResult(observation=observation, provenance=provenance)
 
 
 class CurrentTruthService:
