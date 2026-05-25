@@ -6,6 +6,7 @@ import sys
 from pathlib import Path
 from typing import Literal, cast
 
+from memorable.config import load_runtime_config
 from memorable.core.application import (
     CompleteTaskService,
     CurrentTruthService,
@@ -23,6 +24,43 @@ from memorable.core.context import default_context
 from memorable.core.profile import ProfileValidationError
 from memorable.core.temporal import parse_iso_timestamp
 from memorable.core.tracer import TracerService
+
+
+def _cmd_db_status(args: argparse.Namespace) -> int:
+    """Print resolved runtime configuration with value sources."""
+    base_path = Path(args.path) if args.path else None
+    config = load_runtime_config(base_path=base_path)
+
+    def _field_entry(value: object, field_path: str) -> dict[str, str]:
+        source = config.sources.get(field_path, "built-in")
+        # Mask password
+        if field_path.endswith(".password"):
+            return {"value": "***", "source": source}
+        return {"value": str(value), "source": source}
+
+    output = {
+        "neo4j": {
+            "uri": _field_entry(config.neo4j.uri, "neo4j.uri"),
+            "user": _field_entry(config.neo4j.user, "neo4j.user"),
+            "password": _field_entry(config.neo4j.password, "neo4j.password"),
+        },
+        "docker": {
+            "neo4j_version": _field_entry(
+                config.docker.neo4j_version, "docker.neo4j_version"
+            ),
+            "http_port": _field_entry(config.docker.http_port, "docker.http_port"),
+            "bolt_port": _field_entry(config.docker.bolt_port, "docker.bolt_port"),
+        },
+        "embeddings": {
+            "provider": _field_entry(
+                config.embeddings.provider, "embeddings.provider"
+            ),
+            "model": _field_entry(config.embeddings.model, "embeddings.model"),
+        },
+    }
+
+    print(json.dumps(output, indent=2))
+    return 0
 
 
 def _cmd_init(args: argparse.Namespace) -> int:
@@ -432,6 +470,18 @@ def main(argv: list[str] | None = None) -> int:
     subparsers = parser.add_subparsers(dest="command", required=True)
     subparsers.add_parser("status", help="Show Memorable diagnostic status.")
 
+    # db subcommand
+    db_parser = subparsers.add_parser("db", help="Database operations.")
+    db_sub = db_parser.add_subparsers(dest="db_type", required=True)
+    db_status_parser = db_sub.add_parser(
+        "status", help="Show resolved runtime configuration."
+    )
+    db_status_parser.add_argument(
+        "--path",
+        default=None,
+        help="Base directory containing .memorable/ config (default: cwd).",
+    )
+
     init_parser = subparsers.add_parser(
         "init", help="Initialize a MemorySpace from a MemoryProfile."
     )
@@ -556,6 +606,9 @@ def main(argv: list[str] | None = None) -> int:
     if args.command == "status":
         print(json.dumps(build_status_payload(), sort_keys=True))
         return 0
+    elif args.command == "db":
+        if args.db_type == "status":
+            return _cmd_db_status(args)
     elif args.command == "init":
         return _cmd_init(args)
     elif args.command == "remember":

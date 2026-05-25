@@ -6,3 +6,8 @@ dist/
 build/
 .venv/
 .pytest_cache/
+
+# Memorable runtime config (local secrets and generated files)
+.memorable/runtime.local.yaml
+.memorable/.env
+.memorable/docker-compose.yml
