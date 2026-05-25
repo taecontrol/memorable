@@ -798,6 +798,34 @@ class TestCLIRememberDecision:
         assert V1_ID in output
         assert SOURCE_ID in output
 
+    def test_remember_decision_includes_unified_provenance_fields(self, capsys) -> None:
+        """CLI remember decision JSON output includes record_id and record_kind."""
+        import json
+
+        from memorable.cli import main
+
+        exit_code = main(
+            [
+                "remember",
+                "decision",
+                "--space",
+                "memorable",
+                "--id",
+                V1_ID,
+                "--statement",
+                STATEMENT_V1,
+                "--source",
+                SOURCE_ID,
+                "--at",
+                "2026-05-23T10:15:00Z",
+            ]
+        )
+
+        assert exit_code == 0
+        output = json.loads(capsys.readouterr().out)
+        assert output["record_id"] == V1_ID
+        assert output["record_kind"] == "decision"
+
     def test_remember_decision_with_supersession(self, capsys) -> None:
         from memorable.cli import main
 
@@ -1060,6 +1088,22 @@ class TestMCPRememberDecision:
         assert result["decision_id"] == V1_ID
         assert result["source"] == SOURCE_ID
         assert "error" not in result
+
+    def test_remember_decision_tool_includes_unified_provenance_fields(self) -> None:
+        """MCP remember_decision_tool response includes record_id and record_kind."""
+        from memorable.mcp.server import remember_decision_tool
+
+        result = remember_decision_tool(
+            space="memorable",
+            decision_id=V1_ID,
+            statement=STATEMENT_V1,
+            source=SOURCE_ID,
+            at="2026-05-23T10:15:00Z",
+        )
+
+        assert "error" not in result
+        assert result["record_id"] == V1_ID
+        assert result["record_kind"] == "decision"
 
     def test_remember_decision_with_supersession(self) -> None:
         from memorable.mcp.server import remember_decision_tool

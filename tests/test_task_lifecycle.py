@@ -602,6 +602,34 @@ class TestCLIRememberTask:
         assert TASK_ID in output
         assert SOURCE_ID in output
 
+    def test_remember_task_includes_unified_provenance_fields(self, capsys) -> None:
+        """CLI remember task JSON output includes record_id and record_kind."""
+        import json
+
+        from memorable.cli import main
+
+        exit_code = main(
+            [
+                "remember",
+                "task",
+                "--space",
+                "memorable",
+                "--id",
+                TASK_ID,
+                "--title",
+                TASK_TITLE,
+                "--source",
+                SOURCE_ID,
+                "--at",
+                "2026-05-23T10:25:00Z",
+            ]
+        )
+
+        assert exit_code == 0
+        output = json.loads(capsys.readouterr().out)
+        assert output["record_id"] == TASK_ID
+        assert output["record_kind"] == "task"
+
 
 class TestCLICompleteTask:
     """CLI `memorable complete task` completes a Task."""
@@ -786,6 +814,22 @@ class TestMCPRememberTask:
         assert result["task_id"] == TASK_ID
         assert result["source"] == SOURCE_ID
         assert "error" not in result
+
+    def test_remember_task_tool_includes_unified_provenance_fields(self) -> None:
+        """MCP remember_task_tool response includes record_id and record_kind."""
+        from memorable.mcp.server import remember_task_tool
+
+        result = remember_task_tool(
+            space="memorable",
+            task_id=TASK_ID,
+            title=TASK_TITLE,
+            source=SOURCE_ID,
+            at="2026-05-23T10:25:00Z",
+        )
+
+        assert "error" not in result
+        assert result["record_id"] == TASK_ID
+        assert result["record_kind"] == "task"
 
 
 class TestMCPCompleteTask:
