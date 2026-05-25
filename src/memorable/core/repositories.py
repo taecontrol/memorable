@@ -14,7 +14,6 @@ from memorable.core.models import (
     Provenance,
     Task,
 )
-from memorable.core.ports import MemorySpaceRepository
 
 
 class InMemoryMemorySpaceRepository:
@@ -149,8 +148,3 @@ class InMemoryTaskRepository:
             completion_event_id=completion_event_id,
         )
         self._tasks[key] = updated
-
-
-def make_memory_space_repository() -> MemorySpaceRepository:
-    """Create a MemorySpaceRepository (in-memory until Neo4j adapter is wired)."""
-    return InMemoryMemorySpaceRepository()
