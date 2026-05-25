@@ -263,7 +263,11 @@ class CurrentTruthService:
         decision = self._repository.get(space=space, decision_id=decision_id)
         if decision is None:
             return None
+        visited: set[str] = {decision.id}
         while decision.superseded_by is not None:
+            if decision.superseded_by in visited:
+                break
+            visited.add(decision.superseded_by)
             next_decision = self._repository.get(
                 space=space, decision_id=decision.superseded_by
             )
@@ -284,12 +288,16 @@ class PointInTimeTruthService:
         decision = self._repository.get(space=space, decision_id=decision_id)
         if decision is None:
             return None
+        visited: set[str] = {decision.id}
         current = decision
         while True:
             if current.invalidation_time is None or at < current.invalidation_time:
                 return current
             if current.superseded_by is None:
                 return current
+            if current.superseded_by in visited:
+                return current
+            visited.add(current.superseded_by)
             next_decision = self._repository.get(
                 space=space, decision_id=current.superseded_by
             )
@@ -310,7 +318,11 @@ class InspectDecisionHistoryService:
         if decision is None:
             return []
         chain = [decision]
+        visited: set[str] = {decision.id}
         while decision.superseded_by is not None:
+            if decision.superseded_by in visited:
+                break
+            visited.add(decision.superseded_by)
             next_decision = self._repository.get(
                 space=space, decision_id=decision.superseded_by
             )
