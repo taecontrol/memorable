@@ -23,6 +23,7 @@ KERNEL_RECORD_TYPES = frozenset(
         "Measurement",
         "Event",
         "DerivedMemory",
+        "Relation",
     }
 )
 
