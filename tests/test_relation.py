@@ -62,7 +62,14 @@ class TestRelationValidation:
 
     @pytest.mark.parametrize(
         "field",
-        ["id", "source_entity_id", "target_entity_id", "relation_type", "statement", "space"],
+        [
+            "id",
+            "source_entity_id",
+            "target_entity_id",
+            "relation_type",
+            "statement",
+            "space",
+        ],
     )
     def test_empty_required_field_raises(self, field: str) -> None:
         """Each required string field rejects an empty value."""
@@ -134,7 +141,7 @@ class TestRelationDeclaration:
         assert profile.relations == ()
 
     def test_load_profile_parses_relations_section(self) -> None:
-        """load_profile_from_yaml turns a relations: list into RelationDeclaration instances."""
+        """YAML relations: list becomes RelationDeclaration instances."""
         import textwrap
 
         from memorable.core.profile import RelationDeclaration, load_profile_from_yaml
