@@ -1698,3 +1698,152 @@ class TestObservationApplicationContext:
 
         # The service should have an observation_repo attribute
         assert service._observation_repo is ctx.observation_repo
+
+
+# =====================================================================
+# 16. source_kind dispatch tests (slice #56)
+# =====================================================================
+
+
+class TestSourceKindDispatch:
+    """_build_result dispatches directly by source_kind without probing all repos.
+
+    Slice #56: Track source_kind through retrieval pipeline so each candidate
+    triggers exactly 1 repository get() call instead of N.
+    """
+
+    def test_entity_candidate_calls_only_entity_repo_get(self) -> None:
+        """An Entity candidate should only call entity_repo.get(), not others."""
+        from unittest.mock import MagicMock, patch
+
+        service, entity_repo, decision_repo, task_repo = _build_fixture()
+
+        # Spy on all repo get() methods
+        with (
+            patch.object(
+                entity_repo, "get", wraps=entity_repo.get
+            ) as entity_get,
+            patch.object(
+                decision_repo, "get", wraps=decision_repo.get
+            ) as decision_get,
+            patch.object(
+                task_repo, "get", wraps=task_repo.get
+            ) as task_get,
+            patch.object(
+                service._observation_repo, "get",
+                wraps=service._observation_repo.get,
+            ) as observation_get,
+        ):
+            # Bypass graph expansion to isolate _build_result behavior
+            service._graph_expand = MagicMock(return_value=[])
+            service._rebuild_index("memorable")
+
+            # Call search which should pass source_kind through
+            results = service.search(
+                space="memorable",
+                query="Memorable project entity",
+                mode="current",
+            )
+
+            # Entity candidate should exist in results
+            entity_results = [
+                r for r in results if r.source_id == "entity:memorable"
+            ]
+            assert len(entity_results) == 1
+
+            # entity_repo.get() should have been called for entity:memorable
+            entity_get_calls = [
+                c for c in entity_get.call_args_list
+                if "entity:memorable" in str(c)
+            ]
+            assert len(entity_get_calls) >= 1
+
+            # Other repos should NOT have been called with entity:memorable
+            decision_get_calls = [
+                c for c in decision_get.call_args_list
+                if "entity:memorable" in str(c)
+            ]
+            task_get_calls = [
+                c for c in task_get.call_args_list
+                if "entity:memorable" in str(c)
+            ]
+            observation_get_calls = [
+                c for c in observation_get.call_args_list
+                if "entity:memorable" in str(c)
+            ]
+            assert len(decision_get_calls) == 0, (
+                "decision_repo.get() should not be called for an Entity candidate"
+            )
+            assert len(task_get_calls) == 0, (
+                "task_repo.get() should not be called for an Entity candidate"
+            )
+            assert len(observation_get_calls) == 0, (
+                "observation_repo.get() should not be called for an Entity candidate"
+            )
+
+    def test_decision_candidate_calls_only_decision_repo_get(self) -> None:
+        """A Decision candidate should only call decision_repo.get(), not others."""
+        from unittest.mock import MagicMock, patch
+
+        service, entity_repo, decision_repo, task_repo = _build_fixture()
+
+        with patch.object(
+            entity_repo, "get", wraps=entity_repo.get
+        ) as entity_get:
+            service._graph_expand = MagicMock(return_value=[])
+            service._rebuild_index("memorable")
+
+            results = service.search(
+                space="memorable",
+                query="storage implementation decision path",
+                mode="current",
+            )
+
+            decision_results = [
+                r for r in results
+                if r.source_id == "decision:storage-path:v2"
+            ]
+            assert len(decision_results) == 1
+
+            # entity_repo should not have been probed for this decision ID
+            entity_get_calls = [
+                c for c in entity_get.call_args_list
+                if "decision:storage-path:v2" in str(c)
+            ]
+            assert len(entity_get_calls) == 0, (
+                "entity_repo.get() should not be called"
+                " for a Decision candidate"
+            )
+
+    def test_graph_expanded_candidate_carries_correct_source_kind(
+        self,
+    ) -> None:
+        """Graph-expanded candidate from a different type carries
+        its own source_kind."""
+        from unittest.mock import patch
+
+        service, entity_repo, decision_repo, task_repo = _build_fixture()
+
+        with patch.object(
+            entity_repo, "get", wraps=entity_repo.get
+        ) as entity_get:
+            results = service.search(
+                space="memorable",
+                query="Memorable project",
+                mode="current",
+            )
+
+            # Entity is a semantic hit; Decision comes via graph expansion
+            result_ids = [r.source_id for r in results]
+            assert "entity:memorable" in result_ids
+            assert "decision:storage-path:v2" in result_ids
+
+            # entity_repo.get() should NOT be called for that decision ID
+            entity_get_for_decision = [
+                c for c in entity_get.call_args_list
+                if "decision:storage-path:v2" in str(c)
+            ]
+            assert len(entity_get_for_decision) == 0, (
+                "entity_repo.get() should not be probed for a"
+                " Decision that came via graph expansion"
+            )

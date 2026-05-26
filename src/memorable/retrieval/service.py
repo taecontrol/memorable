@@ -177,14 +177,19 @@ class HybridRetrievalService:
         )
 
         # Step 3: Graph expansion -- collect related IDs
-        expanded_ids: dict[str, float] = {}
+        # Maps source_id → (score, source_kind) so _build_result can
+        # dispatch directly without probing all repositories.
+        expanded_ids: dict[str, tuple[float, str]] = {}
         semantic_ids: set[str] = set()
 
         for candidate in candidates:
             semantic_ids.add(candidate.source_id)
-            expanded_ids[candidate.source_id] = max(
-                expanded_ids.get(candidate.source_id, 0.0),
-                candidate.score,
+            prev_score, _ = expanded_ids.get(
+                candidate.source_id, (0.0, candidate.source_kind)
+            )
+            expanded_ids[candidate.source_id] = (
+                max(prev_score, candidate.score),
+                candidate.source_kind,
             )
 
         graph_expanded_ids: set[str] = set()
@@ -192,17 +197,20 @@ class HybridRetrievalService:
             related = self._graph_expand(
                 space, candidate.source_id, candidate.source_kind
             )
-            for related_id, _related_kind in related:
+            for related_id, related_kind in related:
                 if related_id not in expanded_ids:
-                    expanded_ids[related_id] = candidate.score * 0.8
+                    expanded_ids[related_id] = (
+                        candidate.score * 0.8,
+                        related_kind,
+                    )
                     graph_expanded_ids.add(related_id)
 
         # Step 4: Temporal filtering and result building
         results: list[RetrievalResult] = []
         seen_ids: set[str] = set()
 
-        for source_id, score in sorted(
-            expanded_ids.items(), key=lambda x: x[1], reverse=True
+        for source_id, (score, source_kind) in sorted(
+            expanded_ids.items(), key=lambda x: x[1][0], reverse=True
         ):
             if source_id in seen_ids:
                 continue
@@ -211,6 +219,7 @@ class HybridRetrievalService:
             result = self._build_result(
                 space=space,
                 source_id=source_id,
+                source_kind=source_kind,
                 score=score,
                 mode=mode,
                 as_of=as_of,
@@ -271,6 +280,7 @@ class HybridRetrievalService:
         self,
         space: str,
         source_id: str,
+        source_kind: str,
         score: float,
         mode: Literal["current", "as-of"],
         as_of: datetime | None,
@@ -279,16 +289,16 @@ class HybridRetrievalService:
     ) -> RetrievalResult | None:
         """Build a RetrievalResult with temporal filtering.
 
-        Returns None if the record should be excluded
-        by temporal filtering.
-        """
-        # Try to find the record
-        entity = self._entity_repo.get(space, source_id)
-        decision = self._decision_repo.get(space, source_id)
-        task = self._task_repo.get(space=space, task_id=source_id)
-        observation = self._observation_repo.get(space, source_id)
+        Dispatches directly to the correct builder using ``source_kind``
+        so that only 1 repository ``get()`` call is made per candidate.
 
-        if entity is not None:
+        Returns None if the record should be excluded
+        by temporal filtering or if the record no longer exists.
+        """
+        if source_kind == "Entity":
+            entity = self._entity_repo.get(space, source_id)
+            if entity is None:
+                return None
             return self._build_entity_result(
                 space,
                 entity,
@@ -296,7 +306,10 @@ class HybridRetrievalService:
                 is_semantic,
                 is_graph_expanded,
             )
-        elif decision is not None:
+        elif source_kind == "Decision":
+            decision = self._decision_repo.get(space, source_id)
+            if decision is None:
+                return None
             return self._build_decision_result(
                 space,
                 decision,
@@ -306,7 +319,10 @@ class HybridRetrievalService:
                 is_semantic,
                 is_graph_expanded,
             )
-        elif task is not None:
+        elif source_kind == "Task":
+            task = self._task_repo.get(space=space, task_id=source_id)
+            if task is None:
+                return None
             return self._build_task_result(
                 space,
                 task,
@@ -316,7 +332,10 @@ class HybridRetrievalService:
                 is_semantic,
                 is_graph_expanded,
             )
-        elif observation is not None:
+        elif source_kind == "Observation":
+            observation = self._observation_repo.get(space, source_id)
+            if observation is None:
+                return None
             return self._build_observation_result(
                 space,
                 observation,
