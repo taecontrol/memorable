@@ -190,9 +190,7 @@ class Relation:
             "space",
         ):
             if not getattr(self, field_name):
-                raise ValueError(
-                    f"Relation {field_name} must not be empty"
-                )
+                raise ValueError(f"Relation {field_name} must not be empty")
         if self.source_entity_id == self.target_entity_id:
             raise ValueError(
                 "Relation must not be a self-relation "
