@@ -40,3 +40,36 @@ class TestRelationConstruction:
         assert rel.lifecycle_state == "current"
         assert rel.supersedes is None
         assert rel.superseded_by is None
+
+
+class TestRelationValidation:
+    """Relation rejects invalid inputs at construction time."""
+
+    def _valid_kwargs(self) -> dict:
+        return dict(
+            id="rel:1",
+            source_entity_id="entity:a",
+            target_entity_id="entity:b",
+            relation_type="depends-on",
+            statement="A depends on B",
+            space="my-project",
+            validity_time=datetime(2026, 5, 26, 12, 0, tzinfo=UTC),
+            invalidation_time=None,
+            lifecycle_state="current",
+            supersedes=None,
+            superseded_by=None,
+        )
+
+    @pytest.mark.parametrize(
+        "field",
+        ["id", "source_entity_id", "target_entity_id", "relation_type", "statement", "space"],
+    )
+    def test_empty_required_field_raises(self, field: str) -> None:
+        """Each required string field rejects an empty value."""
+        from memorable.core.models import Relation
+
+        kwargs = self._valid_kwargs()
+        kwargs[field] = ""
+
+        with pytest.raises(ValueError, match=field):
+            Relation(**kwargs)
