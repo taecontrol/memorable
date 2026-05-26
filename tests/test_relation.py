@@ -110,3 +110,14 @@ class TestRelationTemporalProtocol:
         )
 
         assert isinstance(rel, TemporalRecord)
+
+
+class TestRelationDeclaration:
+    """RelationDeclaration declares allowed relation types in a MemoryProfile."""
+
+    def test_relation_declaration_has_name(self) -> None:
+        """A RelationDeclaration holds the name of an allowed relation type."""
+        from memorable.core.profile import RelationDeclaration
+
+        decl = RelationDeclaration(name="depends-on")
+        assert decl.name == "depends-on"
