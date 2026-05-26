@@ -121,3 +121,14 @@ class TestRelationDeclaration:
 
         decl = RelationDeclaration(name="depends-on")
         assert decl.name == "depends-on"
+
+    def test_memory_profile_has_relations_field_defaulting_to_empty(self) -> None:
+        """MemoryProfile.relations defaults to an empty tuple."""
+        from memorable.core.profile import MemoryProfile, SpaceDeclaration
+
+        profile = MemoryProfile(
+            version=1,
+            space=SpaceDeclaration(name="test"),
+        )
+
+        assert profile.relations == ()
