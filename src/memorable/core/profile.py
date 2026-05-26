@@ -58,6 +58,13 @@ class EntityDeclaration:
 
 
 @dataclass(frozen=True)
+class RelationDeclaration:
+    """A project-specific relation type declared in a MemoryProfile."""
+
+    name: str
+
+
+@dataclass(frozen=True)
 class RecordDeclaration:
     """A project-specific record type that extends a kernel type."""
 
