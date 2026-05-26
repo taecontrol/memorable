@@ -179,3 +179,17 @@ class Relation:
     lifecycle_state: str
     supersedes: str | None
     superseded_by: str | None
+
+    def __post_init__(self) -> None:
+        for field_name in (
+            "id",
+            "source_entity_id",
+            "target_entity_id",
+            "relation_type",
+            "statement",
+            "space",
+        ):
+            if not getattr(self, field_name):
+                raise ValueError(
+                    f"Relation {field_name} must not be empty"
+                )
