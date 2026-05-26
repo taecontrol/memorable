@@ -16,9 +16,10 @@ from memorable.core.models import (
     Provenance,
     Task,
 )
+from memorable.core.ports import TemporalRecord
 
 
-class InMemoryTemporalRepository[T]:
+class InMemoryTemporalRepository[T: TemporalRecord]:
     """Generic in-memory implementation of temporal record storage.
 
     Provides the shared temporal methods (get, mark_superseded, invalidate,
@@ -37,7 +38,7 @@ class InMemoryTemporalRepository[T]:
 
     def save_record(self, record: T, provenance: Provenance) -> None:
         """Store a temporal record and its provenance, keyed by (space, id)."""
-        key = (record.space, record.id)  # type: ignore[attr-defined]
+        key = (record.space, record.id)
         self._records[key] = record
         self._provenance[key] = provenance
 
@@ -66,7 +67,7 @@ class InMemoryTemporalRepository[T]:
         if old is None:
             return
         self._records[key] = replace(
-            old,  # type: ignore[type-var]
+            old,
             invalidation_time=invalidation_time,
             lifecycle_state="superseded",
             superseded_by=superseded_by,
@@ -84,7 +85,7 @@ class InMemoryTemporalRepository[T]:
         if old is None:
             return
         self._records[key] = replace(
-            old,  # type: ignore[type-var]
+            old,
             invalidation_time=invalidation_time,
             lifecycle_state="invalidated",
         )
@@ -101,7 +102,7 @@ class InMemoryTemporalRepository[T]:
         if old is None:
             return
         self._records[key] = replace(
-            old,  # type: ignore[type-var]
+            old,
             statement=new_statement,
         )
 

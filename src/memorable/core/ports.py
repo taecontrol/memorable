@@ -135,7 +135,11 @@ class EntityRepository(Protocol):
 
 
 class DecisionRepository(Protocol):
-    """Port for Decision persistence with provenance."""
+    """Port for Decision persistence with provenance.
+
+    Covers creation, read, and supersession only. Lifecycle mutations
+    (invalidate, correct) go through TemporalRecordRepository.
+    """
 
     def save(self, decision: Decision, provenance: Provenance) -> None:
         """Persist a Decision with its provenance record."""
@@ -165,7 +169,11 @@ class DecisionRepository(Protocol):
 
 
 class ObservationRepository(Protocol):
-    """Port for Observation persistence with provenance."""
+    """Port for Observation persistence with provenance.
+
+    Covers creation, read, and supersession only. Lifecycle mutations
+    (invalidate, correct) go through TemporalRecordRepository.
+    """
 
     def save(self, observation: Observation, provenance: Provenance) -> None:
         """Persist an Observation with its provenance record."""
