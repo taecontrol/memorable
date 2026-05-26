@@ -49,3 +49,53 @@ jobs:
 
       - name: Run tests
         run: uv run pytest -x -q -m "not integration"
+
+  integration:
+    name: Integration Tests
+    runs-on: ubuntu-latest
+
+    services:
+      neo4j:
+        image: neo4j:5.26
+        env:
+          NEO4J_AUTH: neo4j/memorable
+          NEO4J_PLUGINS: '["apoc"]'
+        ports:
+          - 7474:7474
+          - 7687:7687
+        options: >-
+          --health-cmd "cypher-shell -u neo4j -p memorable 'RETURN 1'"
+          --health-interval 10s
+          --health-timeout 5s
+          --health-retries 30
+          --health-start-period 30s
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install uv
+        uses: astral-sh/setup-uv@v6
+
+      - name: Set up Python
+        run: uv python install 3.9
+
+      - name: Install dependencies
+        run: uv sync --extra dev
+
+      - name: Wait for Neo4j to be ready
+        run: |
+          for i in $(seq 1 30); do
+            if curl -s http://localhost:7474 > /dev/null 2>&1; then
+              echo "Neo4j is ready"
+              break
+            fi
+            echo "Waiting for Neo4j... ($i/30)"
+            sleep 2
+          done
+
+      - name: Run integration tests
+        env:
+          MEMORABLE_NEO4J_URI: bolt://localhost:7687
+          MEMORABLE_NEO4J_USER: neo4j
+          MEMORABLE_NEO4J_PASSWORD: memorable
+        run: uv run pytest -x -q -m integration
