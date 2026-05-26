@@ -464,6 +464,7 @@ def _build_fixture():
     from memorable.core.repositories import (
         InMemoryDecisionRepository,
         InMemoryEntityRepository,
+        InMemoryObservationRepository,
         InMemoryTaskRepository,
     )
     from memorable.retrieval.embeddings import FakeEmbeddingProvider
@@ -472,6 +473,7 @@ def _build_fixture():
     entity_repo = InMemoryEntityRepository()
     decision_repo = InMemoryDecisionRepository()
     task_repo = InMemoryTaskRepository()
+    observation_repo = InMemoryObservationRepository()
     profile = load_profile_from_yaml(VALID_PROFILE_YAML)
 
     # Step 3: Remember Entity
@@ -528,6 +530,7 @@ def _build_fixture():
         entity_repo=entity_repo,
         decision_repo=decision_repo,
         task_repo=task_repo,
+        observation_repo=observation_repo,
         embedding_provider=provider,
     )
 
@@ -1147,6 +1150,7 @@ class TestHybridRetrievalServiceDependencyInjection:
         from memorable.core.repositories import (
             InMemoryDecisionRepository,
             InMemoryEntityRepository,
+            InMemoryObservationRepository,
             InMemoryTaskRepository,
         )
         from memorable.retrieval.embeddings import FakeEmbeddingProvider
@@ -1155,6 +1159,7 @@ class TestHybridRetrievalServiceDependencyInjection:
         entity_repo = InMemoryEntityRepository()
         decision_repo = InMemoryDecisionRepository()
         task_repo = InMemoryTaskRepository()
+        observation_repo = InMemoryObservationRepository()
         provider = FakeEmbeddingProvider(dimensions=32)
         pit_service = PointInTimeTruthService(repository=decision_repo)
 
@@ -1162,6 +1167,7 @@ class TestHybridRetrievalServiceDependencyInjection:
             entity_repo=entity_repo,
             decision_repo=decision_repo,
             task_repo=task_repo,
+            observation_repo=observation_repo,
             embedding_provider=provider,
             point_in_time_service=pit_service,
         )
@@ -1174,6 +1180,7 @@ class TestHybridRetrievalServiceDependencyInjection:
         from memorable.core.repositories import (
             InMemoryDecisionRepository,
             InMemoryEntityRepository,
+            InMemoryObservationRepository,
             InMemoryTaskRepository,
         )
         from memorable.retrieval.embeddings import FakeEmbeddingProvider
@@ -1182,6 +1189,7 @@ class TestHybridRetrievalServiceDependencyInjection:
         entity_repo = InMemoryEntityRepository()
         decision_repo = InMemoryDecisionRepository()
         task_repo = InMemoryTaskRepository()
+        observation_repo = InMemoryObservationRepository()
         provider = FakeEmbeddingProvider(dimensions=32)
         inspect_service = InspectTaskService(repository=task_repo)
 
@@ -1189,6 +1197,7 @@ class TestHybridRetrievalServiceDependencyInjection:
             entity_repo=entity_repo,
             decision_repo=decision_repo,
             task_repo=task_repo,
+            observation_repo=observation_repo,
             embedding_provider=provider,
             inspect_task_service=inspect_service,
         )
@@ -1208,6 +1217,7 @@ class TestHybridRetrievalServiceDependencyInjection:
         from memorable.core.repositories import (
             InMemoryDecisionRepository,
             InMemoryEntityRepository,
+            InMemoryObservationRepository,
             InMemoryTaskRepository,
         )
         from memorable.retrieval.embeddings import FakeEmbeddingProvider
@@ -1216,6 +1226,7 @@ class TestHybridRetrievalServiceDependencyInjection:
         entity_repo = InMemoryEntityRepository()
         decision_repo = InMemoryDecisionRepository()
         task_repo = InMemoryTaskRepository()
+        observation_repo = InMemoryObservationRepository()
         profile = load_profile_from_yaml(VALID_PROFILE_YAML)
 
         entity_svc = RememberEntityService(repository=entity_repo, profile=profile)
@@ -1249,6 +1260,7 @@ class TestHybridRetrievalServiceDependencyInjection:
             entity_repo=entity_repo,
             decision_repo=decision_repo,
             task_repo=task_repo,
+            observation_repo=observation_repo,
             embedding_provider=provider,
             point_in_time_service=spy_pit,
         )
@@ -1276,6 +1288,7 @@ class TestHybridRetrievalServiceDependencyInjection:
         from memorable.core.repositories import (
             InMemoryDecisionRepository,
             InMemoryEntityRepository,
+            InMemoryObservationRepository,
             InMemoryTaskRepository,
         )
         from memorable.retrieval.embeddings import FakeEmbeddingProvider
@@ -1284,6 +1297,7 @@ class TestHybridRetrievalServiceDependencyInjection:
         entity_repo = InMemoryEntityRepository()
         decision_repo = InMemoryDecisionRepository()
         task_repo = InMemoryTaskRepository()
+        observation_repo = InMemoryObservationRepository()
         profile = load_profile_from_yaml(VALID_PROFILE_YAML)
 
         entity_svc = RememberEntityService(repository=entity_repo, profile=profile)
@@ -1314,6 +1328,7 @@ class TestHybridRetrievalServiceDependencyInjection:
             entity_repo=entity_repo,
             decision_repo=decision_repo,
             task_repo=task_repo,
+            observation_repo=observation_repo,
             embedding_provider=provider,
             inspect_task_service=spy_inspect,
         )
@@ -1626,6 +1641,49 @@ class TestObservationGraphExpansion:
         # Should include current observations
         assert "observation:storage-pref:v2" in related_ids
         assert "observation:coverage" in related_ids
+
+
+class TestObservationRepoRequired:
+    """observation_repo is a required parameter in HybridRetrievalService."""
+
+    def test_constructor_rejects_missing_observation_repo(self) -> None:
+        """Omitting observation_repo raises TypeError."""
+        from memorable.core.repositories import (
+            InMemoryDecisionRepository,
+            InMemoryEntityRepository,
+            InMemoryTaskRepository,
+        )
+        from memorable.retrieval.embeddings import FakeEmbeddingProvider
+        from memorable.retrieval.service import HybridRetrievalService
+
+        with pytest.raises(TypeError):
+            HybridRetrievalService(
+                entity_repo=InMemoryEntityRepository(),
+                decision_repo=InMemoryDecisionRepository(),
+                task_repo=InMemoryTaskRepository(),
+                embedding_provider=FakeEmbeddingProvider(dimensions=32),
+            )
+
+    def test_observation_pit_service_always_constructed(self) -> None:
+        """_observation_pit_service is always present when observation_repo is given."""
+        from memorable.core.repositories import (
+            InMemoryDecisionRepository,
+            InMemoryEntityRepository,
+            InMemoryObservationRepository,
+            InMemoryTaskRepository,
+        )
+        from memorable.retrieval.embeddings import FakeEmbeddingProvider
+        from memorable.retrieval.service import HybridRetrievalService
+
+        service = HybridRetrievalService(
+            entity_repo=InMemoryEntityRepository(),
+            decision_repo=InMemoryDecisionRepository(),
+            task_repo=InMemoryTaskRepository(),
+            observation_repo=InMemoryObservationRepository(),
+            embedding_provider=FakeEmbeddingProvider(dimensions=32),
+        )
+
+        assert service._observation_pit_service is not None
 
 
 class TestObservationApplicationContext:

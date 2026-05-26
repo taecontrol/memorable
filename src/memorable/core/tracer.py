@@ -242,6 +242,7 @@ class TracerService:
             entity_repo=ctx.entity_repo,
             decision_repo=ctx.decision_repo,
             task_repo=ctx.task_repo,
+            observation_repo=ctx.observation_repo,
             embedding_provider=provider,
         )
 

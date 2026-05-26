@@ -42,11 +42,11 @@ class HybridRetrievalService:
         entity_repo: EntityRepository,
         decision_repo: DecisionRepository,
         task_repo: TaskRepository,
+        observation_repo: ObservationRepository,
         embedding_provider: EmbeddingProvider,
         dimensions: int = 32,
         point_in_time_service: PointInTimeTruthService | None = None,
         inspect_task_service: InspectTaskService | None = None,
-        observation_repo: ObservationRepository | None = None,
     ) -> None:
         self._entity_repo = entity_repo
         self._decision_repo = decision_repo
@@ -65,10 +65,8 @@ class HybridRetrievalService:
             if inspect_task_service is not None
             else InspectTaskService(repository=task_repo)
         )
-        self._observation_pit_service: PointInTimeTruthService | None = (
-            PointInTimeTruthService(repository=observation_repo)
-            if observation_repo is not None
-            else None
+        self._observation_pit_service = PointInTimeTruthService(
+            repository=observation_repo
         )
 
     def _rebuild_index(self, space: str) -> None:
@@ -127,22 +125,21 @@ class HybridRetrievalService:
                 )
             )
 
-        if self._observation_repo is not None:
-            for observation in self._observation_repo.list_by_space(space):
-                text = indexable_text_for_observation(observation)
-                vector = self._embedding_provider.embed(text)
-                self._index.store(
-                    EmbeddingRecord(
-                        source_id=observation.id,
-                        source_kind="Observation",
-                        space=space,
-                        indexable_text=text,
-                        vector=vector,
-                        provider_name=self._embedding_provider.provider_name,
-                        model_name=self._embedding_provider.model_name,
-                        dimensions=self._dimensions,
-                    )
+        for observation in self._observation_repo.list_by_space(space):
+            text = indexable_text_for_observation(observation)
+            vector = self._embedding_provider.embed(text)
+            self._index.store(
+                EmbeddingRecord(
+                    source_id=observation.id,
+                    source_kind="Observation",
+                    space=space,
+                    indexable_text=text,
+                    vector=vector,
+                    provider_name=self._embedding_provider.provider_name,
+                    model_name=self._embedding_provider.model_name,
+                    dimensions=self._dimensions,
                 )
+            )
 
     def search(
         self,
@@ -243,9 +240,8 @@ class HybridRetrievalService:
                 related.append((decision.id, "Decision"))
             for task in self._task_repo.list_by_space(space):
                 related.append((task.id, "Task"))
-            if self._observation_repo is not None:
-                for observation in self._observation_repo.list_by_space(space):
-                    related.append((observation.id, "Observation"))
+            for observation in self._observation_repo.list_by_space(space):
+                related.append((observation.id, "Observation"))
 
         elif source_kind == "Decision":
             for entity in self._entity_repo.list_by_space(space):
@@ -260,7 +256,7 @@ class HybridRetrievalService:
             for entity in self._entity_repo.list_by_space(space):
                 related.append((entity.id, "Entity"))
 
-        elif source_kind == "Observation" and self._observation_repo is not None:
+        elif source_kind == "Observation":
             for entity in self._entity_repo.list_by_space(space):
                 related.append((entity.id, "Entity"))
             observation = self._observation_repo.get(space, source_id)
@@ -290,11 +286,7 @@ class HybridRetrievalService:
         entity = self._entity_repo.get(space, source_id)
         decision = self._decision_repo.get(space, source_id)
         task = self._task_repo.get(space=space, task_id=source_id)
-        observation = (
-            self._observation_repo.get(space, source_id)
-            if self._observation_repo is not None
-            else None
-        )
+        observation = self._observation_repo.get(space, source_id)
 
         if entity is not None:
             return self._build_entity_result(
@@ -545,7 +537,7 @@ class HybridRetrievalService:
             if observation.lifecycle_state in ("superseded", "invalidated"):
                 return None
             lifecycle_state = observation.lifecycle_state
-        elif mode == "as-of" and as_of is not None and self._observation_pit_service:
+        elif mode == "as-of" and as_of is not None:
             pit_observation = self._observation_pit_service.at(
                 space=space, record_id=observation.id, at=as_of
             )
@@ -583,7 +575,7 @@ class HybridRetrievalService:
         has_chain = (
             observation.superseded_by is not None or observation.supersedes is not None
         )
-        if has_chain and self._observation_repo is not None:
+        if has_chain:
             supersession_parts = []
             if observation.supersedes:
                 old = self._observation_repo.get(space, observation.supersedes)
@@ -599,11 +591,7 @@ class HybridRetrievalService:
                     "supersession history: " + "; ".join(supersession_parts)
                 )
 
-        provenance = (
-            self._observation_repo.get_provenance(space, observation.id)
-            if self._observation_repo is not None
-            else None
-        )
+        provenance = self._observation_repo.get_provenance(space, observation.id)
         prov_summary: dict[str, str] = {}
         if provenance:
             prov_summary = {
