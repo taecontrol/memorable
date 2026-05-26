@@ -132,3 +132,26 @@ class TestRelationDeclaration:
         )
 
         assert profile.relations == ()
+
+    def test_load_profile_parses_relations_section(self) -> None:
+        """load_profile_from_yaml turns a relations: list into RelationDeclaration instances."""
+        import textwrap
+
+        from memorable.core.profile import RelationDeclaration, load_profile_from_yaml
+
+        yaml_text = textwrap.dedent("""\
+            version: 1
+            space:
+              name: test-project
+            relations:
+              - name: depends-on
+              - name: owns
+              - name: serves
+        """)
+
+        profile = load_profile_from_yaml(yaml_text)
+
+        assert len(profile.relations) == 3
+        assert profile.relations[0] == RelationDeclaration(name="depends-on")
+        assert profile.relations[1] == RelationDeclaration(name="owns")
+        assert profile.relations[2] == RelationDeclaration(name="serves")
