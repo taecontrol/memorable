@@ -159,7 +159,7 @@ class TestCallToolErrorPath:
     def test_current_truth_returns_error_for_missing_decision(self) -> None:
         result = _call_tool(
             "memorable_current_truth",
-            {"space": "nonexistent", "decision_id": "no-such-decision"},
+            {"space": "nonexistent", "record_id": "no-such-decision"},
         )
         _, structured = result
         assert "error" in structured
@@ -169,7 +169,7 @@ class TestCallToolErrorPath:
     def test_error_response_uses_domain_language(self) -> None:
         result = _call_tool(
             "memorable_current_truth",
-            {"space": "test-space", "decision_id": "missing"},
+            {"space": "test-space", "record_id": "missing"},
         )
         _, structured = result
         error_text = structured["error"].lower()

@@ -163,7 +163,7 @@ class TestCallToolErrorOverStdio:
         async def _check(session):
             result = await session.call_tool(
                 "memorable_current_truth",
-                {"space": "nonexistent", "decision_id": "no-such-decision"},
+                {"space": "nonexistent", "record_id": "no-such-decision"},
             )
             return result
 

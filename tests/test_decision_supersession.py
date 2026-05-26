@@ -1069,11 +1069,11 @@ class TestMCPCurrentTruth:
 
         result = current_truth_tool(
             space="memorable",
-            decision_id=V1_ID,
+            record_id=V1_ID,
         )
 
         assert "error" not in result
-        assert result["decision_id"] == V2_ID
+        assert result["record_id"] == V2_ID
 
 
 class TestMCPPointInTimeTruth:
@@ -1108,12 +1108,12 @@ class TestMCPPointInTimeTruth:
 
         result = point_in_time_truth_tool(
             space="memorable",
-            decision_id=V1_ID,
+            record_id=V1_ID,
             at="2026-05-23T10:17:00Z",
         )
 
         assert "error" not in result
-        assert result["decision_id"] == V1_ID
+        assert result["record_id"] == V1_ID
 
 
 class TestMCPInspectHistory:

@@ -311,67 +311,104 @@ def remember_observation_tool(
 @mcp_server.tool(
     name="memorable_current_truth",
     description=(
-        "Get the Current Truth for a Decision by following its Supersession chain. "
-        "Returns the active Decision or an error if not found."
+        "Get the Current Truth for a temporal record by following its "
+        "Supersession chain. Accepts record_type to select the repository "
+        "(decision, observation). Returns the active record or an error."
     ),
 )
 def current_truth_tool(
     space: str,
-    decision_id: str,
+    record_id: str,
+    record_type: str = "decision",
 ) -> dict[str, object]:
-    """Get the current truth for a Decision, following supersession chain.
+    """Get the current truth for a temporal record, following supersession chain.
 
-    Returns decision details on success, or an error dict on failure.
+    Args:
+        space: MemorySpace to search in.
+        record_id: ID of the record to resolve.
+        record_type: Type of record ("decision" or "observation").
+
+    Returns record details on success, or an error dict on failure.
     """
-    service = CurrentTruthService(repository=_context.decision_repo)
-    decision = service.current(space=space, record_id=decision_id)
-
-    if decision is None:
+    if record_type == "decision":
+        repository = _context.decision_repo
+    elif record_type == "observation":
+        repository = _context.observation_repo
+    else:
         return {
-            "error": f"No Decision found for '{decision_id}' in MemorySpace '{space}'."
+            "error": f"Unknown record_type '{record_type}'. "
+            f"Supported types: decision, observation."
+        }
+
+    service = CurrentTruthService(repository=repository)
+    record = service.current(space=space, record_id=record_id)
+
+    if record is None:
+        label = record_type.capitalize()
+        return {
+            "error": f"No {label} found for '{record_id}' in MemorySpace '{space}'."
         }
 
     return {
-        "decision_id": decision.id,
-        "statement": decision.statement,
-        "space": decision.space,
-        "lifecycle_state": decision.lifecycle_state,
-        "validity_time": decision.validity_time.isoformat(),
+        "record_id": record.id,
+        "statement": record.statement,
+        "space": record.space,
+        "lifecycle_state": record.lifecycle_state,
+        "validity_time": record.validity_time.isoformat(),
     }
 
 
 @mcp_server.tool(
     name="memorable_point_in_time_truth",
     description=(
-        "Get the Point-In-Time Truth for a Decision at a specific timestamp. "
-        "Returns the Decision that was valid at that time."
+        "Get the Point-In-Time Truth for a temporal record at a specific "
+        "timestamp. Accepts record_type to select the repository "
+        "(decision, observation). Returns the record that was valid at that time."
     ),
 )
 def point_in_time_truth_tool(
     space: str,
-    decision_id: str,
+    record_id: str,
     at: str,
+    record_type: str = "decision",
 ) -> dict[str, object]:
-    """Get the Decision that was valid at a specific point in time.
+    """Get the temporal record that was valid at a specific point in time.
 
-    Returns decision details on success, or an error dict on failure.
+    Args:
+        space: MemorySpace to search in.
+        record_id: ID of the record to resolve.
+        at: ISO timestamp for the point-in-time query.
+        record_type: Type of record ("decision" or "observation").
+
+    Returns record details on success, or an error dict on failure.
     """
-    service = PointInTimeTruthService(repository=_context.decision_repo)
-    timestamp = parse_iso_timestamp(at)
-    decision = service.at(space=space, record_id=decision_id, at=timestamp)
-
-    if decision is None:
+    if record_type == "decision":
+        repository = _context.decision_repo
+    elif record_type == "observation":
+        repository = _context.observation_repo
+    else:
         return {
-            "error": f"No Decision found for '{decision_id}' "
+            "error": f"Unknown record_type '{record_type}'. "
+            f"Supported types: decision, observation."
+        }
+
+    service = PointInTimeTruthService(repository=repository)
+    timestamp = parse_iso_timestamp(at)
+    record = service.at(space=space, record_id=record_id, at=timestamp)
+
+    if record is None:
+        label = record_type.capitalize()
+        return {
+            "error": f"No {label} found for '{record_id}' "
             f"in MemorySpace '{space}' at {timestamp.isoformat()}."
         }
 
     return {
-        "decision_id": decision.id,
-        "statement": decision.statement,
-        "space": decision.space,
-        "lifecycle_state": decision.lifecycle_state,
-        "validity_time": decision.validity_time.isoformat(),
+        "record_id": record.id,
+        "statement": record.statement,
+        "space": record.space,
+        "lifecycle_state": record.lifecycle_state,
+        "validity_time": record.validity_time.isoformat(),
     }
 
 
