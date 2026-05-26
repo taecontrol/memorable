@@ -774,6 +774,7 @@ def correct_tool(
     source: str,
     at: str,
     reason: str = "",
+    writer: str = "agent:memorable",
 ) -> dict[str, object]:
     """Correct a temporal record's statement in place.
 
@@ -785,6 +786,7 @@ def correct_tool(
         source: Source ID for the correction provenance.
         at: ISO timestamp for the correction.
         reason: Optional reason for the correction.
+        writer: Identity of the agent or user making the correction.
 
     Returns a dict with correction info on success, or an error dict.
     """
@@ -808,7 +810,7 @@ def correct_tool(
             new_statement=new_statement,
             record_kind=record_type,
             source=source,
-            writer="agent:memorable",
+            writer=writer,
             at=timestamp,
             reason=reason,
         )

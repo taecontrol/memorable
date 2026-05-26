@@ -719,7 +719,7 @@ def _cmd_correct(args: argparse.Namespace, ctx: ApplicationContext) -> int:
             new_statement=args.new_statement,
             record_kind=record_type,
             source=args.source,
-            writer="agent:memorable",
+            writer=getattr(args, "writer", "agent:memorable"),
             at=at,
             reason=getattr(args, "reason", "") or "",
         )
@@ -999,6 +999,7 @@ def main(argv: list[str] | None = None) -> int:
     correct_parser.add_argument("--source", required=True)
     correct_parser.add_argument("--at", required=True)
     correct_parser.add_argument("--reason", default="")
+    correct_parser.add_argument("--writer", default="agent:memorable")
 
     args = parser.parse_args(argv)
 

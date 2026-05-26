@@ -590,6 +590,38 @@ class TestMCPCorrectTool:
         assert "error" in result
         assert "invalidated" in result["error"]
 
+    def test_correct_custom_writer_appears_in_provenance(self) -> None:
+        from memorable.core.context import default_context
+        from memorable.mcp.server import correct_tool, remember_decision_tool
+
+        remember_decision_tool(
+            space="memorable",
+            decision_id=DECISION_ID,
+            statement="Use Graphiti for storage.",
+            source=SOURCE_ID,
+            at="2026-05-25T09:00:00Z",
+        )
+
+        result = correct_tool(
+            space="memorable",
+            record_id=DECISION_ID,
+            record_type="decision",
+            new_statement="Use Neo4j for storage.",
+            source=CORRECTION_SOURCE_ID,
+            at="2026-05-25T10:00:00Z",
+            reason="outdated docs",
+            writer="human:luis",
+        )
+
+        assert "error" not in result
+
+        provenance = default_context.decision_repo.get_provenance(
+            space="memorable",
+            record_id=DECISION_ID,
+        )
+        assert provenance is not None
+        assert provenance.writer == "human:luis"
+
     def test_correct_unknown_record_type(self) -> None:
         from memorable.mcp.server import correct_tool
 
@@ -711,6 +743,66 @@ class TestCLICorrectCommand:
         output = json.loads(capsys.readouterr().out)
         assert output["record_id"] == OBSERVATION_ID
         assert output["new_statement"] == "The team prefers synchronous communication."
+
+    def test_correct_custom_writer_appears_in_provenance(
+        self, cli_in_memory_context, capsys
+    ) -> None:
+        import json
+
+        from memorable.cli import main
+
+        # Remember a decision first
+        main(
+            [
+                "remember",
+                "decision",
+                "--space",
+                "memorable",
+                "--id",
+                DECISION_ID,
+                "--statement",
+                "Use Graphiti for storage.",
+                "--source",
+                SOURCE_ID,
+                "--at",
+                "2026-05-25T09:00:00Z",
+            ]
+        )
+        capsys.readouterr()  # clear output
+
+        exit_code = main(
+            [
+                "correct",
+                "--space",
+                "memorable",
+                "--id",
+                DECISION_ID,
+                "--record-type",
+                "decision",
+                "--new-statement",
+                "Use Neo4j for storage.",
+                "--source",
+                CORRECTION_SOURCE_ID,
+                "--at",
+                "2026-05-25T10:00:00Z",
+                "--reason",
+                "outdated docs",
+                "--writer",
+                "human:luis",
+            ]
+        )
+
+        assert exit_code == 0
+        output = json.loads(capsys.readouterr().out)
+        assert output["record_id"] == DECISION_ID
+
+        # Verify provenance has the custom writer
+        provenance = cli_in_memory_context.decision_repo.get_provenance(
+            space="memorable",
+            record_id=DECISION_ID,
+        )
+        assert provenance is not None
+        assert provenance.writer == "human:luis"
 
     def test_correct_rejects_already_invalidated(self, capsys) -> None:
         from memorable.cli import main
