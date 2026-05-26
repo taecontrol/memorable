@@ -193,3 +193,8 @@ class Relation:
                 raise ValueError(
                     f"Relation {field_name} must not be empty"
                 )
+        if self.source_entity_id == self.target_entity_id:
+            raise ValueError(
+                "Relation must not be a self-relation "
+                f"(source and target are both '{self.source_entity_id}')"
+            )
