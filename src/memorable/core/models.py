@@ -156,3 +156,26 @@ class Task:
             raise ValueError("Task id must not be empty.")
         if not self.title:
             raise ValueError("Task title must not be empty.")
+
+
+@dataclass(frozen=True)
+class Relation:
+    """A typed, directed, temporal connection between two Entities.
+
+    Relations are structural edges in the memory graph. They carry the same
+    temporal and supersession semantics as Decision and Observation, enabling
+    current truth, point-in-time truth, invalidation, correction, and
+    provenance on connections between Entities.
+    """
+
+    id: str
+    source_entity_id: str
+    target_entity_id: str
+    relation_type: str
+    statement: str
+    space: str
+    validity_time: datetime
+    invalidation_time: datetime | None
+    lifecycle_state: str
+    supersedes: str | None
+    superseded_by: str | None
