@@ -1082,7 +1082,7 @@ class TestLanguageBoundary:
             mode="current",
         )
 
-        valid_kinds = {"Entity", "Decision", "Task"}
+        valid_kinds = {"Entity", "Decision", "Task", "Observation"}
         for result in results:
             assert result.source_kind in valid_kinds, (
                 f"source_kind '{result.source_kind}' is not a domain term"
@@ -1283,3 +1283,302 @@ class TestHybridRetrievalServiceDependencyInjection:
         )
 
         spy_inspect.inspect.assert_called()
+
+
+# =====================================================================
+# 15. Observation retrieval integration tests
+# =====================================================================
+
+OBSERVATION_PROFILE_YAML = textwrap.dedent("""\
+    version: 1
+
+    space:
+      name: memorable
+      description: Agent memory system design
+
+    entities:
+      - name: Project
+      - name: Component
+
+    records:
+      - name: ArchitectureDecision
+        extends: Decision
+      - name: FollowUp
+        extends: Task
+      - name: GeneralObservation
+        extends: Observation
+""")
+
+OBSERVATION_TIMESTAMPS = {
+    "entity": datetime(2026, 5, 24, 10, 0, 0, tzinfo=UTC),
+    "obs_v1": datetime(2026, 5, 24, 10, 10, 0, tzinfo=UTC),
+    "obs_v2": datetime(2026, 5, 24, 10, 20, 0, tzinfo=UTC),
+    "obs_invalidated": datetime(2026, 5, 24, 10, 30, 0, tzinfo=UTC),
+}
+
+OBS_STATEMENT_V1 = "The team prefers PostgreSQL for relational storage."
+OBS_STATEMENT_V2 = "The team now prefers SQLite for local development storage."
+OBS_STATEMENT_STANDALONE = "Code coverage is above 90 percent."
+
+
+def _build_observation_fixture():
+    """Build a fixture with observations for retrieval tests."""
+    from memorable.core.application import (
+        RememberEntityService,
+        RememberObservationService,
+    )
+    from memorable.core.profile import load_profile_from_yaml
+    from memorable.core.repositories import (
+        InMemoryDecisionRepository,
+        InMemoryEntityRepository,
+        InMemoryObservationRepository,
+        InMemoryTaskRepository,
+    )
+    from memorable.retrieval.embeddings import FakeEmbeddingProvider
+    from memorable.retrieval.service import HybridRetrievalService
+
+    entity_repo = InMemoryEntityRepository()
+    decision_repo = InMemoryDecisionRepository()
+    task_repo = InMemoryTaskRepository()
+    observation_repo = InMemoryObservationRepository()
+    profile = load_profile_from_yaml(OBSERVATION_PROFILE_YAML)
+
+    # Entity
+    entity_svc = RememberEntityService(repository=entity_repo, profile=profile)
+    entity_svc.remember(
+        space="memorable",
+        entity_id="entity:memorable",
+        entity_type="Project",
+        name="Memorable",
+        source_id=SOURCE_ID,
+        at=OBSERVATION_TIMESTAMPS["entity"],
+    )
+
+    # Observation v1 (will be superseded)
+    obs_svc = RememberObservationService(repository=observation_repo, profile=profile)
+    obs_svc.remember(
+        space="memorable",
+        observation_id="observation:storage-pref:v1",
+        statement=OBS_STATEMENT_V1,
+        source_id=SOURCE_ID,
+        at=OBSERVATION_TIMESTAMPS["obs_v1"],
+    )
+
+    # Observation v2 (supersedes v1)
+    obs_svc.remember(
+        space="memorable",
+        observation_id="observation:storage-pref:v2",
+        statement=OBS_STATEMENT_V2,
+        source_id=SOURCE_ID,
+        at=OBSERVATION_TIMESTAMPS["obs_v2"],
+        supersedes="observation:storage-pref:v1",
+    )
+
+    # Standalone observation (will be invalidated in some tests)
+    obs_svc.remember(
+        space="memorable",
+        observation_id="observation:coverage",
+        statement=OBS_STATEMENT_STANDALONE,
+        source_id=SOURCE_ID,
+        at=OBSERVATION_TIMESTAMPS["obs_v1"],
+    )
+
+    provider = FakeEmbeddingProvider(dimensions=32)
+    service = HybridRetrievalService(
+        entity_repo=entity_repo,
+        decision_repo=decision_repo,
+        task_repo=task_repo,
+        observation_repo=observation_repo,
+        embedding_provider=provider,
+    )
+
+    return service, entity_repo, decision_repo, task_repo, observation_repo
+
+
+class TestObservationIndexableText:
+    """Indexable Text generation for Observation records."""
+
+    def test_indexable_text_for_observation(self) -> None:
+        """Format matches: Observation {id}: {statement} (lifecycle: ..., space: ...)"""
+        from memorable.core.models import Observation
+        from memorable.retrieval.indexable_text import indexable_text_for_observation
+
+        observation = Observation(
+            id="observation:storage-pref:v1",
+            statement=OBS_STATEMENT_V1,
+            space="memorable",
+            validity_time=OBSERVATION_TIMESTAMPS["obs_v1"],
+            invalidation_time=None,
+            lifecycle_state="current",
+            supersedes=None,
+            superseded_by=None,
+        )
+
+        text = indexable_text_for_observation(observation)
+
+        assert text == (
+            f"Observation observation:storage-pref:v1: {OBS_STATEMENT_V1} "
+            f"(lifecycle: current, space: memorable)"
+        )
+
+    def test_indexable_text_includes_key_fields(self) -> None:
+        from memorable.core.models import Observation
+        from memorable.retrieval.indexable_text import indexable_text_for_observation
+
+        observation = Observation(
+            id="observation:coverage",
+            statement=OBS_STATEMENT_STANDALONE,
+            space="memorable",
+            validity_time=OBSERVATION_TIMESTAMPS["obs_v1"],
+            invalidation_time=None,
+            lifecycle_state="current",
+            supersedes=None,
+            superseded_by=None,
+        )
+
+        text = indexable_text_for_observation(observation)
+
+        assert "Observation" in text
+        assert "observation:coverage" in text
+        assert OBS_STATEMENT_STANDALONE in text
+        assert "current" in text
+        assert "memorable" in text
+
+
+class TestObservationRetrievalIndex:
+    """Observations are indexed and searchable in the hybrid retrieval pipeline."""
+
+    def test_rebuild_index_includes_observations(self) -> None:
+        """Observations get indexed during _rebuild_index."""
+        service, *_ = _build_observation_fixture()
+
+        # After search, observations should appear in results
+        results = service.search(
+            space="memorable",
+            query="storage preference observation",
+            mode="current",
+        )
+
+        result_ids = [r.source_id for r in results]
+        # v2 is current, so it should appear
+        assert "observation:storage-pref:v2" in result_ids
+
+    def test_observation_search_returns_results(self) -> None:
+        """Observations appear in search results with correct source_kind."""
+        service, *_ = _build_observation_fixture()
+
+        results = service.search(
+            space="memorable",
+            query="code coverage above 90 percent",
+            mode="current",
+        )
+
+        obs_results = [r for r in results if r.source_kind == "Observation"]
+        assert len(obs_results) >= 1
+        obs_ids = [r.source_id for r in obs_results]
+        assert "observation:coverage" in obs_ids
+
+
+class TestObservationTemporalFiltering:
+    """Temporal filtering for observations in retrieval."""
+
+    def test_superseded_observation_excluded_current_mode(self) -> None:
+        """Superseded observations are excluded from current mode results."""
+        service, *_ = _build_observation_fixture()
+
+        results = service.search(
+            space="memorable",
+            query="storage preference PostgreSQL SQLite",
+            mode="current",
+        )
+
+        result_ids = [r.source_id for r in results]
+        # v1 is superseded, should not appear
+        assert "observation:storage-pref:v1" not in result_ids
+        # v2 is current, should appear
+        assert "observation:storage-pref:v2" in result_ids
+
+    def test_invalidated_observation_excluded_current_mode(self) -> None:
+        """Invalidated observations are excluded from current mode results."""
+        service, _, _, _, observation_repo = _build_observation_fixture()
+
+        # Invalidate the coverage observation
+        observation_repo.invalidate(
+            space="memorable",
+            record_id="observation:coverage",
+            invalidation_time=OBSERVATION_TIMESTAMPS["obs_invalidated"],
+        )
+
+        results = service.search(
+            space="memorable",
+            query="code coverage above 90 percent",
+            mode="current",
+        )
+
+        result_ids = [r.source_id for r in results]
+        assert "observation:coverage" not in result_ids
+
+    def test_observation_point_in_time_mode(self) -> None:
+        """Point-in-time queries return the observation valid at that time."""
+        service, *_ = _build_observation_fixture()
+
+        # Query at a time before v2 existed -- v1 should be returned
+        at_before_v2 = datetime(2026, 5, 24, 10, 15, 0, tzinfo=UTC)
+
+        results = service.search(
+            space="memorable",
+            query="storage preference PostgreSQL",
+            mode="as-of",
+            as_of=at_before_v2,
+        )
+
+        result_ids = [r.source_id for r in results]
+        assert "observation:storage-pref:v1" in result_ids
+        assert "observation:storage-pref:v2" not in result_ids
+
+
+class TestObservationGraphExpansion:
+    """Graph expansion for observations includes entity and supersession."""
+
+    def test_graph_expand_observation_to_entities(self) -> None:
+        """Observation graph expansion relates to entities in the same space."""
+        service, *_ = _build_observation_fixture()
+
+        results = service.search(
+            space="memorable",
+            query="storage preference observation SQLite",
+            mode="current",
+        )
+
+        result_ids = [r.source_id for r in results]
+        # Graph expansion should bring in the entity
+        assert "entity:memorable" in result_ids
+
+    def test_graph_expand_observation_supersession_links(self) -> None:
+        """Observation graph expansion follows supersession links."""
+        service, *_ = _build_observation_fixture()
+
+        # Access internal method to verify supersession link traversal
+        related = service._graph_expand(
+            "memorable", "observation:storage-pref:v2", "Observation"
+        )
+
+        related_ids = [r_id for r_id, _ in related]
+        # Should include the entity
+        assert "entity:memorable" in related_ids
+        # Should follow supersedes link back to v1
+        assert "observation:storage-pref:v1" in related_ids
+
+
+class TestObservationApplicationContext:
+    """ApplicationContext wires observation_repo into HybridRetrievalService."""
+
+    def test_build_retrieval_service_wires_observation_repo(self) -> None:
+        """build_retrieval_service passes observation_repo to HybridRetrievalService."""
+        from memorable.core.context import ApplicationContext
+
+        ctx = ApplicationContext()
+        service = ctx.build_retrieval_service()
+
+        # The service should have an observation_repo attribute
+        assert service._observation_repo is ctx.observation_repo

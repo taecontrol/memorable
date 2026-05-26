@@ -6,7 +6,7 @@ used for search and embeddings. It is NOT canonical memory.
 
 from __future__ import annotations
 
-from memorable.core.models import Decision, Entity, Task
+from memorable.core.models import Decision, Entity, Observation, Task
 
 
 def indexable_text_for_entity(entity: Entity) -> str:
@@ -22,6 +22,14 @@ def indexable_text_for_decision(decision: Decision) -> str:
     return (
         f"Decision {decision.id}: {decision.statement} "
         f"(lifecycle: {decision.lifecycle_state}, space: {decision.space})"
+    )
+
+
+def indexable_text_for_observation(observation: Observation) -> str:
+    """Generate Indexable Text for an Observation."""
+    return (
+        f"Observation {observation.id}: {observation.statement} "
+        f"(lifecycle: {observation.lifecycle_state}, space: {observation.space})"
     )
 
 

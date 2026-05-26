@@ -10,10 +10,11 @@ from datetime import datetime
 from typing import Literal
 
 from memorable.core.application import InspectTaskService, PointInTimeTruthService
-from memorable.core.models import Decision, Entity, Task
+from memorable.core.models import Decision, Entity, Observation, Task
 from memorable.core.ports import (
     DecisionRepository,
     EntityRepository,
+    ObservationRepository,
     TaskRepository,
 )
 from memorable.retrieval.embeddings import EmbeddingProvider
@@ -21,6 +22,7 @@ from memorable.retrieval.index import InMemoryEmbeddingIndex
 from memorable.retrieval.indexable_text import (
     indexable_text_for_decision,
     indexable_text_for_entity,
+    indexable_text_for_observation,
     indexable_text_for_task,
 )
 from memorable.retrieval.models import EmbeddingRecord, RetrievalResult
@@ -44,10 +46,12 @@ class HybridRetrievalService:
         dimensions: int = 32,
         point_in_time_service: PointInTimeTruthService | None = None,
         inspect_task_service: InspectTaskService | None = None,
+        observation_repo: ObservationRepository | None = None,
     ) -> None:
         self._entity_repo = entity_repo
         self._decision_repo = decision_repo
         self._task_repo = task_repo
+        self._observation_repo = observation_repo
         self._embedding_provider = embedding_provider
         self._dimensions = dimensions
         self._index = InMemoryEmbeddingIndex()
@@ -60,6 +64,11 @@ class HybridRetrievalService:
             inspect_task_service
             if inspect_task_service is not None
             else InspectTaskService(repository=task_repo)
+        )
+        self._observation_pit_service: PointInTimeTruthService | None = (
+            PointInTimeTruthService(repository=observation_repo)
+            if observation_repo is not None
+            else None
         )
 
     def _rebuild_index(self, space: str) -> None:
@@ -117,6 +126,23 @@ class HybridRetrievalService:
                     dimensions=self._dimensions,
                 )
             )
+
+        if self._observation_repo is not None:
+            for observation in self._observation_repo.list_by_space(space):
+                text = indexable_text_for_observation(observation)
+                vector = self._embedding_provider.embed(text)
+                self._index.store(
+                    EmbeddingRecord(
+                        source_id=observation.id,
+                        source_kind="Observation",
+                        space=space,
+                        indexable_text=text,
+                        vector=vector,
+                        provider_name=self._embedding_provider.provider_name,
+                        model_name=self._embedding_provider.model_name,
+                        dimensions=self._dimensions,
+                    )
+                )
 
     def search(
         self,
@@ -231,6 +257,15 @@ class HybridRetrievalService:
             for entity in self._entity_repo.list_by_space(space):
                 related.append((entity.id, "Entity"))
 
+        elif source_kind == "Observation" and self._observation_repo is not None:
+            for entity in self._entity_repo.list_by_space(space):
+                related.append((entity.id, "Entity"))
+            observation = self._observation_repo.get(space, source_id)
+            if observation and observation.supersedes:
+                related.append((observation.supersedes, "Observation"))
+            if observation and observation.superseded_by:
+                related.append((observation.superseded_by, "Observation"))
+
         return related
 
     def _build_result(
@@ -252,6 +287,11 @@ class HybridRetrievalService:
         entity = self._entity_repo.get(space, source_id)
         decision = self._decision_repo.get(space, source_id)
         task = self._task_repo.get(space=space, task_id=source_id)
+        observation = (
+            self._observation_repo.get(space, source_id)
+            if self._observation_repo is not None
+            else None
+        )
 
         if entity is not None:
             return self._build_entity_result(
@@ -275,6 +315,16 @@ class HybridRetrievalService:
             return self._build_task_result(
                 space,
                 task,
+                score,
+                mode,
+                as_of,
+                is_semantic,
+                is_graph_expanded,
+            )
+        elif observation is not None:
+            return self._build_observation_result(
+                space,
+                observation,
                 score,
                 mode,
                 as_of,
@@ -470,6 +520,105 @@ class HybridRetrievalService:
         return RetrievalResult(
             source_id=task.id,
             source_kind="Task",
+            lifecycle_state=lifecycle_state,
+            score=score,
+            explanation=explanation,
+            provenance_summary=prov_summary,
+        )
+
+    def _build_observation_result(
+        self,
+        space: str,
+        observation: Observation,
+        score: float,
+        mode: Literal["current", "as-of"],
+        as_of: datetime | None,
+        is_semantic: bool,
+        is_graph_expanded: bool,
+    ) -> RetrievalResult | None:
+        explanation: list[str] = []
+
+        if mode == "current":
+            if observation.lifecycle_state in ("superseded", "invalidated"):
+                return None
+            lifecycle_state = observation.lifecycle_state
+        elif mode == "as-of" and as_of is not None and self._observation_pit_service:
+            pit_observation = self._observation_pit_service.at(
+                space=space, record_id=observation.id, at=as_of
+            )
+            if pit_observation is None:
+                return None
+            if pit_observation.id != observation.id:
+                return None
+            lifecycle_state = pit_observation.lifecycle_state
+            if pit_observation.validity_time > as_of:
+                return None
+        else:
+            lifecycle_state = observation.lifecycle_state
+
+        if is_semantic:
+            stmt_preview = observation.statement[:60]
+            explanation.append(
+                f"semantic candidate from Indexable Text for {stmt_preview}"
+            )
+        if is_graph_expanded:
+            explanation.append(
+                "graph expansion connected it to related"
+                " records and supersession history"
+            )
+
+        if mode == "current":
+            explanation.append(
+                "temporal filter kept it because it is current at query time"
+            )
+        elif mode == "as-of" and as_of is not None:
+            explanation.append(
+                f"temporal filter kept it because it was valid at {as_of.isoformat()}"
+            )
+
+        # Supersession history context
+        has_chain = (
+            observation.superseded_by is not None
+            or observation.supersedes is not None
+        )
+        if has_chain and self._observation_repo is not None:
+            supersession_parts = []
+            if observation.supersedes:
+                old = self._observation_repo.get(space, observation.supersedes)
+                if old:
+                    inv_time = (
+                        old.invalidation_time.isoformat()
+                        if old.invalidation_time
+                        else "unknown"
+                    )
+                    supersession_parts.append(
+                        f"{old.id} was superseded at {inv_time}"
+                    )
+            if supersession_parts:
+                explanation.append(
+                    "supersession history: " + "; ".join(supersession_parts)
+                )
+
+        provenance = (
+            self._observation_repo.get_provenance(space, observation.id)
+            if self._observation_repo is not None
+            else None
+        )
+        prov_summary: dict[str, str] = {}
+        if provenance:
+            prov_summary = {
+                "source_id": provenance.source_id,
+                "episode_id": provenance.episode_id,
+            }
+            explanation.append(
+                "provenance is available from"
+                f" {provenance.source_id}"
+                f" / {provenance.episode_id}"
+            )
+
+        return RetrievalResult(
+            source_id=observation.id,
+            source_kind="Observation",
             lifecycle_state=lifecycle_state,
             score=score,
             explanation=explanation,

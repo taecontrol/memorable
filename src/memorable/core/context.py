@@ -107,6 +107,7 @@ class ApplicationContext:
             decision_repo=self.decision_repo,
             task_repo=self.task_repo,
             embedding_provider=provider,
+            observation_repo=self.observation_repo,
         )
 
     def reset(self) -> None:
