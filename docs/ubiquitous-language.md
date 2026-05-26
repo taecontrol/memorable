@@ -123,11 +123,15 @@ Avoid: "Every Neo4j node is a Memorable Entity."
 
 ### Relation
 
-A Relation is a typed connection between Entities or records in a MemorySpace.
+A Relation is a directed, typed connection between two Entities in a MemorySpace.
 
-Relations can carry fact text, attributes, provenance, confidence or uncertainty when useful, and temporal validity.
+A Relation has a source Entity, a target Entity, a relation type, and a statement describing the connection in natural language. Relations carry full temporal validity, provenance, and lifecycle semantics: they can be superseded, invalidated, and corrected, just like Decisions and Observations.
 
-Use Relation for domain connections that Memorable should reason over. Do not use Relation as a synonym for every storage edge.
+Relation types are declared in the MemoryProfile. An agent cannot create a Relation with a type not declared in the profile.
+
+Use Relation for domain connections between Entities that Memorable should reason over and that semantic search alone cannot reliably recover: dependencies, ownership, succession, and other structural relationships.
+
+Do not use Relation as a synonym for every storage edge. Do not use Relation to connect Entities to Records (Decisions, Tasks, Observations); those connections are handled by semantic retrieval and shared MemorySpace membership.
 
 ### Observation
 
