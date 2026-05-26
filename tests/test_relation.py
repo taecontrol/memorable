@@ -73,3 +73,14 @@ class TestRelationValidation:
 
         with pytest.raises(ValueError, match=field):
             Relation(**kwargs)
+
+    def test_self_relation_raises(self) -> None:
+        """A Relation where source and target are the same Entity is rejected."""
+        from memorable.core.models import Relation
+
+        kwargs = self._valid_kwargs()
+        kwargs["source_entity_id"] = "entity:same"
+        kwargs["target_entity_id"] = "entity:same"
+
+        with pytest.raises(ValueError, match="self-relation"):
+            Relation(**kwargs)
