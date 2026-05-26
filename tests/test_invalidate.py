@@ -108,7 +108,7 @@ class TestInMemoryDecisionRepositoryInvalidate:
             invalidation_time=INVALIDATION_TIMESTAMP,
         )
 
-        updated = repo.get(space="memorable", decision_id=DECISION_ID)
+        updated = repo.get(space="memorable", record_id=DECISION_ID)
         assert updated is not None
         assert updated.lifecycle_state == "invalidated"
 
@@ -124,7 +124,7 @@ class TestInMemoryDecisionRepositoryInvalidate:
             invalidation_time=INVALIDATION_TIMESTAMP,
         )
 
-        updated = repo.get(space="memorable", decision_id=DECISION_ID)
+        updated = repo.get(space="memorable", record_id=DECISION_ID)
         assert updated is not None
         assert updated.invalidation_time == INVALIDATION_TIMESTAMP
 
@@ -140,7 +140,7 @@ class TestInMemoryDecisionRepositoryInvalidate:
             invalidation_time=INVALIDATION_TIMESTAMP,
         )
 
-        updated = repo.get(space="memorable", decision_id=DECISION_ID)
+        updated = repo.get(space="memorable", record_id=DECISION_ID)
         assert updated is not None
         assert updated.id == DECISION_ID
         assert updated.statement == "Use Graphiti for storage."
@@ -193,7 +193,7 @@ class TestInMemoryObservationRepositoryInvalidate:
             invalidation_time=INVALIDATION_TIMESTAMP,
         )
 
-        updated = repo.get(space="memorable", observation_id=OBSERVATION_ID)
+        updated = repo.get(space="memorable", record_id=OBSERVATION_ID)
         assert updated is not None
         assert updated.lifecycle_state == "invalidated"
 
@@ -209,7 +209,7 @@ class TestInMemoryObservationRepositoryInvalidate:
             invalidation_time=INVALIDATION_TIMESTAMP,
         )
 
-        updated = repo.get(space="memorable", observation_id=OBSERVATION_ID)
+        updated = repo.get(space="memorable", record_id=OBSERVATION_ID)
         assert updated is not None
         assert updated.invalidation_time == INVALIDATION_TIMESTAMP
 
@@ -258,7 +258,7 @@ class TestInvalidateServiceWithDecision:
         assert result.invalidation_time == INVALIDATION_TIMESTAMP
 
         # Verify in repository
-        stored = repo.get(space="memorable", decision_id=DECISION_ID)
+        stored = repo.get(space="memorable", record_id=DECISION_ID)
         assert stored is not None
         assert stored.lifecycle_state == "invalidated"
         assert stored.invalidation_time == INVALIDATION_TIMESTAMP
@@ -327,7 +327,7 @@ class TestInvalidateServiceWithObservation:
         assert result.record_id == OBSERVATION_ID
         assert result.lifecycle_state == "invalidated"
 
-        stored = repo.get(space="memorable", observation_id=OBSERVATION_ID)
+        stored = repo.get(space="memorable", record_id=OBSERVATION_ID)
         assert stored is not None
         assert stored.lifecycle_state == "invalidated"
         assert stored.invalidation_time == INVALIDATION_TIMESTAMP

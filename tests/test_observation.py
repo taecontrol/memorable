@@ -21,9 +21,7 @@ FIXTURE_TIMESTAMP_V1 = datetime(2026, 5, 25, 9, 0, 0, tzinfo=UTC)
 FIXTURE_TIMESTAMP_V2 = datetime(2026, 5, 25, 9, 10, 0, tzinfo=UTC)
 
 STATEMENT_V1 = "The team prefers async communication over synchronous meetings."
-STATEMENT_V2 = (
-    "The team prefers async communication but holds weekly sync standups."
-)
+STATEMENT_V2 = "The team prefers async communication but holds weekly sync standups."
 
 V1_ID = "observation:team-comm:v1"
 V2_ID = "observation:team-comm:v2"
@@ -172,7 +170,7 @@ class TestObservationRepositoryPort:
         obs, provenance = self._make_observation_v1()
 
         repo.save(obs, provenance)
-        retrieved = repo.get(space="memorable", observation_id=V1_ID)
+        retrieved = repo.get(space="memorable", record_id=V1_ID)
 
         assert retrieved is not None
         assert retrieved.id == V1_ID
@@ -185,7 +183,7 @@ class TestObservationRepositoryPort:
         obs, provenance = self._make_observation_v1()
 
         repo.save(obs, provenance)
-        prov = repo.get_provenance(space="memorable", observation_id=V1_ID)
+        prov = repo.get_provenance(space="memorable", record_id=V1_ID)
 
         assert prov is not None
         assert prov.source_id == SOURCE_ID
@@ -195,14 +193,14 @@ class TestObservationRepositoryPort:
         from memorable.core.repositories import InMemoryObservationRepository
 
         repo = InMemoryObservationRepository()
-        assert repo.get(space="memorable", observation_id="observation:missing") is None
+        assert repo.get(space="memorable", record_id="observation:missing") is None
 
     def test_get_provenance_returns_none_for_missing(self) -> None:
         from memorable.core.repositories import InMemoryObservationRepository
 
         repo = InMemoryObservationRepository()
         assert (
-            repo.get_provenance(space="memorable", observation_id="observation:missing")
+            repo.get_provenance(space="memorable", record_id="observation:missing")
             is None
         )
 
@@ -230,12 +228,12 @@ class TestObservationRepositoryPort:
         repo.save(v1, prov1)
         repo.mark_superseded(
             space="memorable",
-            observation_id=V1_ID,
+            record_id=V1_ID,
             superseded_by=V2_ID,
             invalidation_time=FIXTURE_TIMESTAMP_V2,
         )
 
-        updated = repo.get(space="memorable", observation_id=V1_ID)
+        updated = repo.get(space="memorable", record_id=V1_ID)
         assert updated is not None
         assert updated.lifecycle_state == "superseded"
         assert updated.invalidation_time == FIXTURE_TIMESTAMP_V2
@@ -253,16 +251,16 @@ class TestObservationRepositoryPort:
         repo.save(v2, prov2)
         repo.mark_superseded(
             space="memorable",
-            observation_id=V1_ID,
+            record_id=V1_ID,
             superseded_by=V2_ID,
             invalidation_time=FIXTURE_TIMESTAMP_V2,
         )
 
-        v1_stored = repo.get(space="memorable", observation_id=V1_ID)
+        v1_stored = repo.get(space="memorable", record_id=V1_ID)
         assert v1_stored is not None
         assert v1_stored.lifecycle_state == "superseded"
 
-        v2_stored = repo.get(space="memorable", observation_id=V2_ID)
+        v2_stored = repo.get(space="memorable", record_id=V2_ID)
         assert v2_stored is not None
         assert v2_stored.lifecycle_state == "current"
 
@@ -324,7 +322,7 @@ class TestObservationInApplicationContext:
         )
         ctx.observation_repo.save(obs, prov)
         ctx.reset()
-        assert ctx.observation_repo.get(space="memorable", observation_id=V1_ID) is None
+        assert ctx.observation_repo.get(space="memorable", record_id=V1_ID) is None
 
 
 # =====================================================================
@@ -379,7 +377,7 @@ class TestRememberObservationService:
         assert result.provenance.record_kind == "observation"
         assert result.provenance.creation_time == FIXTURE_TIMESTAMP_V1
 
-        stored = repo.get(space="memorable", observation_id=V1_ID)
+        stored = repo.get(space="memorable", record_id=V1_ID)
         assert stored is not None
 
     def test_remember_observation_with_supersession(self) -> None:
@@ -409,7 +407,7 @@ class TestRememberObservationService:
         assert result.observation.lifecycle_state == "current"
 
         # v1 should now be marked superseded
-        v1 = repo.get(space="memorable", observation_id=V1_ID)
+        v1 = repo.get(space="memorable", record_id=V1_ID)
         assert v1 is not None
         assert v1.lifecycle_state == "superseded"
         assert v1.invalidation_time == FIXTURE_TIMESTAMP_V2

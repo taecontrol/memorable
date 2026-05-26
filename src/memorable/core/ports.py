@@ -141,11 +141,11 @@ class DecisionRepository(Protocol):
         """Persist a Decision with its provenance record."""
         ...
 
-    def get(self, space: str, decision_id: str) -> Decision | None:
+    def get(self, space: str, record_id: str) -> Decision | None:
         """Retrieve a Decision by space and id, or None if not found."""
         ...
 
-    def get_provenance(self, space: str, decision_id: str) -> Provenance | None:
+    def get_provenance(self, space: str, record_id: str) -> Provenance | None:
         """Retrieve the provenance for a Decision, or None if not found."""
         ...
 
@@ -156,7 +156,7 @@ class DecisionRepository(Protocol):
     def mark_superseded(
         self,
         space: str,
-        decision_id: str,
+        record_id: str,
         superseded_by: str,
         invalidation_time: datetime,
     ) -> None:
@@ -171,11 +171,11 @@ class ObservationRepository(Protocol):
         """Persist an Observation with its provenance record."""
         ...
 
-    def get(self, space: str, observation_id: str) -> Observation | None:
+    def get(self, space: str, record_id: str) -> Observation | None:
         """Retrieve an Observation by space and id, or None if not found."""
         ...
 
-    def get_provenance(self, space: str, observation_id: str) -> Provenance | None:
+    def get_provenance(self, space: str, record_id: str) -> Provenance | None:
         """Retrieve the provenance for an Observation, or None if not found."""
         ...
 
@@ -186,7 +186,7 @@ class ObservationRepository(Protocol):
     def mark_superseded(
         self,
         space: str,
-        observation_id: str,
+        record_id: str,
         superseded_by: str,
         invalidation_time: datetime,
     ) -> None:

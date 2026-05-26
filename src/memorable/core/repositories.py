@@ -70,11 +70,11 @@ class InMemoryDecisionRepository:
         self._decisions[key] = decision
         self._provenance[key] = provenance
 
-    def get(self, space: str, decision_id: str) -> Decision | None:
-        return self._decisions.get((space, decision_id))
+    def get(self, space: str, record_id: str) -> Decision | None:
+        return self._decisions.get((space, record_id))
 
-    def get_provenance(self, space: str, decision_id: str) -> Provenance | None:
-        return self._provenance.get((space, decision_id))
+    def get_provenance(self, space: str, record_id: str) -> Provenance | None:
+        return self._provenance.get((space, record_id))
 
     def list_by_space(self, space: str) -> list[Decision]:
         """Return all decisions in the given space."""
@@ -83,11 +83,11 @@ class InMemoryDecisionRepository:
     def mark_superseded(
         self,
         space: str,
-        decision_id: str,
+        record_id: str,
         superseded_by: str,
         invalidation_time: datetime,
     ) -> None:
-        key = (space, decision_id)
+        key = (space, record_id)
         old = self._decisions.get(key)
         if old is None:
             return
@@ -169,11 +169,11 @@ class InMemoryObservationRepository:
         self._observations[key] = observation
         self._provenance[key] = provenance
 
-    def get(self, space: str, observation_id: str) -> Observation | None:
-        return self._observations.get((space, observation_id))
+    def get(self, space: str, record_id: str) -> Observation | None:
+        return self._observations.get((space, record_id))
 
-    def get_provenance(self, space: str, observation_id: str) -> Provenance | None:
-        return self._provenance.get((space, observation_id))
+    def get_provenance(self, space: str, record_id: str) -> Provenance | None:
+        return self._provenance.get((space, record_id))
 
     def list_by_space(self, space: str) -> list[Observation]:
         """Return all observations in the given space."""
@@ -182,11 +182,11 @@ class InMemoryObservationRepository:
     def mark_superseded(
         self,
         space: str,
-        observation_id: str,
+        record_id: str,
         superseded_by: str,
         invalidation_time: datetime,
     ) -> None:
-        key = (space, observation_id)
+        key = (space, record_id)
         old = self._observations.get(key)
         if old is None:
             return

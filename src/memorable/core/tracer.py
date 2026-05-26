@@ -154,9 +154,7 @@ class TracerService:
 
     def _verify_current_truth(self, ctx: ApplicationContext) -> dict[str, object]:
         svc = CurrentTruthService(repository=ctx.decision_repo)
-        decision = svc.current(
-            space="memorable", record_id="decision:storage-path:v1"
-        )
+        decision = svc.current(space="memorable", record_id="decision:storage-path:v1")
         return {
             "decision_id": decision.id,
             "statement": decision.statement,
@@ -223,7 +221,7 @@ class TracerService:
 
     def _verify_provenance(self, ctx: ApplicationContext) -> dict[str, object]:
         provenance = ctx.decision_repo.get_provenance(
-            space="memorable", decision_id="decision:storage-path:v2"
+            space="memorable", record_id="decision:storage-path:v2"
         )
         return {
             "record_id": provenance.record_id,

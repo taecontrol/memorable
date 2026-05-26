@@ -248,7 +248,7 @@ class RememberDecisionService:
         if supersedes is not None:
             self._repository.mark_superseded(
                 space=space,
-                decision_id=supersedes,
+                record_id=supersedes,
                 superseded_by=decision_id,
                 invalidation_time=at,
             )
@@ -334,7 +334,7 @@ class RememberObservationService:
         if supersedes is not None:
             self._repository.mark_superseded(
                 space=space,
-                observation_id=supersedes,
+                record_id=supersedes,
                 superseded_by=observation_id,
                 invalidation_time=at,
             )
@@ -354,8 +354,6 @@ class CurrentTruthService:
 
     def current(self, *, space: str, record_id: str) -> TemporalRecord | None:
         """Return the current record, following the supersession chain."""
-        # Positional call: DecisionRepository.get() uses 'decision_id' while
-        # TemporalRecordRepository uses 'record_id'. Positional avoids mismatch.
         record = self._repository.get(space, record_id)
         if record is None:
             return None
@@ -389,7 +387,6 @@ class PointInTimeTruthService:
         at: datetime,
     ) -> TemporalRecord | None:
         """Return the record that was valid at the given time."""
-        # Positional call: avoids keyword name mismatch across repositories.
         record = self._repository.get(space, record_id)
         if record is None:
             return None
@@ -421,7 +418,6 @@ class InspectHistoryService:
 
     def history(self, *, space: str, record_id: str) -> list[TemporalRecord]:
         """Return the supersession chain starting from the given record."""
-        # Positional call: avoids keyword name mismatch across repositories.
         record = self._repository.get(space, record_id)
         if record is None:
             return []

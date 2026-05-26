@@ -109,7 +109,7 @@ class TestInMemoryDecisionRepositoryCorrect:
             new_statement="Use Neo4j for storage.",
         )
 
-        updated = repo.get(space="memorable", decision_id=DECISION_ID)
+        updated = repo.get(space="memorable", record_id=DECISION_ID)
         assert updated is not None
         assert updated.statement == "Use Neo4j for storage."
 
@@ -125,7 +125,7 @@ class TestInMemoryDecisionRepositoryCorrect:
             new_statement="Use Neo4j for storage.",
         )
 
-        updated = repo.get(space="memorable", decision_id=DECISION_ID)
+        updated = repo.get(space="memorable", record_id=DECISION_ID)
         assert updated is not None
         assert updated.id == DECISION_ID
         assert updated.space == "memorable"
@@ -181,7 +181,7 @@ class TestInMemoryObservationRepositoryCorrect:
             new_statement="The team prefers synchronous communication.",
         )
 
-        updated = repo.get(space="memorable", observation_id=OBSERVATION_ID)
+        updated = repo.get(space="memorable", record_id=OBSERVATION_ID)
         assert updated is not None
         assert updated.statement == "The team prefers synchronous communication."
 
@@ -197,7 +197,7 @@ class TestInMemoryObservationRepositoryCorrect:
             new_statement="The team prefers synchronous communication.",
         )
 
-        updated = repo.get(space="memorable", observation_id=OBSERVATION_ID)
+        updated = repo.get(space="memorable", record_id=OBSERVATION_ID)
         assert updated is not None
         assert updated.id == OBSERVATION_ID
         assert updated.space == "memorable"
@@ -287,7 +287,7 @@ class TestCorrectServiceWithDecision:
         assert result.old_statement == "Use Graphiti for storage."
 
         # Verify repository was updated
-        stored = repo.get(space="memorable", decision_id=DECISION_ID)
+        stored = repo.get(space="memorable", record_id=DECISION_ID)
         assert stored is not None
         assert stored.statement == "Use Neo4j for storage."
         # Original fields preserved
@@ -314,7 +314,7 @@ class TestCorrectServiceWithDecision:
 
         provenance = repo.get_provenance(
             space="memorable",
-            decision_id=DECISION_ID,
+            record_id=DECISION_ID,
         )
         assert provenance is not None
         assert provenance.source_id == CORRECTION_SOURCE_ID
@@ -341,7 +341,7 @@ class TestCorrectServiceWithDecision:
 
         provenance = repo.get_provenance(
             space="memorable",
-            decision_id=DECISION_ID,
+            record_id=DECISION_ID,
         )
         assert provenance is not None
         assert provenance.reason == "Corrected from: 'Use Graphiti for storage.'."
@@ -437,7 +437,7 @@ class TestCorrectServiceWithObservation:
         assert result.old_statement == "The team prefers async communication."
         assert result.new_statement == "The team prefers synchronous communication."
 
-        stored = repo.get(space="memorable", observation_id=OBSERVATION_ID)
+        stored = repo.get(space="memorable", record_id=OBSERVATION_ID)
         assert stored is not None
         assert stored.statement == "The team prefers synchronous communication."
 
@@ -460,7 +460,7 @@ class TestCorrectServiceWithObservation:
 
         provenance = repo.get_provenance(
             space="memorable",
-            observation_id=OBSERVATION_ID,
+            record_id=OBSERVATION_ID,
         )
         assert provenance is not None
         assert provenance.record_kind == "observation"

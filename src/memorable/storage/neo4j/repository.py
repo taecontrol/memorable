@@ -281,7 +281,7 @@ class Neo4jDecisionRepository:
                 prov_validity_time=_to_iso(provenance.validity_time),
             )
 
-    def get(self, space: str, decision_id: str) -> Decision | None:
+    def get(self, space: str, record_id: str) -> Decision | None:
         """Retrieve a Decision by space and id, or None if not found."""
         with self._driver.session() as session:
             result = session.run(
@@ -294,7 +294,7 @@ class Neo4jDecisionRepository:
                 "       d.supersedes AS supersedes, "
                 "       d.superseded_by AS superseded_by",
                 space=space,
-                id=decision_id,
+                id=record_id,
             )
             record = result.single()
             if record is None:
@@ -310,7 +310,7 @@ class Neo4jDecisionRepository:
                 superseded_by=record["superseded_by"],
             )
 
-    def get_provenance(self, space: str, decision_id: str) -> Provenance | None:
+    def get_provenance(self, space: str, record_id: str) -> Provenance | None:
         """Retrieve the provenance for a Decision, or None if not found."""
         with self._driver.session() as session:
             result = session.run(
@@ -322,7 +322,7 @@ class Neo4jDecisionRepository:
                 "       p.creation_time AS creation_time, "
                 "       p.validity_time AS validity_time",
                 space=space,
-                id=decision_id,
+                id=record_id,
             )
             record = result.single()
             if record is None:
@@ -369,7 +369,7 @@ class Neo4jDecisionRepository:
     def mark_superseded(
         self,
         space: str,
-        decision_id: str,
+        record_id: str,
         superseded_by: str,
         invalidation_time: datetime,
     ) -> None:
@@ -381,7 +381,7 @@ class Neo4jDecisionRepository:
                 "    d.invalidation_time = $invalidation_time, "
                 "    d.lifecycle_state = $lifecycle_state",
                 space=space,
-                id=decision_id,
+                id=record_id,
                 superseded_by=superseded_by,
                 invalidation_time=_to_iso(invalidation_time),
                 lifecycle_state="superseded",
@@ -509,7 +509,7 @@ class Neo4jObservationRepository:
                 prov_validity_time=_to_iso(provenance.validity_time),
             )
 
-    def get(self, space: str, observation_id: str) -> Observation | None:
+    def get(self, space: str, record_id: str) -> Observation | None:
         """Retrieve an Observation by space and id, or None if not found."""
         with self._driver.session() as session:
             result = session.run(
@@ -522,7 +522,7 @@ class Neo4jObservationRepository:
                 "       o.supersedes AS supersedes, "
                 "       o.superseded_by AS superseded_by",
                 space=space,
-                id=observation_id,
+                id=record_id,
             )
             record = result.single()
             if record is None:
@@ -538,7 +538,7 @@ class Neo4jObservationRepository:
                 superseded_by=record["superseded_by"],
             )
 
-    def get_provenance(self, space: str, observation_id: str) -> Provenance | None:
+    def get_provenance(self, space: str, record_id: str) -> Provenance | None:
         """Retrieve the provenance for an Observation, or None if not found."""
         with self._driver.session() as session:
             result = session.run(
@@ -550,7 +550,7 @@ class Neo4jObservationRepository:
                 "       p.creation_time AS creation_time, "
                 "       p.validity_time AS validity_time",
                 space=space,
-                id=observation_id,
+                id=record_id,
             )
             record = result.single()
             if record is None:
@@ -597,7 +597,7 @@ class Neo4jObservationRepository:
     def mark_superseded(
         self,
         space: str,
-        observation_id: str,
+        record_id: str,
         superseded_by: str,
         invalidation_time: datetime,
     ) -> None:
@@ -609,7 +609,7 @@ class Neo4jObservationRepository:
                 "    o.invalidation_time = $invalidation_time, "
                 "    o.lifecycle_state = $lifecycle_state",
                 space=space,
-                id=observation_id,
+                id=record_id,
                 superseded_by=superseded_by,
                 invalidation_time=_to_iso(invalidation_time),
                 lifecycle_state="superseded",

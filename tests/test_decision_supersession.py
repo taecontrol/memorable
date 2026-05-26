@@ -224,7 +224,7 @@ class TestDecisionRepositoryPort:
         decision, provenance = self._make_decision_v1()
 
         repo.save(decision, provenance)
-        retrieved = repo.get(space="memorable", decision_id=V1_ID)
+        retrieved = repo.get(space="memorable", record_id=V1_ID)
 
         assert retrieved is not None
         assert retrieved.id == V1_ID
@@ -239,7 +239,7 @@ class TestDecisionRepositoryPort:
         decision, provenance = self._make_decision_v1()
 
         repo.save(decision, provenance)
-        prov = repo.get_provenance(space="memorable", decision_id=V1_ID)
+        prov = repo.get_provenance(space="memorable", record_id=V1_ID)
 
         assert prov is not None
         assert prov.source_id == SOURCE_ID
@@ -251,7 +251,7 @@ class TestDecisionRepositoryPort:
         )
 
         repo = InMemoryDecisionRepository()
-        assert repo.get(space="memorable", decision_id="decision:missing") is None
+        assert repo.get(space="memorable", record_id="decision:missing") is None
 
     def test_get_provenance_returns_none_for_missing(self) -> None:
         from memorable.core.repositories import (
@@ -260,8 +260,7 @@ class TestDecisionRepositoryPort:
 
         repo = InMemoryDecisionRepository()
         assert (
-            repo.get_provenance(space="memorable", decision_id="decision:missing")
-            is None
+            repo.get_provenance(space="memorable", record_id="decision:missing") is None
         )
 
     def test_mark_superseded_updates_old_decision(self) -> None:
@@ -275,12 +274,12 @@ class TestDecisionRepositoryPort:
         repo.save(v1, prov1)
         repo.mark_superseded(
             space="memorable",
-            decision_id=V1_ID,
+            record_id=V1_ID,
             superseded_by=V2_ID,
             invalidation_time=FIXTURE_TIMESTAMP_V2,
         )
 
-        updated = repo.get(space="memorable", decision_id=V1_ID)
+        updated = repo.get(space="memorable", record_id=V1_ID)
         assert updated is not None
         assert updated.lifecycle_state == "superseded"
         assert updated.invalidation_time == FIXTURE_TIMESTAMP_V2
@@ -300,18 +299,18 @@ class TestDecisionRepositoryPort:
         repo.save(v2, prov2)
         repo.mark_superseded(
             space="memorable",
-            decision_id=V1_ID,
+            record_id=V1_ID,
             superseded_by=V2_ID,
             invalidation_time=FIXTURE_TIMESTAMP_V2,
         )
 
         # v1 still exists
-        v1_stored = repo.get(space="memorable", decision_id=V1_ID)
+        v1_stored = repo.get(space="memorable", record_id=V1_ID)
         assert v1_stored is not None
         assert v1_stored.lifecycle_state == "superseded"
 
         # v2 also exists
-        v2_stored = repo.get(space="memorable", decision_id=V2_ID)
+        v2_stored = repo.get(space="memorable", record_id=V2_ID)
         assert v2_stored is not None
         assert v2_stored.lifecycle_state == "current"
 
@@ -356,7 +355,7 @@ class TestRememberDecisionService:
         assert result.provenance.source_id == SOURCE_ID
         assert result.provenance.creation_time == FIXTURE_TIMESTAMP_V1
 
-        stored = repo.get(space="memorable", decision_id=V1_ID)
+        stored = repo.get(space="memorable", record_id=V1_ID)
         assert stored is not None
 
     def test_remember_decision_with_supersession(self) -> None:
@@ -386,7 +385,7 @@ class TestRememberDecisionService:
         assert result.decision.lifecycle_state == "current"
 
         # v1 should now be marked superseded
-        v1 = repo.get(space="memorable", decision_id=V1_ID)
+        v1 = repo.get(space="memorable", record_id=V1_ID)
         assert v1 is not None
         assert v1.lifecycle_state == "superseded"
         assert v1.invalidation_time == FIXTURE_TIMESTAMP_V2
