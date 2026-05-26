@@ -604,6 +604,50 @@ class TestTemporalFiltering:
         assert len(task_results) == 1
         assert task_results[0].lifecycle_state == "open"
 
+    def test_current_mode_excludes_invalidated_decision(self) -> None:
+        """Invalidated decisions are excluded from current mode results."""
+        service, _, decision_repo, _ = _build_fixture()
+
+        invalidation_time = datetime(2026, 5, 23, 10, 22, 0, tzinfo=UTC)
+        decision_repo.invalidate(
+            space="memorable",
+            record_id="decision:storage-path:v2",
+            invalidation_time=invalidation_time,
+        )
+
+        results = service.search(
+            space="memorable",
+            query="storage implementation decision",
+            mode="current",
+        )
+
+        result_ids = [r.source_id for r in results]
+        assert "decision:storage-path:v2" not in result_ids
+
+    def test_invalidated_decision_visible_in_as_of_before_invalidation(self) -> None:
+        """Invalidated decision visible in as-of mode before invalidation."""
+        service, _, decision_repo, _ = _build_fixture()
+
+        invalidation_time = datetime(2026, 5, 23, 10, 22, 0, tzinfo=UTC)
+        decision_repo.invalidate(
+            space="memorable",
+            record_id="decision:storage-path:v2",
+            invalidation_time=invalidation_time,
+        )
+
+        # Query at a time after validity but before invalidation
+        at_before_invalidation = datetime(2026, 5, 23, 10, 21, 0, tzinfo=UTC)
+
+        results = service.search(
+            space="memorable",
+            query="storage implementation decision",
+            mode="as-of",
+            as_of=at_before_invalidation,
+        )
+
+        result_ids = [r.source_id for r in results]
+        assert "decision:storage-path:v2" in result_ids
+
 
 # =====================================================================
 # 7. Graph expansion tests

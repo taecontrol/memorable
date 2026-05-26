@@ -388,7 +388,7 @@ class HybridRetrievalService:
         explanation: list[str] = []
 
         if mode == "current":
-            if decision.lifecycle_state == "superseded":
+            if decision.lifecycle_state in ("superseded", "invalidated"):
                 return None
             lifecycle_state = decision.lifecycle_state
         elif mode == "as-of" and as_of is not None:
