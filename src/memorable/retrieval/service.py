@@ -581,8 +581,7 @@ class HybridRetrievalService:
 
         # Supersession history context
         has_chain = (
-            observation.superseded_by is not None
-            or observation.supersedes is not None
+            observation.superseded_by is not None or observation.supersedes is not None
         )
         if has_chain and self._observation_repo is not None:
             supersession_parts = []
@@ -594,9 +593,7 @@ class HybridRetrievalService:
                         if old.invalidation_time
                         else "unknown"
                     )
-                    supersession_parts.append(
-                        f"{old.id} was superseded at {inv_time}"
-                    )
+                    supersession_parts.append(f"{old.id} was superseded at {inv_time}")
             if supersession_parts:
                 explanation.append(
                     "supersession history: " + "; ".join(supersession_parts)

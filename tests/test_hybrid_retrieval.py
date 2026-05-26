@@ -1573,9 +1573,7 @@ class TestObservationGraphExpansion:
         """Entity graph expansion includes observations in the same space."""
         service, *_ = _build_observation_fixture()
 
-        related = service._graph_expand(
-            "memorable", "entity:memorable", "Entity"
-        )
+        related = service._graph_expand("memorable", "entity:memorable", "Entity")
 
         related_ids = [r_id for r_id, _ in related]
         related_kinds = [kind for _, kind in related]
