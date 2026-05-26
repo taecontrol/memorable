@@ -1720,17 +1720,12 @@ class TestSourceKindDispatch:
 
         # Spy on all repo get() methods
         with (
+            patch.object(entity_repo, "get", wraps=entity_repo.get) as entity_get,
+            patch.object(decision_repo, "get", wraps=decision_repo.get) as decision_get,
+            patch.object(task_repo, "get", wraps=task_repo.get) as task_get,
             patch.object(
-                entity_repo, "get", wraps=entity_repo.get
-            ) as entity_get,
-            patch.object(
-                decision_repo, "get", wraps=decision_repo.get
-            ) as decision_get,
-            patch.object(
-                task_repo, "get", wraps=task_repo.get
-            ) as task_get,
-            patch.object(
-                service._observation_repo, "get",
+                service._observation_repo,
+                "get",
                 wraps=service._observation_repo.get,
             ) as observation_get,
         ):
@@ -1746,29 +1741,25 @@ class TestSourceKindDispatch:
             )
 
             # Entity candidate should exist in results
-            entity_results = [
-                r for r in results if r.source_id == "entity:memorable"
-            ]
+            entity_results = [r for r in results if r.source_id == "entity:memorable"]
             assert len(entity_results) == 1
 
             # entity_repo.get() should have been called for entity:memorable
             entity_get_calls = [
-                c for c in entity_get.call_args_list
-                if "entity:memorable" in str(c)
+                c for c in entity_get.call_args_list if "entity:memorable" in str(c)
             ]
             assert len(entity_get_calls) >= 1
 
             # Other repos should NOT have been called with entity:memorable
             decision_get_calls = [
-                c for c in decision_get.call_args_list
-                if "entity:memorable" in str(c)
+                c for c in decision_get.call_args_list if "entity:memorable" in str(c)
             ]
             task_get_calls = [
-                c for c in task_get.call_args_list
-                if "entity:memorable" in str(c)
+                c for c in task_get.call_args_list if "entity:memorable" in str(c)
             ]
             observation_get_calls = [
-                c for c in observation_get.call_args_list
+                c
+                for c in observation_get.call_args_list
                 if "entity:memorable" in str(c)
             ]
             assert len(decision_get_calls) == 0, (
@@ -1787,9 +1778,7 @@ class TestSourceKindDispatch:
 
         service, entity_repo, decision_repo, task_repo = _build_fixture()
 
-        with patch.object(
-            entity_repo, "get", wraps=entity_repo.get
-        ) as entity_get:
+        with patch.object(entity_repo, "get", wraps=entity_repo.get) as entity_get:
             service._graph_expand = MagicMock(return_value=[])
             service._rebuild_index("memorable")
 
@@ -1800,19 +1789,18 @@ class TestSourceKindDispatch:
             )
 
             decision_results = [
-                r for r in results
-                if r.source_id == "decision:storage-path:v2"
+                r for r in results if r.source_id == "decision:storage-path:v2"
             ]
             assert len(decision_results) == 1
 
             # entity_repo should not have been probed for this decision ID
             entity_get_calls = [
-                c for c in entity_get.call_args_list
+                c
+                for c in entity_get.call_args_list
                 if "decision:storage-path:v2" in str(c)
             ]
             assert len(entity_get_calls) == 0, (
-                "entity_repo.get() should not be called"
-                " for a Decision candidate"
+                "entity_repo.get() should not be called for a Decision candidate"
             )
 
     def test_graph_expanded_candidate_carries_correct_source_kind(
@@ -1824,9 +1812,7 @@ class TestSourceKindDispatch:
 
         service, entity_repo, decision_repo, task_repo = _build_fixture()
 
-        with patch.object(
-            entity_repo, "get", wraps=entity_repo.get
-        ) as entity_get:
+        with patch.object(entity_repo, "get", wraps=entity_repo.get) as entity_get:
             results = service.search(
                 space="memorable",
                 query="Memorable project",
@@ -1840,7 +1826,8 @@ class TestSourceKindDispatch:
 
             # entity_repo.get() should NOT be called for that decision ID
             entity_get_for_decision = [
-                c for c in entity_get.call_args_list
+                c
+                for c in entity_get.call_args_list
                 if "decision:storage-path:v2" in str(c)
             ]
             assert len(entity_get_for_decision) == 0, (
