@@ -84,6 +84,7 @@ class MemoryProfile:
     space: SpaceDeclaration
     write_policy: WritePolicy = field(default_factory=WritePolicy)
     entities: tuple[EntityDeclaration, ...] = ()
+    relations: tuple[RelationDeclaration, ...] = ()
     records: tuple[RecordDeclaration, ...] = ()
 
 
