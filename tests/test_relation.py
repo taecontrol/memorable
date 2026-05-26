@@ -174,3 +174,9 @@ class TestRelationDeclaration:
 
         assert profile.relations == ()
         assert len(profile.entities) == 1
+
+    def test_relation_is_in_kernel_record_types(self) -> None:
+        """'Relation' is a recognized kernel type for record declarations."""
+        from memorable.core.profile import KERNEL_RECORD_TYPES
+
+        assert "Relation" in KERNEL_RECORD_TYPES
