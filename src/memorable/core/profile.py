@@ -103,6 +103,7 @@ def load_profile_from_yaml(yaml_text: str) -> MemoryProfile:
     _validate_version(data)
     _validate_space(data)
     _validate_entities(data)
+    _validate_relations(data)
     _validate_records(data)
 
     space_data = data.get("space", {})
@@ -121,6 +122,10 @@ def load_profile_from_yaml(yaml_text: str) -> MemoryProfile:
         EntityDeclaration(name=e["name"]) for e in data.get("entities", [])
     )
 
+    relations = tuple(
+        RelationDeclaration(name=r["name"]) for r in data.get("relations", [])
+    )
+
     records = tuple(
         RecordDeclaration(name=r["name"], extends=r.get("extends", "MemoryRecord"))
         for r in data.get("records", [])
@@ -131,6 +136,7 @@ def load_profile_from_yaml(yaml_text: str) -> MemoryProfile:
         space=space,
         write_policy=write_policy,
         entities=entities,
+        relations=relations,
         records=records,
     )
 
@@ -161,6 +167,14 @@ def _validate_entities(data: dict) -> None:
         if not isinstance(entity, dict) or not entity.get("name"):
             raise ProfileValidationError(
                 f"Entity at position {i} must have a non-empty 'name'."
+            )
+
+
+def _validate_relations(data: dict) -> None:
+    for i, relation in enumerate(data.get("relations", [])):
+        if not isinstance(relation, dict) or not relation.get("name"):
+            raise ProfileValidationError(
+                f"Relation at position {i} must have a non-empty 'name'."
             )
 
 
