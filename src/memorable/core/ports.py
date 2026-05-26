@@ -15,6 +15,7 @@ from memorable.core.models import (
     MemorySpace,
     Observation,
     Provenance,
+    Relation,
     Task,
 )
 
@@ -199,6 +200,44 @@ class ObservationRepository(Protocol):
         invalidation_time: datetime,
     ) -> None:
         """Mark an Observation as superseded by another."""
+        ...
+
+
+class RelationRepository(Protocol):
+    """Port for Relation persistence with provenance.
+
+    Covers creation, read, supersession, and entity-scoped queries.
+    Lifecycle mutations (invalidate, correct) go through TemporalRecordRepository.
+    """
+
+    def save(self, relation: Relation, provenance: Provenance) -> None:
+        """Persist a Relation with its provenance record."""
+        ...
+
+    def get(self, space: str, record_id: str) -> Relation | None:
+        """Retrieve a Relation by space and id, or None if not found."""
+        ...
+
+    def get_provenance(self, space: str, record_id: str) -> Provenance | None:
+        """Retrieve the provenance for a Relation, or None if not found."""
+        ...
+
+    def list_by_space(self, space: str) -> list[Relation]:
+        """Return all relations in the given space."""
+        ...
+
+    def mark_superseded(
+        self,
+        space: str,
+        record_id: str,
+        superseded_by: str,
+        invalidation_time: datetime,
+    ) -> None:
+        """Mark a Relation as superseded by another."""
+        ...
+
+    def list_by_entity(self, space: str, entity_id: str) -> list[Relation]:
+        """Return all Relations where entity_id is source or target."""
         ...
 
 

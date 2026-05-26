@@ -14,6 +14,7 @@ from memorable.core.models import (
     MemorySpace,
     Observation,
     Provenance,
+    Relation,
     Task,
 )
 from memorable.core.ports import TemporalRecord
@@ -177,6 +178,30 @@ class InMemoryObservationRepository(InMemoryTemporalRepository[Observation]):
 
     def save(self, observation: Observation, provenance: Provenance) -> None:
         self.save_record(observation, provenance)
+
+
+class InMemoryRelationRepository(InMemoryTemporalRepository[Relation]):
+    """In-memory implementation of RelationRepository.
+
+    Inherits all temporal methods from InMemoryTemporalRepository.
+    Adds save() for the RelationRepository protocol and list_by_entity()
+    for graph expansion queries.
+    """
+
+    def save(self, relation: Relation, provenance: Provenance) -> None:
+        self.save_record(relation, provenance)
+
+    def list_by_entity(self, space: str, entity_id: str) -> list[Relation]:
+        """Return all Relations where entity_id is source or target in the space."""
+        return [
+            record
+            for (s, _), record in self._records.items()
+            if s == space
+            and (
+                record.source_entity_id == entity_id
+                or record.target_entity_id == entity_id
+            )
+        ]
 
 
 class InMemoryTaskRepository:

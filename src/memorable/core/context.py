@@ -14,6 +14,7 @@ from memorable.core.ports import (
     EntityRepository,
     MemorySpaceRepository,
     ObservationRepository,
+    RelationRepository,
     TaskRepository,
 )
 from memorable.core.profile import MemoryProfile, load_profile_from_yaml
@@ -22,6 +23,7 @@ from memorable.core.repositories import (
     InMemoryEntityRepository,
     InMemoryMemorySpaceRepository,
     InMemoryObservationRepository,
+    InMemoryRelationRepository,
     InMemoryTaskRepository,
 )
 
@@ -36,6 +38,9 @@ space:
 entities:
   - name: Project
   - name: Component
+relations:
+  - name: depends-on
+  - name: owns
 records:
   - name: ArchitectureDecision
     extends: Decision
@@ -60,12 +65,14 @@ class ApplicationContext:
         decision_repo: DecisionRepository | None = None,
         task_repo: TaskRepository | None = None,
         observation_repo: ObservationRepository | None = None,
+        relation_repo: RelationRepository | None = None,
         memory_space_repo: MemorySpaceRepository | None = None,
     ) -> None:
         self.entity_repo = entity_repo or InMemoryEntityRepository()
         self.decision_repo = decision_repo or InMemoryDecisionRepository()
         self.task_repo = task_repo or InMemoryTaskRepository()
         self.observation_repo = observation_repo or InMemoryObservationRepository()
+        self.relation_repo = relation_repo or InMemoryRelationRepository()
         self.memory_space_repo = memory_space_repo or InMemoryMemorySpaceRepository()
         self._profiles: dict[str, MemoryProfile] = {}
 
@@ -116,6 +123,7 @@ class ApplicationContext:
         self.decision_repo = InMemoryDecisionRepository()
         self.task_repo = InMemoryTaskRepository()
         self.observation_repo = InMemoryObservationRepository()
+        self.relation_repo = InMemoryRelationRepository()
         self.memory_space_repo = InMemoryMemorySpaceRepository()
         self._profiles.clear()
 
