@@ -224,7 +224,7 @@ class TestDecisionRepositoryPort:
         decision, provenance = self._make_decision_v1()
 
         repo.save(decision, provenance)
-        retrieved = repo.get(space="memorable", decision_id=V1_ID)
+        retrieved = repo.get(space="memorable", record_id=V1_ID)
 
         assert retrieved is not None
         assert retrieved.id == V1_ID
@@ -239,7 +239,7 @@ class TestDecisionRepositoryPort:
         decision, provenance = self._make_decision_v1()
 
         repo.save(decision, provenance)
-        prov = repo.get_provenance(space="memorable", decision_id=V1_ID)
+        prov = repo.get_provenance(space="memorable", record_id=V1_ID)
 
         assert prov is not None
         assert prov.source_id == SOURCE_ID
@@ -251,7 +251,7 @@ class TestDecisionRepositoryPort:
         )
 
         repo = InMemoryDecisionRepository()
-        assert repo.get(space="memorable", decision_id="decision:missing") is None
+        assert repo.get(space="memorable", record_id="decision:missing") is None
 
     def test_get_provenance_returns_none_for_missing(self) -> None:
         from memorable.core.repositories import (
@@ -260,8 +260,7 @@ class TestDecisionRepositoryPort:
 
         repo = InMemoryDecisionRepository()
         assert (
-            repo.get_provenance(space="memorable", decision_id="decision:missing")
-            is None
+            repo.get_provenance(space="memorable", record_id="decision:missing") is None
         )
 
     def test_mark_superseded_updates_old_decision(self) -> None:
@@ -275,12 +274,12 @@ class TestDecisionRepositoryPort:
         repo.save(v1, prov1)
         repo.mark_superseded(
             space="memorable",
-            decision_id=V1_ID,
+            record_id=V1_ID,
             superseded_by=V2_ID,
             invalidation_time=FIXTURE_TIMESTAMP_V2,
         )
 
-        updated = repo.get(space="memorable", decision_id=V1_ID)
+        updated = repo.get(space="memorable", record_id=V1_ID)
         assert updated is not None
         assert updated.lifecycle_state == "superseded"
         assert updated.invalidation_time == FIXTURE_TIMESTAMP_V2
@@ -300,18 +299,18 @@ class TestDecisionRepositoryPort:
         repo.save(v2, prov2)
         repo.mark_superseded(
             space="memorable",
-            decision_id=V1_ID,
+            record_id=V1_ID,
             superseded_by=V2_ID,
             invalidation_time=FIXTURE_TIMESTAMP_V2,
         )
 
         # v1 still exists
-        v1_stored = repo.get(space="memorable", decision_id=V1_ID)
+        v1_stored = repo.get(space="memorable", record_id=V1_ID)
         assert v1_stored is not None
         assert v1_stored.lifecycle_state == "superseded"
 
         # v2 also exists
-        v2_stored = repo.get(space="memorable", decision_id=V2_ID)
+        v2_stored = repo.get(space="memorable", record_id=V2_ID)
         assert v2_stored is not None
         assert v2_stored.lifecycle_state == "current"
 
@@ -356,7 +355,7 @@ class TestRememberDecisionService:
         assert result.provenance.source_id == SOURCE_ID
         assert result.provenance.creation_time == FIXTURE_TIMESTAMP_V1
 
-        stored = repo.get(space="memorable", decision_id=V1_ID)
+        stored = repo.get(space="memorable", record_id=V1_ID)
         assert stored is not None
 
     def test_remember_decision_with_supersession(self) -> None:
@@ -386,7 +385,7 @@ class TestRememberDecisionService:
         assert result.decision.lifecycle_state == "current"
 
         # v1 should now be marked superseded
-        v1 = repo.get(space="memorable", decision_id=V1_ID)
+        v1 = repo.get(space="memorable", record_id=V1_ID)
         assert v1 is not None
         assert v1.lifecycle_state == "superseded"
         assert v1.invalidation_time == FIXTURE_TIMESTAMP_V2
@@ -478,7 +477,7 @@ class TestCurrentTruthService:
     def test_current_truth_returns_superseding(self) -> None:
         service, _repo = self._setup_chain()
 
-        result = service.current(space="memorable", decision_id=V1_ID)
+        result = service.current(space="memorable", record_id=V1_ID)
 
         assert result is not None
         assert result.id == V2_ID
@@ -508,7 +507,7 @@ class TestCurrentTruthService:
         )
 
         service = CurrentTruthService(repository=repo)
-        result = service.current(space="memorable", decision_id=V1_ID)
+        result = service.current(space="memorable", record_id=V1_ID)
 
         assert result is not None
         assert result.id == V1_ID
@@ -522,7 +521,7 @@ class TestCurrentTruthService:
         repo = InMemoryDecisionRepository()
         service = CurrentTruthService(repository=repo)
 
-        result = service.current(space="memorable", decision_id="decision:missing")
+        result = service.current(space="memorable", record_id="decision:missing")
         assert result is None
 
 
@@ -565,7 +564,7 @@ class TestPointInTimeTruthService:
         service, _repo = self._setup_chain()
 
         at_1017 = datetime(2026, 5, 23, 10, 17, 0, tzinfo=UTC)
-        result = service.at(space="memorable", decision_id=V1_ID, at=at_1017)
+        result = service.at(space="memorable", record_id=V1_ID, at=at_1017)
 
         assert result is not None
         assert result.id == V1_ID
@@ -574,7 +573,7 @@ class TestPointInTimeTruthService:
         service, _repo = self._setup_chain()
 
         at_1021 = datetime(2026, 5, 23, 10, 21, 0, tzinfo=UTC)
-        result = service.at(space="memorable", decision_id=V1_ID, at=at_1021)
+        result = service.at(space="memorable", record_id=V1_ID, at=at_1021)
 
         assert result is not None
         assert result.id == V2_ID
@@ -592,18 +591,18 @@ class TestPointInTimeTruthService:
 
         result = service.at(
             space="memorable",
-            decision_id="decision:missing",
+            record_id="decision:missing",
             at=FIXTURE_TIMESTAMP_V1,
         )
         assert result is None
 
 
-class TestInspectDecisionHistoryService:
-    """InspectDecisionHistoryService returns the supersession chain."""
+class TestInspectHistoryService:
+    """InspectHistoryService returns the supersession chain."""
 
     def _setup_chain(self):
         from memorable.core.application import (
-            InspectDecisionHistoryService,
+            InspectHistoryService,
             RememberDecisionService,
         )
         from memorable.core.profile import load_profile_from_yaml
@@ -631,12 +630,12 @@ class TestInspectDecisionHistoryService:
             supersedes=V1_ID,
         )
 
-        return InspectDecisionHistoryService(repository=repo), repo
+        return InspectHistoryService(repository=repo), repo
 
     def test_history_returns_full_chain(self) -> None:
         service, _repo = self._setup_chain()
 
-        history = service.history(space="memorable", decision_id=V1_ID)
+        history = service.history(space="memorable", record_id=V1_ID)
 
         assert len(history) == 2
         assert history[0].id == V1_ID
@@ -644,7 +643,7 @@ class TestInspectDecisionHistoryService:
 
     def test_history_single_when_not_superseded(self) -> None:
         from memorable.core.application import (
-            InspectDecisionHistoryService,
+            InspectHistoryService,
             RememberDecisionService,
         )
         from memorable.core.profile import load_profile_from_yaml
@@ -664,24 +663,24 @@ class TestInspectDecisionHistoryService:
             at=FIXTURE_TIMESTAMP_V1,
         )
 
-        service = InspectDecisionHistoryService(repository=repo)
-        history = service.history(space="memorable", decision_id=V1_ID)
+        service = InspectHistoryService(repository=repo)
+        history = service.history(space="memorable", record_id=V1_ID)
 
         assert len(history) == 1
         assert history[0].id == V1_ID
 
     def test_history_returns_empty_for_missing(self) -> None:
         from memorable.core.application import (
-            InspectDecisionHistoryService,
+            InspectHistoryService,
         )
         from memorable.core.repositories import (
             InMemoryDecisionRepository,
         )
 
         repo = InMemoryDecisionRepository()
-        service = InspectDecisionHistoryService(repository=repo)
+        service = InspectHistoryService(repository=repo)
 
-        history = service.history(space="memorable", decision_id="decision:missing")
+        history = service.history(space="memorable", record_id="decision:missing")
         assert history == []
 
 
@@ -1070,11 +1069,11 @@ class TestMCPCurrentTruth:
 
         result = current_truth_tool(
             space="memorable",
-            decision_id=V1_ID,
+            record_id=V1_ID,
         )
 
         assert "error" not in result
-        assert result["decision_id"] == V2_ID
+        assert result["record_id"] == V2_ID
 
 
 class TestMCPPointInTimeTruth:
@@ -1109,25 +1108,25 @@ class TestMCPPointInTimeTruth:
 
         result = point_in_time_truth_tool(
             space="memorable",
-            decision_id=V1_ID,
+            record_id=V1_ID,
             at="2026-05-23T10:17:00Z",
         )
 
         assert "error" not in result
-        assert result["decision_id"] == V1_ID
+        assert result["record_id"] == V1_ID
 
 
-class TestMCPInspectDecisionHistory:
-    """MCP inspect_decision_history_tool returns the chain."""
+class TestMCPInspectHistory:
+    """MCP inspect_history_tool returns the chain for decisions."""
 
     def setup_method(self) -> None:
         from memorable.core.context import default_context
 
         default_context.reset()
 
-    def test_inspect_decision_history_tool(self) -> None:
+    def test_inspect_history_tool_for_decisions(self) -> None:
         from memorable.mcp.server import (
-            inspect_decision_history_tool,
+            inspect_history_tool,
             remember_decision_tool,
         )
 
@@ -1147,14 +1146,15 @@ class TestMCPInspectDecisionHistory:
             supersedes=V1_ID,
         )
 
-        result = inspect_decision_history_tool(
+        result = inspect_history_tool(
             space="memorable",
-            decision_id=V1_ID,
+            record_id=V1_ID,
+            record_type="decision",
         )
 
         assert "error" not in result
         assert len(result["history"]) == 2
-        ids = [h["decision_id"] for h in result["history"]]
+        ids = [h["record_id"] for h in result["history"]]
         assert ids == [V1_ID, V2_ID]
 
 
@@ -1224,7 +1224,7 @@ class TestCurrentTruthServiceOwnsChainWalking:
         """Service walks v1 -> v2 chain via repo.get() calls."""
         service, _repo = self._setup_chain()
 
-        result = service.current(space="memorable", decision_id=V1_ID)
+        result = service.current(space="memorable", record_id=V1_ID)
 
         assert result is not None
         assert result.id == V2_ID
@@ -1251,7 +1251,7 @@ class TestCurrentTruthServiceOwnsChainWalking:
         )
 
         service = CurrentTruthService(repository=repo)
-        result = service.current(space="memorable", decision_id=V1_ID)
+        result = service.current(space="memorable", record_id=V1_ID)
 
         assert result is not None
         assert result.id == V1_ID
@@ -1263,7 +1263,7 @@ class TestCurrentTruthServiceOwnsChainWalking:
         repo = InMemoryDecisionRepository()
         service = CurrentTruthService(repository=repo)
 
-        result = service.current(space="memorable", decision_id="decision:missing")
+        result = service.current(space="memorable", record_id="decision:missing")
         assert result is None
 
 
@@ -1335,13 +1335,13 @@ class TestPointInTimeTruthServiceOwnsProjection:
         service, _repo = self._setup_chain()
 
         at_1017 = datetime(2026, 5, 23, 10, 17, 0, tzinfo=UTC)
-        result_v1 = service.at(space="memorable", decision_id=V1_ID, at=at_1017)
+        result_v1 = service.at(space="memorable", record_id=V1_ID, at=at_1017)
 
         assert result_v1 is not None
         assert result_v1.id == V1_ID
 
         at_1021 = datetime(2026, 5, 23, 10, 21, 0, tzinfo=UTC)
-        result_v2 = service.at(space="memorable", decision_id=V1_ID, at=at_1021)
+        result_v2 = service.at(space="memorable", record_id=V1_ID, at=at_1021)
 
         assert result_v2 is not None
         assert result_v2.id == V2_ID
@@ -1368,7 +1368,7 @@ class TestPointInTimeTruthServiceOwnsProjection:
 
         service = PointInTimeTruthService(repository=repo)
         at_1017 = datetime(2026, 5, 23, 10, 17, 0, tzinfo=UTC)
-        result = service.at(space="memorable", decision_id=V1_ID, at=at_1017)
+        result = service.at(space="memorable", record_id=V1_ID, at=at_1017)
 
         assert result is not None
         assert result.id == V1_ID
@@ -1382,7 +1382,7 @@ class TestPointInTimeTruthServiceOwnsProjection:
 
         result = service.at(
             space="memorable",
-            decision_id="decision:missing",
+            record_id="decision:missing",
             at=FIXTURE_TIMESTAMP_V1,
         )
         assert result is None
@@ -1413,8 +1413,8 @@ class TestDecisionRepositoryHasNoGetHistory:
         assert not hasattr(repo, "get_history")
 
 
-class TestInspectDecisionHistoryServiceOwnsChainTraversal:
-    """InspectDecisionHistoryService owns the supersession chain traversal logic.
+class TestInspectHistoryServiceOwnsChainTraversal:
+    """InspectHistoryService owns the supersession chain traversal logic.
 
     This replaces the former repo-level test_get_history_returns_supersession_chain.
     The service composes thin repo.get() calls to walk the chain following
@@ -1423,7 +1423,7 @@ class TestInspectDecisionHistoryServiceOwnsChainTraversal:
 
     def _setup_chain(self):
         from memorable.core.application import (
-            InspectDecisionHistoryService,
+            InspectHistoryService,
             RememberDecisionService,
         )
         from memorable.core.profile import load_profile_from_yaml
@@ -1449,13 +1449,13 @@ class TestInspectDecisionHistoryServiceOwnsChainTraversal:
             supersedes=V1_ID,
         )
 
-        return InspectDecisionHistoryService(repository=repo), repo
+        return InspectHistoryService(repository=repo), repo
 
     def test_service_walks_supersession_chain(self) -> None:
         """Service walks v1 -> v2 chain via repo.get() calls."""
         service, _repo = self._setup_chain()
 
-        history = service.history(space="memorable", decision_id=V1_ID)
+        history = service.history(space="memorable", record_id=V1_ID)
 
         assert len(history) == 2
         assert history[0].id == V1_ID
@@ -1463,7 +1463,7 @@ class TestInspectDecisionHistoryServiceOwnsChainTraversal:
 
     def test_service_returns_single_when_not_superseded(self) -> None:
         from memorable.core.application import (
-            InspectDecisionHistoryService,
+            InspectHistoryService,
             RememberDecisionService,
         )
         from memorable.core.profile import load_profile_from_yaml
@@ -1481,20 +1481,20 @@ class TestInspectDecisionHistoryServiceOwnsChainTraversal:
             at=FIXTURE_TIMESTAMP_V1,
         )
 
-        service = InspectDecisionHistoryService(repository=repo)
-        history = service.history(space="memorable", decision_id=V1_ID)
+        service = InspectHistoryService(repository=repo)
+        history = service.history(space="memorable", record_id=V1_ID)
 
         assert len(history) == 1
         assert history[0].id == V1_ID
 
     def test_service_returns_empty_for_missing(self) -> None:
-        from memorable.core.application import InspectDecisionHistoryService
+        from memorable.core.application import InspectHistoryService
         from memorable.core.repositories import InMemoryDecisionRepository
 
         repo = InMemoryDecisionRepository()
-        service = InspectDecisionHistoryService(repository=repo)
+        service = InspectHistoryService(repository=repo)
 
-        history = service.history(space="memorable", decision_id="decision:missing")
+        history = service.history(space="memorable", record_id="decision:missing")
         assert history == []
 
 
@@ -1573,7 +1573,7 @@ class TestChainWalkingCycleProtection:
         repo = self._make_cyclic_repo()
         service = CurrentTruthService(repository=repo)
 
-        result = service.current(space="memorable", decision_id=V1_ID)
+        result = service.current(space="memorable", record_id=V1_ID)
 
         # Must return a decision (not hang forever)
         assert result is not None
@@ -1587,20 +1587,20 @@ class TestChainWalkingCycleProtection:
         service = PointInTimeTruthService(repository=repo)
 
         at_query = datetime(2026, 5, 23, 10, 25, 0, tzinfo=UTC)
-        result = service.at(space="memorable", decision_id=V1_ID, at=at_query)
+        result = service.at(space="memorable", record_id=V1_ID, at=at_query)
 
         # Must return a decision (not hang forever)
         assert result is not None
         assert result.id in {V1_ID, V2_ID}
 
     def test_history_terminates_on_cycle(self) -> None:
-        """InspectDecisionHistoryService.history() must not hang on a cyclic chain."""
-        from memorable.core.application import InspectDecisionHistoryService
+        """InspectHistoryService.history() must not hang on a cyclic chain."""
+        from memorable.core.application import InspectHistoryService
 
         repo = self._make_cyclic_repo()
-        service = InspectDecisionHistoryService(repository=repo)
+        service = InspectHistoryService(repository=repo)
 
-        history = service.history(space="memorable", decision_id=V1_ID)
+        history = service.history(space="memorable", record_id=V1_ID)
 
         # Must return a finite list (not hang forever)
         assert isinstance(history, list)

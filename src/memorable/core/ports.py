@@ -7,15 +7,95 @@ They use domain language exclusively — no storage vocabulary.
 from __future__ import annotations
 
 from datetime import datetime
-from typing import Protocol
+from typing import Protocol, runtime_checkable
 
 from memorable.core.models import (
     Decision,
     Entity,
     MemorySpace,
+    Observation,
     Provenance,
     Task,
 )
+
+
+@runtime_checkable
+class TemporalRecord(Protocol):
+    """Structural protocol for objects returned by TemporalRecordRepository.
+
+    Any object with these attributes (e.g. Decision) satisfies this protocol,
+    giving callers typed access to temporal fields without coupling to a
+    concrete record type.
+    """
+
+    id: str
+    statement: str
+    space: str
+    validity_time: datetime
+    invalidation_time: datetime | None
+    lifecycle_state: str
+    supersedes: str | None
+    superseded_by: str | None
+
+
+@runtime_checkable
+class TemporalRecordRepository(Protocol):
+    """Shared surface for repositories that hold temporal records with supersession.
+
+    Any repository whose records carry superseded_by, lifecycle_state, and
+    invalidation_time can satisfy this protocol, enabling generic temporal
+    services (CurrentTruth, PointInTimeTruth, InspectHistory) to operate
+    across record types.
+    """
+
+    def get(self, space: str, record_id: str) -> TemporalRecord | None:
+        """Retrieve a temporal record by space and id, or None if not found."""
+        ...
+
+    def mark_superseded(
+        self,
+        space: str,
+        record_id: str,
+        superseded_by: str,
+        invalidation_time: datetime,
+    ) -> None:
+        """Mark a temporal record as superseded by another."""
+        ...
+
+    def invalidate(
+        self,
+        space: str,
+        record_id: str,
+        invalidation_time: datetime,
+    ) -> None:
+        """Mark a temporal record as invalidated (no replacement)."""
+        ...
+
+    def correct(
+        self,
+        space: str,
+        record_id: str,
+        new_statement: str,
+    ) -> None:
+        """Correct a temporal record's statement in place."""
+        ...
+
+    def save_provenance(
+        self,
+        space: str,
+        record_id: str,
+        provenance: Provenance,
+    ) -> None:
+        """Replace the provenance for a temporal record."""
+        ...
+
+    def get_provenance(
+        self,
+        space: str,
+        record_id: str,
+    ) -> Provenance | None:
+        """Retrieve the provenance for a temporal record, or None."""
+        ...
 
 
 class MemorySpaceRepository(Protocol):
@@ -55,17 +135,21 @@ class EntityRepository(Protocol):
 
 
 class DecisionRepository(Protocol):
-    """Port for Decision persistence with provenance."""
+    """Port for Decision persistence with provenance.
+
+    Covers creation, read, and supersession only. Lifecycle mutations
+    (invalidate, correct) go through TemporalRecordRepository.
+    """
 
     def save(self, decision: Decision, provenance: Provenance) -> None:
         """Persist a Decision with its provenance record."""
         ...
 
-    def get(self, space: str, decision_id: str) -> Decision | None:
+    def get(self, space: str, record_id: str) -> Decision | None:
         """Retrieve a Decision by space and id, or None if not found."""
         ...
 
-    def get_provenance(self, space: str, decision_id: str) -> Provenance | None:
+    def get_provenance(self, space: str, record_id: str) -> Provenance | None:
         """Retrieve the provenance for a Decision, or None if not found."""
         ...
 
@@ -76,11 +160,45 @@ class DecisionRepository(Protocol):
     def mark_superseded(
         self,
         space: str,
-        decision_id: str,
+        record_id: str,
         superseded_by: str,
         invalidation_time: datetime,
     ) -> None:
         """Mark a Decision as superseded by another."""
+        ...
+
+
+class ObservationRepository(Protocol):
+    """Port for Observation persistence with provenance.
+
+    Covers creation, read, and supersession only. Lifecycle mutations
+    (invalidate, correct) go through TemporalRecordRepository.
+    """
+
+    def save(self, observation: Observation, provenance: Provenance) -> None:
+        """Persist an Observation with its provenance record."""
+        ...
+
+    def get(self, space: str, record_id: str) -> Observation | None:
+        """Retrieve an Observation by space and id, or None if not found."""
+        ...
+
+    def get_provenance(self, space: str, record_id: str) -> Provenance | None:
+        """Retrieve the provenance for an Observation, or None if not found."""
+        ...
+
+    def list_by_space(self, space: str) -> list[Observation]:
+        """Return all observations in the given space."""
+        ...
+
+    def mark_superseded(
+        self,
+        space: str,
+        record_id: str,
+        superseded_by: str,
+        invalidation_time: datetime,
+    ) -> None:
+        """Mark an Observation as superseded by another."""
         ...
 
 

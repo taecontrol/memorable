@@ -464,6 +464,7 @@ def _build_fixture():
     from memorable.core.repositories import (
         InMemoryDecisionRepository,
         InMemoryEntityRepository,
+        InMemoryObservationRepository,
         InMemoryTaskRepository,
     )
     from memorable.retrieval.embeddings import FakeEmbeddingProvider
@@ -472,6 +473,7 @@ def _build_fixture():
     entity_repo = InMemoryEntityRepository()
     decision_repo = InMemoryDecisionRepository()
     task_repo = InMemoryTaskRepository()
+    observation_repo = InMemoryObservationRepository()
     profile = load_profile_from_yaml(VALID_PROFILE_YAML)
 
     # Step 3: Remember Entity
@@ -528,6 +530,7 @@ def _build_fixture():
         entity_repo=entity_repo,
         decision_repo=decision_repo,
         task_repo=task_repo,
+        observation_repo=observation_repo,
         embedding_provider=provider,
     )
 
@@ -603,6 +606,50 @@ class TestTemporalFiltering:
         task_results = [r for r in results if r.source_id == "task:mcp-smoke-path"]
         assert len(task_results) == 1
         assert task_results[0].lifecycle_state == "open"
+
+    def test_current_mode_excludes_invalidated_decision(self) -> None:
+        """Invalidated decisions are excluded from current mode results."""
+        service, _, decision_repo, _ = _build_fixture()
+
+        invalidation_time = datetime(2026, 5, 23, 10, 22, 0, tzinfo=UTC)
+        decision_repo.invalidate(
+            space="memorable",
+            record_id="decision:storage-path:v2",
+            invalidation_time=invalidation_time,
+        )
+
+        results = service.search(
+            space="memorable",
+            query="storage implementation decision",
+            mode="current",
+        )
+
+        result_ids = [r.source_id for r in results]
+        assert "decision:storage-path:v2" not in result_ids
+
+    def test_invalidated_decision_visible_in_as_of_before_invalidation(self) -> None:
+        """Invalidated decision visible in as-of mode before invalidation."""
+        service, _, decision_repo, _ = _build_fixture()
+
+        invalidation_time = datetime(2026, 5, 23, 10, 22, 0, tzinfo=UTC)
+        decision_repo.invalidate(
+            space="memorable",
+            record_id="decision:storage-path:v2",
+            invalidation_time=invalidation_time,
+        )
+
+        # Query at a time after validity but before invalidation
+        at_before_invalidation = datetime(2026, 5, 23, 10, 21, 0, tzinfo=UTC)
+
+        results = service.search(
+            space="memorable",
+            query="storage implementation decision",
+            mode="as-of",
+            as_of=at_before_invalidation,
+        )
+
+        result_ids = [r.source_id for r in results]
+        assert "decision:storage-path:v2" in result_ids
 
 
 # =====================================================================
@@ -1082,7 +1129,7 @@ class TestLanguageBoundary:
             mode="current",
         )
 
-        valid_kinds = {"Entity", "Decision", "Task"}
+        valid_kinds = {"Entity", "Decision", "Task", "Observation"}
         for result in results:
             assert result.source_kind in valid_kinds, (
                 f"source_kind '{result.source_kind}' is not a domain term"
@@ -1103,6 +1150,7 @@ class TestHybridRetrievalServiceDependencyInjection:
         from memorable.core.repositories import (
             InMemoryDecisionRepository,
             InMemoryEntityRepository,
+            InMemoryObservationRepository,
             InMemoryTaskRepository,
         )
         from memorable.retrieval.embeddings import FakeEmbeddingProvider
@@ -1111,6 +1159,7 @@ class TestHybridRetrievalServiceDependencyInjection:
         entity_repo = InMemoryEntityRepository()
         decision_repo = InMemoryDecisionRepository()
         task_repo = InMemoryTaskRepository()
+        observation_repo = InMemoryObservationRepository()
         provider = FakeEmbeddingProvider(dimensions=32)
         pit_service = PointInTimeTruthService(repository=decision_repo)
 
@@ -1118,6 +1167,7 @@ class TestHybridRetrievalServiceDependencyInjection:
             entity_repo=entity_repo,
             decision_repo=decision_repo,
             task_repo=task_repo,
+            observation_repo=observation_repo,
             embedding_provider=provider,
             point_in_time_service=pit_service,
         )
@@ -1130,6 +1180,7 @@ class TestHybridRetrievalServiceDependencyInjection:
         from memorable.core.repositories import (
             InMemoryDecisionRepository,
             InMemoryEntityRepository,
+            InMemoryObservationRepository,
             InMemoryTaskRepository,
         )
         from memorable.retrieval.embeddings import FakeEmbeddingProvider
@@ -1138,6 +1189,7 @@ class TestHybridRetrievalServiceDependencyInjection:
         entity_repo = InMemoryEntityRepository()
         decision_repo = InMemoryDecisionRepository()
         task_repo = InMemoryTaskRepository()
+        observation_repo = InMemoryObservationRepository()
         provider = FakeEmbeddingProvider(dimensions=32)
         inspect_service = InspectTaskService(repository=task_repo)
 
@@ -1145,6 +1197,7 @@ class TestHybridRetrievalServiceDependencyInjection:
             entity_repo=entity_repo,
             decision_repo=decision_repo,
             task_repo=task_repo,
+            observation_repo=observation_repo,
             embedding_provider=provider,
             inspect_task_service=inspect_service,
         )
@@ -1164,6 +1217,7 @@ class TestHybridRetrievalServiceDependencyInjection:
         from memorable.core.repositories import (
             InMemoryDecisionRepository,
             InMemoryEntityRepository,
+            InMemoryObservationRepository,
             InMemoryTaskRepository,
         )
         from memorable.retrieval.embeddings import FakeEmbeddingProvider
@@ -1172,6 +1226,7 @@ class TestHybridRetrievalServiceDependencyInjection:
         entity_repo = InMemoryEntityRepository()
         decision_repo = InMemoryDecisionRepository()
         task_repo = InMemoryTaskRepository()
+        observation_repo = InMemoryObservationRepository()
         profile = load_profile_from_yaml(VALID_PROFILE_YAML)
 
         entity_svc = RememberEntityService(repository=entity_repo, profile=profile)
@@ -1205,6 +1260,7 @@ class TestHybridRetrievalServiceDependencyInjection:
             entity_repo=entity_repo,
             decision_repo=decision_repo,
             task_repo=task_repo,
+            observation_repo=observation_repo,
             embedding_provider=provider,
             point_in_time_service=spy_pit,
         )
@@ -1232,6 +1288,7 @@ class TestHybridRetrievalServiceDependencyInjection:
         from memorable.core.repositories import (
             InMemoryDecisionRepository,
             InMemoryEntityRepository,
+            InMemoryObservationRepository,
             InMemoryTaskRepository,
         )
         from memorable.retrieval.embeddings import FakeEmbeddingProvider
@@ -1240,6 +1297,7 @@ class TestHybridRetrievalServiceDependencyInjection:
         entity_repo = InMemoryEntityRepository()
         decision_repo = InMemoryDecisionRepository()
         task_repo = InMemoryTaskRepository()
+        observation_repo = InMemoryObservationRepository()
         profile = load_profile_from_yaml(VALID_PROFILE_YAML)
 
         entity_svc = RememberEntityService(repository=entity_repo, profile=profile)
@@ -1270,6 +1328,7 @@ class TestHybridRetrievalServiceDependencyInjection:
             entity_repo=entity_repo,
             decision_repo=decision_repo,
             task_repo=task_repo,
+            observation_repo=observation_repo,
             embedding_provider=provider,
             inspect_task_service=spy_inspect,
         )
@@ -1283,3 +1342,495 @@ class TestHybridRetrievalServiceDependencyInjection:
         )
 
         spy_inspect.inspect.assert_called()
+
+
+# =====================================================================
+# 15. Observation retrieval integration tests
+# =====================================================================
+
+OBSERVATION_PROFILE_YAML = textwrap.dedent("""\
+    version: 1
+
+    space:
+      name: memorable
+      description: Agent memory system design
+
+    entities:
+      - name: Project
+      - name: Component
+
+    records:
+      - name: ArchitectureDecision
+        extends: Decision
+      - name: FollowUp
+        extends: Task
+      - name: GeneralObservation
+        extends: Observation
+""")
+
+OBSERVATION_TIMESTAMPS = {
+    "entity": datetime(2026, 5, 24, 10, 0, 0, tzinfo=UTC),
+    "obs_v1": datetime(2026, 5, 24, 10, 10, 0, tzinfo=UTC),
+    "obs_v2": datetime(2026, 5, 24, 10, 20, 0, tzinfo=UTC),
+    "obs_invalidated": datetime(2026, 5, 24, 10, 30, 0, tzinfo=UTC),
+}
+
+OBS_STATEMENT_V1 = "The team prefers PostgreSQL for relational storage."
+OBS_STATEMENT_V2 = "The team now prefers SQLite for local development storage."
+OBS_STATEMENT_STANDALONE = "Code coverage is above 90 percent."
+
+
+def _build_observation_fixture():
+    """Build a fixture with observations for retrieval tests."""
+    from memorable.core.application import (
+        RememberEntityService,
+        RememberObservationService,
+    )
+    from memorable.core.profile import load_profile_from_yaml
+    from memorable.core.repositories import (
+        InMemoryDecisionRepository,
+        InMemoryEntityRepository,
+        InMemoryObservationRepository,
+        InMemoryTaskRepository,
+    )
+    from memorable.retrieval.embeddings import FakeEmbeddingProvider
+    from memorable.retrieval.service import HybridRetrievalService
+
+    entity_repo = InMemoryEntityRepository()
+    decision_repo = InMemoryDecisionRepository()
+    task_repo = InMemoryTaskRepository()
+    observation_repo = InMemoryObservationRepository()
+    profile = load_profile_from_yaml(OBSERVATION_PROFILE_YAML)
+
+    # Entity
+    entity_svc = RememberEntityService(repository=entity_repo, profile=profile)
+    entity_svc.remember(
+        space="memorable",
+        entity_id="entity:memorable",
+        entity_type="Project",
+        name="Memorable",
+        source_id=SOURCE_ID,
+        at=OBSERVATION_TIMESTAMPS["entity"],
+    )
+
+    # Observation v1 (will be superseded)
+    obs_svc = RememberObservationService(repository=observation_repo, profile=profile)
+    obs_svc.remember(
+        space="memorable",
+        observation_id="observation:storage-pref:v1",
+        statement=OBS_STATEMENT_V1,
+        source_id=SOURCE_ID,
+        at=OBSERVATION_TIMESTAMPS["obs_v1"],
+    )
+
+    # Observation v2 (supersedes v1)
+    obs_svc.remember(
+        space="memorable",
+        observation_id="observation:storage-pref:v2",
+        statement=OBS_STATEMENT_V2,
+        source_id=SOURCE_ID,
+        at=OBSERVATION_TIMESTAMPS["obs_v2"],
+        supersedes="observation:storage-pref:v1",
+    )
+
+    # Standalone observation (will be invalidated in some tests)
+    obs_svc.remember(
+        space="memorable",
+        observation_id="observation:coverage",
+        statement=OBS_STATEMENT_STANDALONE,
+        source_id=SOURCE_ID,
+        at=OBSERVATION_TIMESTAMPS["obs_v1"],
+    )
+
+    provider = FakeEmbeddingProvider(dimensions=32)
+    service = HybridRetrievalService(
+        entity_repo=entity_repo,
+        decision_repo=decision_repo,
+        task_repo=task_repo,
+        observation_repo=observation_repo,
+        embedding_provider=provider,
+    )
+
+    return service, entity_repo, decision_repo, task_repo, observation_repo
+
+
+class TestObservationIndexableText:
+    """Indexable Text generation for Observation records."""
+
+    def test_indexable_text_for_observation(self) -> None:
+        """Format matches: Observation {id}: {statement} (lifecycle: ..., space: ...)"""
+        from memorable.core.models import Observation
+        from memorable.retrieval.indexable_text import indexable_text_for_observation
+
+        observation = Observation(
+            id="observation:storage-pref:v1",
+            statement=OBS_STATEMENT_V1,
+            space="memorable",
+            validity_time=OBSERVATION_TIMESTAMPS["obs_v1"],
+            invalidation_time=None,
+            lifecycle_state="current",
+            supersedes=None,
+            superseded_by=None,
+        )
+
+        text = indexable_text_for_observation(observation)
+
+        assert text == (
+            f"Observation observation:storage-pref:v1: {OBS_STATEMENT_V1} "
+            f"(lifecycle: current, space: memorable)"
+        )
+
+    def test_indexable_text_includes_key_fields(self) -> None:
+        from memorable.core.models import Observation
+        from memorable.retrieval.indexable_text import indexable_text_for_observation
+
+        observation = Observation(
+            id="observation:coverage",
+            statement=OBS_STATEMENT_STANDALONE,
+            space="memorable",
+            validity_time=OBSERVATION_TIMESTAMPS["obs_v1"],
+            invalidation_time=None,
+            lifecycle_state="current",
+            supersedes=None,
+            superseded_by=None,
+        )
+
+        text = indexable_text_for_observation(observation)
+
+        assert "Observation" in text
+        assert "observation:coverage" in text
+        assert OBS_STATEMENT_STANDALONE in text
+        assert "current" in text
+        assert "memorable" in text
+
+
+class TestObservationRetrievalIndex:
+    """Observations are indexed and searchable in the hybrid retrieval pipeline."""
+
+    def test_rebuild_index_includes_observations(self) -> None:
+        """Observations get indexed during _rebuild_index."""
+        service, *_ = _build_observation_fixture()
+
+        # After search, observations should appear in results
+        results = service.search(
+            space="memorable",
+            query="storage preference observation",
+            mode="current",
+        )
+
+        result_ids = [r.source_id for r in results]
+        # v2 is current, so it should appear
+        assert "observation:storage-pref:v2" in result_ids
+
+    def test_observation_search_returns_results(self) -> None:
+        """Observations appear in search results with correct source_kind."""
+        service, *_ = _build_observation_fixture()
+
+        results = service.search(
+            space="memorable",
+            query="code coverage above 90 percent",
+            mode="current",
+        )
+
+        obs_results = [r for r in results if r.source_kind == "Observation"]
+        assert len(obs_results) >= 1
+        obs_ids = [r.source_id for r in obs_results]
+        assert "observation:coverage" in obs_ids
+
+
+class TestObservationTemporalFiltering:
+    """Temporal filtering for observations in retrieval."""
+
+    def test_superseded_observation_excluded_current_mode(self) -> None:
+        """Superseded observations are excluded from current mode results."""
+        service, *_ = _build_observation_fixture()
+
+        results = service.search(
+            space="memorable",
+            query="storage preference PostgreSQL SQLite",
+            mode="current",
+        )
+
+        result_ids = [r.source_id for r in results]
+        # v1 is superseded, should not appear
+        assert "observation:storage-pref:v1" not in result_ids
+        # v2 is current, should appear
+        assert "observation:storage-pref:v2" in result_ids
+
+    def test_invalidated_observation_excluded_current_mode(self) -> None:
+        """Invalidated observations are excluded from current mode results."""
+        service, _, _, _, observation_repo = _build_observation_fixture()
+
+        # Invalidate the coverage observation
+        observation_repo.invalidate(
+            space="memorable",
+            record_id="observation:coverage",
+            invalidation_time=OBSERVATION_TIMESTAMPS["obs_invalidated"],
+        )
+
+        results = service.search(
+            space="memorable",
+            query="code coverage above 90 percent",
+            mode="current",
+        )
+
+        result_ids = [r.source_id for r in results]
+        assert "observation:coverage" not in result_ids
+
+    def test_observation_point_in_time_mode(self) -> None:
+        """Point-in-time queries return the observation valid at that time."""
+        service, *_ = _build_observation_fixture()
+
+        # Query at a time before v2 existed -- v1 should be returned
+        at_before_v2 = datetime(2026, 5, 24, 10, 15, 0, tzinfo=UTC)
+
+        results = service.search(
+            space="memorable",
+            query="storage preference PostgreSQL",
+            mode="as-of",
+            as_of=at_before_v2,
+        )
+
+        result_ids = [r.source_id for r in results]
+        assert "observation:storage-pref:v1" in result_ids
+        assert "observation:storage-pref:v2" not in result_ids
+
+
+class TestObservationGraphExpansion:
+    """Graph expansion for observations includes entity and supersession."""
+
+    def test_graph_expand_observation_to_entities(self) -> None:
+        """Observation graph expansion relates to entities in the same space."""
+        service, *_ = _build_observation_fixture()
+
+        results = service.search(
+            space="memorable",
+            query="storage preference observation SQLite",
+            mode="current",
+        )
+
+        result_ids = [r.source_id for r in results]
+        # Graph expansion should bring in the entity
+        assert "entity:memorable" in result_ids
+
+    def test_graph_expand_observation_supersession_links(self) -> None:
+        """Observation graph expansion follows supersession links."""
+        service, *_ = _build_observation_fixture()
+
+        # Access internal method to verify supersession link traversal
+        related = service._graph_expand(
+            "memorable", "observation:storage-pref:v2", "Observation"
+        )
+
+        related_ids = [r_id for r_id, _ in related]
+        # Should include the entity
+        assert "entity:memorable" in related_ids
+        # Should follow supersedes link back to v1
+        assert "observation:storage-pref:v1" in related_ids
+
+    def test_graph_expand_entity_to_observations(self) -> None:
+        """Entity graph expansion includes observations in the same space."""
+        service, *_ = _build_observation_fixture()
+
+        related = service._graph_expand("memorable", "entity:memorable", "Entity")
+
+        related_ids = [r_id for r_id, _ in related]
+        related_kinds = [kind for _, kind in related]
+        # Entity should expand to observations
+        assert "Observation" in related_kinds
+        # Should include current observations
+        assert "observation:storage-pref:v2" in related_ids
+        assert "observation:coverage" in related_ids
+
+
+class TestObservationRepoRequired:
+    """observation_repo is a required parameter in HybridRetrievalService."""
+
+    def test_constructor_rejects_missing_observation_repo(self) -> None:
+        """Omitting observation_repo raises TypeError."""
+        from memorable.core.repositories import (
+            InMemoryDecisionRepository,
+            InMemoryEntityRepository,
+            InMemoryTaskRepository,
+        )
+        from memorable.retrieval.embeddings import FakeEmbeddingProvider
+        from memorable.retrieval.service import HybridRetrievalService
+
+        with pytest.raises(TypeError):
+            HybridRetrievalService(
+                entity_repo=InMemoryEntityRepository(),
+                decision_repo=InMemoryDecisionRepository(),
+                task_repo=InMemoryTaskRepository(),
+                embedding_provider=FakeEmbeddingProvider(dimensions=32),
+            )
+
+    def test_observation_pit_service_always_constructed(self) -> None:
+        """_observation_pit_service is always present when observation_repo is given."""
+        from memorable.core.repositories import (
+            InMemoryDecisionRepository,
+            InMemoryEntityRepository,
+            InMemoryObservationRepository,
+            InMemoryTaskRepository,
+        )
+        from memorable.retrieval.embeddings import FakeEmbeddingProvider
+        from memorable.retrieval.service import HybridRetrievalService
+
+        service = HybridRetrievalService(
+            entity_repo=InMemoryEntityRepository(),
+            decision_repo=InMemoryDecisionRepository(),
+            task_repo=InMemoryTaskRepository(),
+            observation_repo=InMemoryObservationRepository(),
+            embedding_provider=FakeEmbeddingProvider(dimensions=32),
+        )
+
+        assert service._observation_pit_service is not None
+
+
+class TestObservationApplicationContext:
+    """ApplicationContext wires observation_repo into HybridRetrievalService."""
+
+    def test_build_retrieval_service_wires_observation_repo(self) -> None:
+        """build_retrieval_service passes observation_repo to HybridRetrievalService."""
+        from memorable.core.context import ApplicationContext
+
+        ctx = ApplicationContext()
+        service = ctx.build_retrieval_service()
+
+        # The service should have an observation_repo attribute
+        assert service._observation_repo is ctx.observation_repo
+
+
+# =====================================================================
+# 16. source_kind dispatch tests (slice #56)
+# =====================================================================
+
+
+class TestSourceKindDispatch:
+    """_build_result dispatches directly by source_kind without probing all repos.
+
+    Slice #56: Track source_kind through retrieval pipeline so each candidate
+    triggers exactly 1 repository get() call instead of N.
+    """
+
+    def test_entity_candidate_calls_only_entity_repo_get(self) -> None:
+        """An Entity candidate should only call entity_repo.get(), not others."""
+        from unittest.mock import MagicMock, patch
+
+        service, entity_repo, decision_repo, task_repo = _build_fixture()
+
+        # Spy on all repo get() methods
+        with (
+            patch.object(entity_repo, "get", wraps=entity_repo.get) as entity_get,
+            patch.object(decision_repo, "get", wraps=decision_repo.get) as decision_get,
+            patch.object(task_repo, "get", wraps=task_repo.get) as task_get,
+            patch.object(
+                service._observation_repo,
+                "get",
+                wraps=service._observation_repo.get,
+            ) as observation_get,
+        ):
+            # Bypass graph expansion to isolate _build_result behavior
+            service._graph_expand = MagicMock(return_value=[])
+            service._rebuild_index("memorable")
+
+            # Call search which should pass source_kind through
+            results = service.search(
+                space="memorable",
+                query="Memorable project entity",
+                mode="current",
+            )
+
+            # Entity candidate should exist in results
+            entity_results = [r for r in results if r.source_id == "entity:memorable"]
+            assert len(entity_results) == 1
+
+            # entity_repo.get() should have been called for entity:memorable
+            entity_get_calls = [
+                c for c in entity_get.call_args_list if "entity:memorable" in str(c)
+            ]
+            assert len(entity_get_calls) >= 1
+
+            # Other repos should NOT have been called with entity:memorable
+            decision_get_calls = [
+                c for c in decision_get.call_args_list if "entity:memorable" in str(c)
+            ]
+            task_get_calls = [
+                c for c in task_get.call_args_list if "entity:memorable" in str(c)
+            ]
+            observation_get_calls = [
+                c
+                for c in observation_get.call_args_list
+                if "entity:memorable" in str(c)
+            ]
+            assert len(decision_get_calls) == 0, (
+                "decision_repo.get() should not be called for an Entity candidate"
+            )
+            assert len(task_get_calls) == 0, (
+                "task_repo.get() should not be called for an Entity candidate"
+            )
+            assert len(observation_get_calls) == 0, (
+                "observation_repo.get() should not be called for an Entity candidate"
+            )
+
+    def test_decision_candidate_calls_only_decision_repo_get(self) -> None:
+        """A Decision candidate should only call decision_repo.get(), not others."""
+        from unittest.mock import MagicMock, patch
+
+        service, entity_repo, decision_repo, task_repo = _build_fixture()
+
+        with patch.object(entity_repo, "get", wraps=entity_repo.get) as entity_get:
+            service._graph_expand = MagicMock(return_value=[])
+            service._rebuild_index("memorable")
+
+            results = service.search(
+                space="memorable",
+                query="storage implementation decision path",
+                mode="current",
+            )
+
+            decision_results = [
+                r for r in results if r.source_id == "decision:storage-path:v2"
+            ]
+            assert len(decision_results) == 1
+
+            # entity_repo should not have been probed for this decision ID
+            entity_get_calls = [
+                c
+                for c in entity_get.call_args_list
+                if "decision:storage-path:v2" in str(c)
+            ]
+            assert len(entity_get_calls) == 0, (
+                "entity_repo.get() should not be called for a Decision candidate"
+            )
+
+    def test_graph_expanded_candidate_carries_correct_source_kind(
+        self,
+    ) -> None:
+        """Graph-expanded candidate from a different type carries
+        its own source_kind."""
+        from unittest.mock import patch
+
+        service, entity_repo, decision_repo, task_repo = _build_fixture()
+
+        with patch.object(entity_repo, "get", wraps=entity_repo.get) as entity_get:
+            results = service.search(
+                space="memorable",
+                query="Memorable project",
+                mode="current",
+            )
+
+            # Entity is a semantic hit; Decision comes via graph expansion
+            result_ids = [r.source_id for r in results]
+            assert "entity:memorable" in result_ids
+            assert "decision:storage-path:v2" in result_ids
+
+            # entity_repo.get() should NOT be called for that decision ID
+            entity_get_for_decision = [
+                c
+                for c in entity_get.call_args_list
+                if "decision:storage-path:v2" in str(c)
+            ]
+            assert len(entity_get_for_decision) == 0, (
+                "entity_repo.get() should not be probed for a"
+                " Decision that came via graph expansion"
+            )

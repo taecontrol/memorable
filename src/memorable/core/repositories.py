@@ -5,15 +5,115 @@ These are used as placeholders until the real storage adapters are wired.
 
 from __future__ import annotations
 
+from dataclasses import replace
 from datetime import datetime
 
 from memorable.core.models import (
     Decision,
     Entity,
     MemorySpace,
+    Observation,
     Provenance,
     Task,
 )
+from memorable.core.ports import TemporalRecord
+
+
+class InMemoryTemporalRepository[T: TemporalRecord]:
+    """Generic in-memory implementation of temporal record storage.
+
+    Provides the shared temporal methods (get, mark_superseded, invalidate,
+    correct, save_provenance, get_provenance, list_by_space) once, so that
+    concrete repositories (Decision, Observation) inherit instead of
+    duplicating the logic.
+
+    The model type T must be a frozen dataclass with the standard temporal
+    fields: id, space, statement, validity_time, invalidation_time,
+    lifecycle_state, supersedes, superseded_by.
+    """
+
+    def __init__(self) -> None:
+        self._records: dict[tuple[str, str], T] = {}
+        self._provenance: dict[tuple[str, str], Provenance] = {}
+
+    def save_record(self, record: T, provenance: Provenance) -> None:
+        """Store a temporal record and its provenance, keyed by (space, id)."""
+        key = (record.space, record.id)
+        self._records[key] = record
+        self._provenance[key] = provenance
+
+    def get(self, space: str, record_id: str) -> T | None:
+        """Retrieve a temporal record by space and id, or None if not found."""
+        return self._records.get((space, record_id))
+
+    def get_provenance(self, space: str, record_id: str) -> Provenance | None:
+        """Retrieve the provenance for a temporal record, or None."""
+        return self._provenance.get((space, record_id))
+
+    def list_by_space(self, space: str) -> list[T]:
+        """Return all records in the given space."""
+        return [record for (s, _), record in self._records.items() if s == space]
+
+    def mark_superseded(
+        self,
+        space: str,
+        record_id: str,
+        superseded_by: str,
+        invalidation_time: datetime,
+    ) -> None:
+        """Mark a temporal record as superseded by another."""
+        key = (space, record_id)
+        old = self._records.get(key)
+        if old is None:
+            return
+        self._records[key] = replace(
+            old,
+            invalidation_time=invalidation_time,
+            lifecycle_state="superseded",
+            superseded_by=superseded_by,
+        )
+
+    def invalidate(
+        self,
+        space: str,
+        record_id: str,
+        invalidation_time: datetime,
+    ) -> None:
+        """Mark a temporal record as invalidated (no replacement)."""
+        key = (space, record_id)
+        old = self._records.get(key)
+        if old is None:
+            return
+        self._records[key] = replace(
+            old,
+            invalidation_time=invalidation_time,
+            lifecycle_state="invalidated",
+        )
+
+    def correct(
+        self,
+        space: str,
+        record_id: str,
+        new_statement: str,
+    ) -> None:
+        """Correct a temporal record's statement in place."""
+        key = (space, record_id)
+        old = self._records.get(key)
+        if old is None:
+            return
+        self._records[key] = replace(
+            old,
+            statement=new_statement,
+        )
+
+    def save_provenance(
+        self,
+        space: str,
+        record_id: str,
+        provenance: Provenance,
+    ) -> None:
+        """Replace the provenance for a temporal record."""
+        self._provenance[(space, record_id)] = provenance
 
 
 class InMemoryMemorySpaceRepository:
@@ -57,51 +157,26 @@ class InMemoryEntityRepository:
         return [entity for (s, _), entity in self._entities.items() if s == space]
 
 
-class InMemoryDecisionRepository:
-    """In-memory implementation of DecisionRepository."""
+class InMemoryDecisionRepository(InMemoryTemporalRepository[Decision]):
+    """In-memory implementation of DecisionRepository.
 
-    def __init__(self) -> None:
-        self._decisions: dict[tuple[str, str], Decision] = {}
-        self._provenance: dict[tuple[str, str], Provenance] = {}
+    Inherits all temporal methods from InMemoryTemporalRepository.
+    Only adds the save() signature required by the DecisionRepository protocol.
+    """
 
     def save(self, decision: Decision, provenance: Provenance) -> None:
-        key = (decision.space, decision.id)
-        self._decisions[key] = decision
-        self._provenance[key] = provenance
+        self.save_record(decision, provenance)
 
-    def get(self, space: str, decision_id: str) -> Decision | None:
-        return self._decisions.get((space, decision_id))
 
-    def get_provenance(self, space: str, decision_id: str) -> Provenance | None:
-        return self._provenance.get((space, decision_id))
+class InMemoryObservationRepository(InMemoryTemporalRepository[Observation]):
+    """In-memory implementation of ObservationRepository.
 
-    def list_by_space(self, space: str) -> list[Decision]:
-        """Return all decisions in the given space."""
-        return [decision for (s, _), decision in self._decisions.items() if s == space]
+    Inherits all temporal methods from InMemoryTemporalRepository.
+    Only adds the save() signature required by the ObservationRepository protocol.
+    """
 
-    def mark_superseded(
-        self,
-        space: str,
-        decision_id: str,
-        superseded_by: str,
-        invalidation_time: datetime,
-    ) -> None:
-        key = (space, decision_id)
-        old = self._decisions.get(key)
-        if old is None:
-            return
-        # Replace with updated frozen dataclass via object.__setattr__ workaround
-        updated = Decision(
-            id=old.id,
-            statement=old.statement,
-            space=old.space,
-            validity_time=old.validity_time,
-            invalidation_time=invalidation_time,
-            lifecycle_state="superseded",
-            supersedes=old.supersedes,
-            superseded_by=superseded_by,
-        )
-        self._decisions[key] = updated
+    def save(self, observation: Observation, provenance: Provenance) -> None:
+        self.save_record(observation, provenance)
 
 
 class InMemoryTaskRepository:

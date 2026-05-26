@@ -10,10 +10,11 @@ from datetime import datetime
 from typing import Literal
 
 from memorable.core.application import InspectTaskService, PointInTimeTruthService
-from memorable.core.models import Decision, Entity, Task
+from memorable.core.models import Decision, Entity, Observation, Task
 from memorable.core.ports import (
     DecisionRepository,
     EntityRepository,
+    ObservationRepository,
     TaskRepository,
 )
 from memorable.retrieval.embeddings import EmbeddingProvider
@@ -21,6 +22,7 @@ from memorable.retrieval.index import InMemoryEmbeddingIndex
 from memorable.retrieval.indexable_text import (
     indexable_text_for_decision,
     indexable_text_for_entity,
+    indexable_text_for_observation,
     indexable_text_for_task,
 )
 from memorable.retrieval.models import EmbeddingRecord, RetrievalResult
@@ -40,6 +42,7 @@ class HybridRetrievalService:
         entity_repo: EntityRepository,
         decision_repo: DecisionRepository,
         task_repo: TaskRepository,
+        observation_repo: ObservationRepository,
         embedding_provider: EmbeddingProvider,
         dimensions: int = 32,
         point_in_time_service: PointInTimeTruthService | None = None,
@@ -48,6 +51,7 @@ class HybridRetrievalService:
         self._entity_repo = entity_repo
         self._decision_repo = decision_repo
         self._task_repo = task_repo
+        self._observation_repo = observation_repo
         self._embedding_provider = embedding_provider
         self._dimensions = dimensions
         self._index = InMemoryEmbeddingIndex()
@@ -60,6 +64,9 @@ class HybridRetrievalService:
             inspect_task_service
             if inspect_task_service is not None
             else InspectTaskService(repository=task_repo)
+        )
+        self._observation_pit_service = PointInTimeTruthService(
+            repository=observation_repo
         )
 
     def _rebuild_index(self, space: str) -> None:
@@ -118,6 +125,22 @@ class HybridRetrievalService:
                 )
             )
 
+        for observation in self._observation_repo.list_by_space(space):
+            text = indexable_text_for_observation(observation)
+            vector = self._embedding_provider.embed(text)
+            self._index.store(
+                EmbeddingRecord(
+                    source_id=observation.id,
+                    source_kind="Observation",
+                    space=space,
+                    indexable_text=text,
+                    vector=vector,
+                    provider_name=self._embedding_provider.provider_name,
+                    model_name=self._embedding_provider.model_name,
+                    dimensions=self._dimensions,
+                )
+            )
+
     def search(
         self,
         space: str,
@@ -154,14 +177,19 @@ class HybridRetrievalService:
         )
 
         # Step 3: Graph expansion -- collect related IDs
-        expanded_ids: dict[str, float] = {}
+        # Maps source_id → (score, source_kind) so _build_result can
+        # dispatch directly without probing all repositories.
+        expanded_ids: dict[str, tuple[float, str]] = {}
         semantic_ids: set[str] = set()
 
         for candidate in candidates:
             semantic_ids.add(candidate.source_id)
-            expanded_ids[candidate.source_id] = max(
-                expanded_ids.get(candidate.source_id, 0.0),
-                candidate.score,
+            prev_score, _ = expanded_ids.get(
+                candidate.source_id, (0.0, candidate.source_kind)
+            )
+            expanded_ids[candidate.source_id] = (
+                max(prev_score, candidate.score),
+                candidate.source_kind,
             )
 
         graph_expanded_ids: set[str] = set()
@@ -169,17 +197,20 @@ class HybridRetrievalService:
             related = self._graph_expand(
                 space, candidate.source_id, candidate.source_kind
             )
-            for related_id, _related_kind in related:
+            for related_id, related_kind in related:
                 if related_id not in expanded_ids:
-                    expanded_ids[related_id] = candidate.score * 0.8
+                    expanded_ids[related_id] = (
+                        candidate.score * 0.8,
+                        related_kind,
+                    )
                     graph_expanded_ids.add(related_id)
 
         # Step 4: Temporal filtering and result building
         results: list[RetrievalResult] = []
         seen_ids: set[str] = set()
 
-        for source_id, score in sorted(
-            expanded_ids.items(), key=lambda x: x[1], reverse=True
+        for source_id, (score, source_kind) in sorted(
+            expanded_ids.items(), key=lambda x: x[1][0], reverse=True
         ):
             if source_id in seen_ids:
                 continue
@@ -188,6 +219,7 @@ class HybridRetrievalService:
             result = self._build_result(
                 space=space,
                 source_id=source_id,
+                source_kind=source_kind,
                 score=score,
                 mode=mode,
                 as_of=as_of,
@@ -207,8 +239,8 @@ class HybridRetrievalService:
         """Find related records via graph traversal.
 
         For the tracer bullet, this uses a simple heuristic:
-        entities relate to all decisions and tasks in the same space,
-        and decisions/tasks relate to all entities.
+        entities relate to all decisions, tasks, and observations in the
+        same space, and decisions/tasks/observations relate to all entities.
         """
         related: list[tuple[str, str]] = []
 
@@ -217,6 +249,8 @@ class HybridRetrievalService:
                 related.append((decision.id, "Decision"))
             for task in self._task_repo.list_by_space(space):
                 related.append((task.id, "Task"))
+            for observation in self._observation_repo.list_by_space(space):
+                related.append((observation.id, "Observation"))
 
         elif source_kind == "Decision":
             for entity in self._entity_repo.list_by_space(space):
@@ -231,12 +265,22 @@ class HybridRetrievalService:
             for entity in self._entity_repo.list_by_space(space):
                 related.append((entity.id, "Entity"))
 
+        elif source_kind == "Observation":
+            for entity in self._entity_repo.list_by_space(space):
+                related.append((entity.id, "Entity"))
+            observation = self._observation_repo.get(space, source_id)
+            if observation and observation.supersedes:
+                related.append((observation.supersedes, "Observation"))
+            if observation and observation.superseded_by:
+                related.append((observation.superseded_by, "Observation"))
+
         return related
 
     def _build_result(
         self,
         space: str,
         source_id: str,
+        source_kind: str,
         score: float,
         mode: Literal["current", "as-of"],
         as_of: datetime | None,
@@ -245,15 +289,16 @@ class HybridRetrievalService:
     ) -> RetrievalResult | None:
         """Build a RetrievalResult with temporal filtering.
 
-        Returns None if the record should be excluded
-        by temporal filtering.
-        """
-        # Try to find the record
-        entity = self._entity_repo.get(space, source_id)
-        decision = self._decision_repo.get(space, source_id)
-        task = self._task_repo.get(space=space, task_id=source_id)
+        Dispatches directly to the correct builder using ``source_kind``
+        so that only 1 repository ``get()`` call is made per candidate.
 
-        if entity is not None:
+        Returns None if the record should be excluded
+        by temporal filtering or if the record no longer exists.
+        """
+        if source_kind == "Entity":
+            entity = self._entity_repo.get(space, source_id)
+            if entity is None:
+                return None
             return self._build_entity_result(
                 space,
                 entity,
@@ -261,7 +306,10 @@ class HybridRetrievalService:
                 is_semantic,
                 is_graph_expanded,
             )
-        elif decision is not None:
+        elif source_kind == "Decision":
+            decision = self._decision_repo.get(space, source_id)
+            if decision is None:
+                return None
             return self._build_decision_result(
                 space,
                 decision,
@@ -271,10 +319,26 @@ class HybridRetrievalService:
                 is_semantic,
                 is_graph_expanded,
             )
-        elif task is not None:
+        elif source_kind == "Task":
+            task = self._task_repo.get(space=space, task_id=source_id)
+            if task is None:
+                return None
             return self._build_task_result(
                 space,
                 task,
+                score,
+                mode,
+                as_of,
+                is_semantic,
+                is_graph_expanded,
+            )
+        elif source_kind == "Observation":
+            observation = self._observation_repo.get(space, source_id)
+            if observation is None:
+                return None
+            return self._build_observation_result(
+                space,
+                observation,
                 score,
                 mode,
                 as_of,
@@ -335,12 +399,12 @@ class HybridRetrievalService:
         explanation: list[str] = []
 
         if mode == "current":
-            if decision.lifecycle_state == "superseded":
+            if decision.lifecycle_state in ("superseded", "invalidated"):
                 return None
             lifecycle_state = decision.lifecycle_state
         elif mode == "as-of" and as_of is not None:
             pit_decision = self._point_in_time_service.at(
-                space=space, decision_id=decision.id, at=as_of
+                space=space, record_id=decision.id, at=as_of
             )
             if pit_decision is None:
                 return None
@@ -470,6 +534,98 @@ class HybridRetrievalService:
         return RetrievalResult(
             source_id=task.id,
             source_kind="Task",
+            lifecycle_state=lifecycle_state,
+            score=score,
+            explanation=explanation,
+            provenance_summary=prov_summary,
+        )
+
+    def _build_observation_result(
+        self,
+        space: str,
+        observation: Observation,
+        score: float,
+        mode: Literal["current", "as-of"],
+        as_of: datetime | None,
+        is_semantic: bool,
+        is_graph_expanded: bool,
+    ) -> RetrievalResult | None:
+        explanation: list[str] = []
+
+        if mode == "current":
+            if observation.lifecycle_state in ("superseded", "invalidated"):
+                return None
+            lifecycle_state = observation.lifecycle_state
+        elif mode == "as-of" and as_of is not None:
+            pit_observation = self._observation_pit_service.at(
+                space=space, record_id=observation.id, at=as_of
+            )
+            if pit_observation is None:
+                return None
+            if pit_observation.id != observation.id:
+                return None
+            lifecycle_state = pit_observation.lifecycle_state
+            if pit_observation.validity_time > as_of:
+                return None
+        else:
+            lifecycle_state = observation.lifecycle_state
+
+        if is_semantic:
+            stmt_preview = observation.statement[:60]
+            explanation.append(
+                f"semantic candidate from Indexable Text for {stmt_preview}"
+            )
+        if is_graph_expanded:
+            explanation.append(
+                "graph expansion connected it to related"
+                " records and supersession history"
+            )
+
+        if mode == "current":
+            explanation.append(
+                "temporal filter kept it because it is current at query time"
+            )
+        elif mode == "as-of" and as_of is not None:
+            explanation.append(
+                f"temporal filter kept it because it was valid at {as_of.isoformat()}"
+            )
+
+        # Supersession history context
+        has_chain = (
+            observation.superseded_by is not None or observation.supersedes is not None
+        )
+        if has_chain:
+            supersession_parts = []
+            if observation.supersedes:
+                old = self._observation_repo.get(space, observation.supersedes)
+                if old:
+                    inv_time = (
+                        old.invalidation_time.isoformat()
+                        if old.invalidation_time
+                        else "unknown"
+                    )
+                    supersession_parts.append(f"{old.id} was superseded at {inv_time}")
+            if supersession_parts:
+                explanation.append(
+                    "supersession history: " + "; ".join(supersession_parts)
+                )
+
+        provenance = self._observation_repo.get_provenance(space, observation.id)
+        prov_summary: dict[str, str] = {}
+        if provenance:
+            prov_summary = {
+                "source_id": provenance.source_id,
+                "episode_id": provenance.episode_id,
+            }
+            explanation.append(
+                "provenance is available from"
+                f" {provenance.source_id}"
+                f" / {provenance.episode_id}"
+            )
+
+        return RetrievalResult(
+            source_id=observation.id,
+            source_kind="Observation",
             lifecycle_state=lifecycle_state,
             score=score,
             explanation=explanation,

@@ -10,14 +10,17 @@ from typing import Literal, cast
 from memorable.config import load_runtime_config
 from memorable.core.application import (
     CompleteTaskService,
+    CorrectService,
     CurrentTruthService,
     InitService,
-    InspectDecisionHistoryService,
+    InspectHistoryService,
     InspectProvenanceService,
     InspectTaskService,
+    InvalidateService,
     PointInTimeTruthService,
     RememberDecisionService,
     RememberEntityService,
+    RememberObservationService,
     RememberTaskService,
     build_status_payload,
 )
@@ -347,12 +350,64 @@ def _cmd_remember_decision(args: argparse.Namespace, ctx: ApplicationContext) ->
     return 0
 
 
+def _cmd_remember_observation(args: argparse.Namespace, ctx: ApplicationContext) -> int:
+    """Remember an Observation with provenance."""
+    space = resolve_space(getattr(args, "space", None))
+
+    try:
+        profile = ctx.load_profile(space)
+    except ProfileValidationError as e:
+        print(f"Error: {e}", file=sys.stderr)
+        return 1
+
+    service = RememberObservationService(
+        repository=ctx.observation_repo, profile=profile
+    )
+
+    at = parse_iso_timestamp(args.at)
+    supersedes = getattr(args, "supersedes", None)
+
+    try:
+        result = service.remember(
+            space=space,
+            observation_id=args.id,
+            statement=args.statement,
+            source_id=args.source,
+            at=at,
+            writer=getattr(args, "writer", "agent:memorable"),
+            reason=getattr(args, "reason", ""),
+            supersedes=supersedes,
+        )
+    except ValueError as e:
+        print(f"Error: {e}", file=sys.stderr)
+        return 1
+
+    print(
+        json.dumps(
+            {
+                "observation_id": result.observation.id,
+                "statement": result.observation.statement,
+                "space": result.observation.space,
+                "record_id": result.provenance.record_id,
+                "record_kind": result.provenance.record_kind,
+                "source": result.provenance.source_id,
+                "episode": result.provenance.episode_id,
+                "creation_time": result.provenance.creation_time.isoformat(),
+                "validity_time": result.provenance.validity_time.isoformat(),
+                "lifecycle_state": result.observation.lifecycle_state,
+            },
+            sort_keys=True,
+        )
+    )
+    return 0
+
+
 def _cmd_truth_current(args: argparse.Namespace, ctx: ApplicationContext) -> int:
     """Show the current truth for a Decision, following supersession chain."""
     space = resolve_space(getattr(args, "space", None))
 
     service = CurrentTruthService(repository=ctx.decision_repo)
-    decision = service.current(space=space, decision_id=args.id)
+    decision = service.current(space=space, record_id=args.id)
 
     if decision is None:
         print(
@@ -382,7 +437,7 @@ def _cmd_truth_as_of(args: argparse.Namespace, ctx: ApplicationContext) -> int:
 
     service = PointInTimeTruthService(repository=ctx.decision_repo)
     at = parse_iso_timestamp(args.at)
-    decision = service.at(space=space, decision_id=args.id, at=at)
+    decision = service.at(space=space, record_id=args.id, at=at)
 
     if decision is None:
         print(
@@ -411,8 +466,8 @@ def _cmd_inspect_history(args: argparse.Namespace, ctx: ApplicationContext) -> i
     """Show the full supersession chain for a Decision."""
     space = resolve_space(getattr(args, "space", None))
 
-    service = InspectDecisionHistoryService(repository=ctx.decision_repo)
-    history = service.history(space=space, decision_id=args.id)
+    service = InspectHistoryService(repository=ctx.decision_repo)
+    history = service.history(space=space, record_id=args.id)
 
     if not history:
         print(
@@ -593,6 +648,99 @@ def _cmd_search(args: argparse.Namespace, ctx: ApplicationContext) -> int:
     return 0
 
 
+def _cmd_invalidate(args: argparse.Namespace, ctx: ApplicationContext) -> int:
+    """Invalidate a temporal record (Decision or Observation)."""
+    space = resolve_space(getattr(args, "space", None))
+    record_type = args.record_type
+
+    if record_type == "decision":
+        repository = ctx.decision_repo
+    elif record_type == "observation":
+        repository = ctx.observation_repo
+    else:
+        print(
+            f"Error: Unknown record type '{record_type}'. "
+            f"Supported types: decision, observation.",
+            file=sys.stderr,
+        )
+        return 1
+
+    service = InvalidateService(repository=repository)
+    at = parse_iso_timestamp(args.at)
+
+    try:
+        result = service.invalidate(
+            space=space,
+            record_id=args.id,
+            at=at,
+        )
+    except ValueError as e:
+        print(f"Error: {e}", file=sys.stderr)
+        return 1
+
+    print(
+        json.dumps(
+            {
+                "record_id": result.record_id,
+                "space": result.space,
+                "lifecycle_state": result.lifecycle_state,
+                "invalidation_time": result.invalidation_time.isoformat(),
+            },
+            sort_keys=True,
+        )
+    )
+    return 0
+
+
+def _cmd_correct(args: argparse.Namespace, ctx: ApplicationContext) -> int:
+    """Correct a temporal record's statement in place (Decision or Observation)."""
+    space = resolve_space(getattr(args, "space", None))
+    record_type = args.record_type
+
+    if record_type == "decision":
+        repository = ctx.decision_repo
+    elif record_type == "observation":
+        repository = ctx.observation_repo
+    else:
+        print(
+            f"Error: Unknown record type '{record_type}'. "
+            f"Supported types: decision, observation.",
+            file=sys.stderr,
+        )
+        return 1
+
+    service = CorrectService(repository=repository)
+    at = parse_iso_timestamp(args.at)
+
+    try:
+        result = service.correct(
+            space=space,
+            record_id=args.id,
+            new_statement=args.new_statement,
+            record_kind=record_type,
+            source=args.source,
+            writer=getattr(args, "writer", "agent:memorable"),
+            at=at,
+            reason=getattr(args, "reason", "") or "",
+        )
+    except ValueError as e:
+        print(f"Error: {e}", file=sys.stderr)
+        return 1
+
+    print(
+        json.dumps(
+            {
+                "record_id": result.record_id,
+                "space": result.space,
+                "old_statement": result.old_statement,
+                "new_statement": result.new_statement,
+            },
+            sort_keys=True,
+        )
+    )
+    return 0
+
+
 # =====================================================================
 # Dispatch helpers
 # =====================================================================
@@ -605,6 +753,7 @@ _CONTEXT_HANDLERS: dict[
 ] = {
     ("remember", "entity"): _cmd_remember_entity,
     ("remember", "decision"): _cmd_remember_decision,
+    ("remember", "observation"): _cmd_remember_observation,
     ("remember", "task"): _cmd_remember_task,
     ("complete", "task"): _cmd_complete_task,
     ("task", "inspect"): _cmd_task_inspect,
@@ -613,6 +762,8 @@ _CONTEXT_HANDLERS: dict[
     ("inspect", "provenance"): _cmd_inspect_provenance,
     ("inspect", "history"): _cmd_inspect_history,
     ("search", None): _cmd_search,
+    ("invalidate", None): _cmd_invalidate,
+    ("correct", None): _cmd_correct,
 }
 
 # Map command name -> attribute that holds the subtype on argparse.Namespace.
@@ -739,6 +890,19 @@ def main(argv: list[str] | None = None) -> int:
     decision_parser.add_argument("--writer", default="agent:memorable")
     decision_parser.add_argument("--reason", default="")
 
+    # remember observation subcommand
+    obs_parser = remember_sub.add_parser(
+        "observation", help="Remember an Observation with provenance."
+    )
+    obs_parser.add_argument("--space", default=None)
+    obs_parser.add_argument("--id", required=True)
+    obs_parser.add_argument("--statement", required=True)
+    obs_parser.add_argument("--source", required=True)
+    obs_parser.add_argument("--at", required=True)
+    obs_parser.add_argument("--supersedes", default=None)
+    obs_parser.add_argument("--writer", default="agent:memorable")
+    obs_parser.add_argument("--reason", default="")
+
     # complete subcommand
     complete_parser = subparsers.add_parser(
         "complete", help="Complete a lifecycle transition."
@@ -806,6 +970,36 @@ def main(argv: list[str] | None = None) -> int:
     search_parser.add_argument("--query", required=True)
     search_parser.add_argument("--mode", default="current")
     search_parser.add_argument("--as-of", default=None)
+
+    # invalidate subcommand
+    invalidate_parser = subparsers.add_parser(
+        "invalidate", help="Mark a temporal record as invalidated."
+    )
+    invalidate_parser.add_argument("--space", default=None)
+    invalidate_parser.add_argument("--id", required=True)
+    invalidate_parser.add_argument(
+        "--record-type",
+        required=True,
+        help="Type of record (decision, observation).",
+    )
+    invalidate_parser.add_argument("--at", required=True)
+
+    # correct subcommand
+    correct_parser = subparsers.add_parser(
+        "correct", help="Correct a temporal record's statement in place."
+    )
+    correct_parser.add_argument("--space", default=None)
+    correct_parser.add_argument("--id", required=True)
+    correct_parser.add_argument(
+        "--record-type",
+        required=True,
+        help="Type of record (decision, observation).",
+    )
+    correct_parser.add_argument("--new-statement", required=True)
+    correct_parser.add_argument("--source", required=True)
+    correct_parser.add_argument("--at", required=True)
+    correct_parser.add_argument("--reason", default="")
+    correct_parser.add_argument("--writer", default="agent:memorable")
 
     args = parser.parse_args(argv)
 

@@ -13,6 +13,7 @@ from memorable.core.ports import (
     DecisionRepository,
     EntityRepository,
     MemorySpaceRepository,
+    ObservationRepository,
     TaskRepository,
 )
 from memorable.core.profile import MemoryProfile, load_profile_from_yaml
@@ -20,6 +21,7 @@ from memorable.core.repositories import (
     InMemoryDecisionRepository,
     InMemoryEntityRepository,
     InMemoryMemorySpaceRepository,
+    InMemoryObservationRepository,
     InMemoryTaskRepository,
 )
 
@@ -39,6 +41,8 @@ records:
     extends: Decision
   - name: FollowUp
     extends: Task
+  - name: GeneralObservation
+    extends: Observation
 """
 
 
@@ -55,11 +59,13 @@ class ApplicationContext:
         entity_repo: EntityRepository | None = None,
         decision_repo: DecisionRepository | None = None,
         task_repo: TaskRepository | None = None,
+        observation_repo: ObservationRepository | None = None,
         memory_space_repo: MemorySpaceRepository | None = None,
     ) -> None:
         self.entity_repo = entity_repo or InMemoryEntityRepository()
         self.decision_repo = decision_repo or InMemoryDecisionRepository()
         self.task_repo = task_repo or InMemoryTaskRepository()
+        self.observation_repo = observation_repo or InMemoryObservationRepository()
         self.memory_space_repo = memory_space_repo or InMemoryMemorySpaceRepository()
         self._profiles: dict[str, MemoryProfile] = {}
 
@@ -101,6 +107,7 @@ class ApplicationContext:
             decision_repo=self.decision_repo,
             task_repo=self.task_repo,
             embedding_provider=provider,
+            observation_repo=self.observation_repo,
         )
 
     def reset(self) -> None:
@@ -108,6 +115,7 @@ class ApplicationContext:
         self.entity_repo = InMemoryEntityRepository()
         self.decision_repo = InMemoryDecisionRepository()
         self.task_repo = InMemoryTaskRepository()
+        self.observation_repo = InMemoryObservationRepository()
         self.memory_space_repo = InMemoryMemorySpaceRepository()
         self._profiles.clear()
 

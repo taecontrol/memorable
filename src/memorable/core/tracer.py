@@ -154,9 +154,7 @@ class TracerService:
 
     def _verify_current_truth(self, ctx: ApplicationContext) -> dict[str, object]:
         svc = CurrentTruthService(repository=ctx.decision_repo)
-        decision = svc.current(
-            space="memorable", decision_id="decision:storage-path:v1"
-        )
+        decision = svc.current(space="memorable", record_id="decision:storage-path:v1")
         return {
             "decision_id": decision.id,
             "statement": decision.statement,
@@ -168,7 +166,7 @@ class TracerService:
         svc = PointInTimeTruthService(repository=ctx.decision_repo)
         decision = svc.at(
             space="memorable",
-            decision_id="decision:storage-path:v1",
+            record_id="decision:storage-path:v1",
             at=QUERY_AT_10_17,
         )
         return {
@@ -182,7 +180,7 @@ class TracerService:
         svc = PointInTimeTruthService(repository=ctx.decision_repo)
         decision = svc.at(
             space="memorable",
-            decision_id="decision:storage-path:v1",
+            record_id="decision:storage-path:v1",
             at=QUERY_AT_10_21,
         )
         return {
@@ -223,7 +221,7 @@ class TracerService:
 
     def _verify_provenance(self, ctx: ApplicationContext) -> dict[str, object]:
         provenance = ctx.decision_repo.get_provenance(
-            space="memorable", decision_id="decision:storage-path:v2"
+            space="memorable", record_id="decision:storage-path:v2"
         )
         return {
             "record_id": provenance.record_id,
@@ -244,6 +242,7 @@ class TracerService:
             entity_repo=ctx.entity_repo,
             decision_repo=ctx.decision_repo,
             task_repo=ctx.task_repo,
+            observation_repo=ctx.observation_repo,
             embedding_provider=provider,
         )
 

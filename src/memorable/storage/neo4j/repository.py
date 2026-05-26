@@ -10,7 +10,14 @@ from __future__ import annotations
 from datetime import datetime
 from typing import Any, Protocol, runtime_checkable
 
-from memorable.core.models import Decision, Entity, MemorySpace, Provenance, Task
+from memorable.core.models import (
+    Decision,
+    Entity,
+    MemorySpace,
+    Observation,
+    Provenance,
+    Task,
+)
 
 
 @runtime_checkable
@@ -274,7 +281,7 @@ class Neo4jDecisionRepository:
                 prov_validity_time=_to_iso(provenance.validity_time),
             )
 
-    def get(self, space: str, decision_id: str) -> Decision | None:
+    def get(self, space: str, record_id: str) -> Decision | None:
         """Retrieve a Decision by space and id, or None if not found."""
         with self._driver.session() as session:
             result = session.run(
@@ -287,7 +294,7 @@ class Neo4jDecisionRepository:
                 "       d.supersedes AS supersedes, "
                 "       d.superseded_by AS superseded_by",
                 space=space,
-                id=decision_id,
+                id=record_id,
             )
             record = result.single()
             if record is None:
@@ -303,7 +310,7 @@ class Neo4jDecisionRepository:
                 superseded_by=record["superseded_by"],
             )
 
-    def get_provenance(self, space: str, decision_id: str) -> Provenance | None:
+    def get_provenance(self, space: str, record_id: str) -> Provenance | None:
         """Retrieve the provenance for a Decision, or None if not found."""
         with self._driver.session() as session:
             result = session.run(
@@ -315,7 +322,7 @@ class Neo4jDecisionRepository:
                 "       p.creation_time AS creation_time, "
                 "       p.validity_time AS validity_time",
                 space=space,
-                id=decision_id,
+                id=record_id,
             )
             record = result.single()
             if record is None:
@@ -362,7 +369,7 @@ class Neo4jDecisionRepository:
     def mark_superseded(
         self,
         space: str,
-        decision_id: str,
+        record_id: str,
         superseded_by: str,
         invalidation_time: datetime,
     ) -> None:
@@ -374,10 +381,303 @@ class Neo4jDecisionRepository:
                 "    d.invalidation_time = $invalidation_time, "
                 "    d.lifecycle_state = $lifecycle_state",
                 space=space,
-                id=decision_id,
+                id=record_id,
                 superseded_by=superseded_by,
                 invalidation_time=_to_iso(invalidation_time),
                 lifecycle_state="superseded",
+            )
+
+    def invalidate(
+        self,
+        space: str,
+        record_id: str,
+        invalidation_time: datetime,
+    ) -> None:
+        """Mark a Decision as invalidated (no replacement)."""
+        with self._driver.session() as session:
+            session.run(
+                "MATCH (d:Decision {space: $space, id: $id}) "
+                "SET d.invalidation_time = $invalidation_time, "
+                "    d.lifecycle_state = $lifecycle_state",
+                space=space,
+                id=record_id,
+                invalidation_time=_to_iso(invalidation_time),
+                lifecycle_state="invalidated",
+            )
+
+    def correct(
+        self,
+        space: str,
+        record_id: str,
+        new_statement: str,
+    ) -> None:
+        """Correct a Decision's statement in place."""
+        with self._driver.session() as session:
+            session.run(
+                "MATCH (d:Decision {space: $space, id: $id}) "
+                "SET d.statement = $statement",
+                space=space,
+                id=record_id,
+                statement=new_statement,
+            )
+
+    def save_provenance(
+        self,
+        space: str,
+        record_id: str,
+        provenance: Provenance,
+    ) -> None:
+        """Replace the provenance for a Decision."""
+        with self._driver.session() as session:
+            session.run(
+                "MATCH (p:Provenance)-[:PROVENANCE_OF]"
+                "->(d:Decision {space: $space, id: $id}) "
+                "SET p.record_id = $record_id, "
+                "    p.record_kind = $record_kind, "
+                "    p.source_id = $source_id, "
+                "    p.episode_id = $episode_id, "
+                "    p.writer = $writer, "
+                "    p.reason = $reason, "
+                "    p.creation_time = $creation_time, "
+                "    p.validity_time = $validity_time",
+                space=space,
+                id=record_id,
+                record_id=provenance.record_id,
+                record_kind=provenance.record_kind,
+                source_id=provenance.source_id,
+                episode_id=provenance.episode_id,
+                writer=provenance.writer,
+                reason=provenance.reason,
+                creation_time=_to_iso(provenance.creation_time),
+                validity_time=_to_iso(provenance.validity_time),
+            )
+
+
+# --- Observation adapter ---
+
+
+class Neo4jObservationRepository:
+    """Storage adapter that persists Observations in Neo4j.
+
+    Implements the ObservationRepository protocol defined in core.ports.
+    Uses CREATE for append-only semantics.
+    """
+
+    def __init__(self, driver: Neo4jDriver) -> None:
+        self._driver = driver
+
+    def save(self, observation: Observation, provenance: Provenance) -> None:
+        """Persist an Observation with its provenance record.
+
+        Uses CREATE for append-only semantics. Provenance is stored as
+        a separate node linked via PROVENANCE_OF.
+        """
+        with self._driver.session() as session:
+            session.run(
+                "CREATE (o:Observation {"
+                "  space: $space, id: $id, statement: $statement, "
+                "  validity_time: $validity_time, "
+                "  invalidation_time: $invalidation_time, "
+                "  lifecycle_state: $lifecycle_state, "
+                "  supersedes: $supersedes, "
+                "  superseded_by: $superseded_by"
+                "}) "
+                "WITH o "
+                "CREATE (p:Provenance {"
+                "  record_id: $record_id, record_kind: $record_kind, "
+                "  source_id: $source_id, episode_id: $episode_id, "
+                "  writer: $writer, reason: $reason, "
+                "  creation_time: $creation_time, "
+                "  validity_time: $prov_validity_time"
+                "}) "
+                "CREATE (p)-[:PROVENANCE_OF]->(o)",
+                space=observation.space,
+                id=observation.id,
+                statement=observation.statement,
+                validity_time=_to_iso(observation.validity_time),
+                invalidation_time=_to_iso(observation.invalidation_time),
+                lifecycle_state=observation.lifecycle_state,
+                supersedes=observation.supersedes,
+                superseded_by=observation.superseded_by,
+                record_id=provenance.record_id,
+                record_kind=provenance.record_kind,
+                source_id=provenance.source_id,
+                episode_id=provenance.episode_id,
+                writer=provenance.writer,
+                reason=provenance.reason,
+                creation_time=_to_iso(provenance.creation_time),
+                prov_validity_time=_to_iso(provenance.validity_time),
+            )
+
+    def get(self, space: str, record_id: str) -> Observation | None:
+        """Retrieve an Observation by space and id, or None if not found."""
+        with self._driver.session() as session:
+            result = session.run(
+                "MATCH (o:Observation {space: $space, id: $id}) "
+                "RETURN o.id AS id, o.statement AS statement, "
+                "       o.space AS space, "
+                "       o.validity_time AS validity_time, "
+                "       o.invalidation_time AS invalidation_time, "
+                "       o.lifecycle_state AS lifecycle_state, "
+                "       o.supersedes AS supersedes, "
+                "       o.superseded_by AS superseded_by",
+                space=space,
+                id=record_id,
+            )
+            record = result.single()
+            if record is None:
+                return None
+            return Observation(
+                id=record["id"],
+                statement=record["statement"],
+                space=record["space"],
+                validity_time=_from_iso(record["validity_time"]),
+                invalidation_time=_from_iso(record["invalidation_time"]),
+                lifecycle_state=record["lifecycle_state"],
+                supersedes=record["supersedes"],
+                superseded_by=record["superseded_by"],
+            )
+
+    def get_provenance(self, space: str, record_id: str) -> Provenance | None:
+        """Retrieve the provenance for an Observation, or None if not found."""
+        with self._driver.session() as session:
+            result = session.run(
+                "MATCH (p:Provenance)-[:PROVENANCE_OF]"
+                "->(o:Observation {space: $space, id: $id}) "
+                "RETURN p.record_id AS record_id, p.record_kind AS record_kind, "
+                "       p.source_id AS source_id, p.episode_id AS episode_id, "
+                "       p.writer AS writer, p.reason AS reason, "
+                "       p.creation_time AS creation_time, "
+                "       p.validity_time AS validity_time",
+                space=space,
+                id=record_id,
+            )
+            record = result.single()
+            if record is None:
+                return None
+            return Provenance(
+                record_id=record["record_id"],
+                record_kind=record["record_kind"],
+                source_id=record["source_id"],
+                episode_id=record["episode_id"],
+                writer=record["writer"],
+                reason=record["reason"],
+                creation_time=_from_iso(record["creation_time"]),
+                validity_time=_from_iso(record["validity_time"]),
+            )
+
+    def list_by_space(self, space: str) -> list[Observation]:
+        """Return all observations in the given space."""
+        with self._driver.session() as session:
+            result = session.run(
+                "MATCH (o:Observation {space: $space}) "
+                "RETURN o.id AS id, o.statement AS statement, "
+                "       o.space AS space, "
+                "       o.validity_time AS validity_time, "
+                "       o.invalidation_time AS invalidation_time, "
+                "       o.lifecycle_state AS lifecycle_state, "
+                "       o.supersedes AS supersedes, "
+                "       o.superseded_by AS superseded_by",
+                space=space,
+            )
+            return [
+                Observation(
+                    id=record["id"],
+                    statement=record["statement"],
+                    space=record["space"],
+                    validity_time=_from_iso(record["validity_time"]),
+                    invalidation_time=_from_iso(record["invalidation_time"]),
+                    lifecycle_state=record["lifecycle_state"],
+                    supersedes=record["supersedes"],
+                    superseded_by=record["superseded_by"],
+                )
+                for record in result
+            ]
+
+    def mark_superseded(
+        self,
+        space: str,
+        record_id: str,
+        superseded_by: str,
+        invalidation_time: datetime,
+    ) -> None:
+        """Mark an Observation as superseded by another."""
+        with self._driver.session() as session:
+            session.run(
+                "MATCH (o:Observation {space: $space, id: $id}) "
+                "SET o.superseded_by = $superseded_by, "
+                "    o.invalidation_time = $invalidation_time, "
+                "    o.lifecycle_state = $lifecycle_state",
+                space=space,
+                id=record_id,
+                superseded_by=superseded_by,
+                invalidation_time=_to_iso(invalidation_time),
+                lifecycle_state="superseded",
+            )
+
+    def invalidate(
+        self,
+        space: str,
+        record_id: str,
+        invalidation_time: datetime,
+    ) -> None:
+        """Mark an Observation as invalidated (no replacement)."""
+        with self._driver.session() as session:
+            session.run(
+                "MATCH (o:Observation {space: $space, id: $id}) "
+                "SET o.invalidation_time = $invalidation_time, "
+                "    o.lifecycle_state = $lifecycle_state",
+                space=space,
+                id=record_id,
+                invalidation_time=_to_iso(invalidation_time),
+                lifecycle_state="invalidated",
+            )
+
+    def correct(
+        self,
+        space: str,
+        record_id: str,
+        new_statement: str,
+    ) -> None:
+        """Correct an Observation's statement in place."""
+        with self._driver.session() as session:
+            session.run(
+                "MATCH (o:Observation {space: $space, id: $id}) "
+                "SET o.statement = $statement",
+                space=space,
+                id=record_id,
+                statement=new_statement,
+            )
+
+    def save_provenance(
+        self,
+        space: str,
+        record_id: str,
+        provenance: Provenance,
+    ) -> None:
+        """Replace the provenance for an Observation."""
+        with self._driver.session() as session:
+            session.run(
+                "MATCH (p:Provenance)-[:PROVENANCE_OF]"
+                "->(o:Observation {space: $space, id: $id}) "
+                "SET p.record_id = $record_id, "
+                "    p.record_kind = $record_kind, "
+                "    p.source_id = $source_id, "
+                "    p.episode_id = $episode_id, "
+                "    p.writer = $writer, "
+                "    p.reason = $reason, "
+                "    p.creation_time = $creation_time, "
+                "    p.validity_time = $validity_time",
+                space=space,
+                id=record_id,
+                record_id=provenance.record_id,
+                record_kind=provenance.record_kind,
+                source_id=provenance.source_id,
+                episode_id=provenance.episode_id,
+                writer=provenance.writer,
+                reason=provenance.reason,
+                creation_time=_to_iso(provenance.creation_time),
+                validity_time=_to_iso(provenance.validity_time),
             )
 
 
@@ -569,4 +869,9 @@ def ensure_all_constraints(driver: Neo4jDriver) -> None:
             "CREATE CONSTRAINT task_space_id_unique "
             "IF NOT EXISTS FOR (t:Task) "
             "REQUIRE (t.space, t.id) IS UNIQUE"
+        )
+        session.run(
+            "CREATE CONSTRAINT observation_space_id_unique "
+            "IF NOT EXISTS FOR (o:Observation) "
+            "REQUIRE (o.space, o.id) IS UNIQUE"
         )

@@ -13,7 +13,14 @@ from datetime import UTC, datetime
 
 import pytest
 
-from memorable.core.models import Decision, Entity, MemorySpace, Provenance, Task
+from memorable.core.models import (
+    Decision,
+    Entity,
+    MemorySpace,
+    Observation,
+    Provenance,
+    Task,
+)
 from memorable.storage.neo4j.config import Neo4jConfig
 
 # Skip all tests in this module if Neo4j is unavailable
@@ -77,6 +84,11 @@ def cleanup_test_data(neo4j_driver):
             "WHERE t.space STARTS WITH 'test-' DELETE r, p, t"
         )
         session.run("MATCH (t:Task) WHERE t.space STARTS WITH 'test-' DELETE t")
+        session.run(
+            "MATCH (p:Provenance)-[r:PROVENANCE_OF]->(o:Observation) "
+            "WHERE o.space STARTS WITH 'test-' DELETE r, p, o"
+        )
+        session.run("MATCH (o:Observation) WHERE o.space STARTS WITH 'test-' DELETE o")
 
 
 def _unique_name(prefix: str = "test-") -> str:
@@ -527,6 +539,230 @@ class TestTaskIntegration:
 
         assert repo.get(space=space_b, task_id="task-1") is None
         assert repo.list_by_space(space_b) == []
+
+
+# --- Observation integration tests ---
+
+
+class TestObservationIntegration:
+    """Integration tests for Neo4jObservationRepository."""
+
+    @pytest.mark.integration
+    def test_save_then_get_returns_same_data(self, neo4j_driver) -> None:
+        """Save then get returns the same Observation."""
+        from memorable.storage.neo4j.repository import Neo4jObservationRepository
+
+        repo = Neo4jObservationRepository(driver=neo4j_driver)
+        space = _unique_name()
+        ts = datetime(2026, 5, 25, 10, 0, 0, tzinfo=UTC)
+        observation = Observation(
+            id="obs-1",
+            statement="Team prefers async communication.",
+            space=space,
+            validity_time=ts,
+            invalidation_time=None,
+            lifecycle_state="current",
+            supersedes=None,
+            superseded_by=None,
+        )
+        provenance = _make_provenance("obs-1", "observation")
+
+        repo.save(observation, provenance)
+        result = repo.get(space, "obs-1")
+
+        assert result is not None
+        assert result.id == "obs-1"
+        assert result.statement == "Team prefers async communication."
+        assert result.lifecycle_state == "current"
+        assert result.invalidation_time is None
+
+    @pytest.mark.integration
+    def test_list_by_space_filters_correctly(self, neo4j_driver) -> None:
+        """list_by_space returns only observations in the specified space."""
+        from memorable.storage.neo4j.repository import Neo4jObservationRepository
+
+        repo = Neo4jObservationRepository(driver=neo4j_driver)
+        space_a = _unique_name("test-a-")
+        space_b = _unique_name("test-b-")
+        ts = datetime(2026, 5, 25, 10, 0, 0, tzinfo=UTC)
+
+        o1 = Observation(
+            id="o1",
+            statement="Fact A",
+            space=space_a,
+            validity_time=ts,
+            invalidation_time=None,
+            lifecycle_state="current",
+            supersedes=None,
+            superseded_by=None,
+        )
+        o2 = Observation(
+            id="o2",
+            statement="Fact B",
+            space=space_b,
+            validity_time=ts,
+            invalidation_time=None,
+            lifecycle_state="current",
+            supersedes=None,
+            superseded_by=None,
+        )
+
+        repo.save(o1, _make_provenance("o1", "observation"))
+        repo.save(o2, _make_provenance("o2", "observation"))
+
+        results = repo.list_by_space(space_a)
+        assert len(results) == 1
+        assert results[0].id == "o1"
+
+    @pytest.mark.integration
+    def test_mark_superseded_updates_properties(self, neo4j_driver) -> None:
+        """mark_superseded updates superseded_by, invalidation_time, lifecycle."""
+        from memorable.storage.neo4j.repository import Neo4jObservationRepository
+
+        repo = Neo4jObservationRepository(driver=neo4j_driver)
+        space = _unique_name()
+        ts = datetime(2026, 5, 25, 10, 0, 0, tzinfo=UTC)
+        inv_time = datetime(2026, 5, 26, 12, 0, 0, tzinfo=UTC)
+
+        observation = Observation(
+            id="obs-1",
+            statement="Old fact",
+            space=space,
+            validity_time=ts,
+            invalidation_time=None,
+            lifecycle_state="current",
+            supersedes=None,
+            superseded_by=None,
+        )
+        repo.save(observation, _make_provenance("obs-1", "observation"))
+
+        repo.mark_superseded(space, "obs-1", "obs-2", inv_time)
+
+        result = repo.get(space, "obs-1")
+        assert result is not None
+        assert result.superseded_by == "obs-2"
+        assert result.invalidation_time == inv_time
+        assert result.lifecycle_state == "superseded"
+
+    @pytest.mark.integration
+    def test_invalidate_sets_lifecycle(self, neo4j_driver) -> None:
+        """invalidate marks the observation as invalidated."""
+        from memorable.storage.neo4j.repository import Neo4jObservationRepository
+
+        repo = Neo4jObservationRepository(driver=neo4j_driver)
+        space = _unique_name()
+        ts = datetime(2026, 5, 25, 10, 0, 0, tzinfo=UTC)
+        inv_time = datetime(2026, 5, 26, 14, 0, 0, tzinfo=UTC)
+
+        observation = Observation(
+            id="obs-1",
+            statement="Incorrect fact",
+            space=space,
+            validity_time=ts,
+            invalidation_time=None,
+            lifecycle_state="current",
+            supersedes=None,
+            superseded_by=None,
+        )
+        repo.save(observation, _make_provenance("obs-1", "observation"))
+
+        repo.invalidate(space, "obs-1", inv_time)
+
+        result = repo.get(space, "obs-1")
+        assert result is not None
+        assert result.lifecycle_state == "invalidated"
+        assert result.invalidation_time == inv_time
+
+    @pytest.mark.integration
+    def test_correct_updates_statement(self, neo4j_driver) -> None:
+        """correct updates the statement without changing lifecycle."""
+        from memorable.storage.neo4j.repository import Neo4jObservationRepository
+
+        repo = Neo4jObservationRepository(driver=neo4j_driver)
+        space = _unique_name()
+        ts = datetime(2026, 5, 25, 10, 0, 0, tzinfo=UTC)
+
+        observation = Observation(
+            id="obs-1",
+            statement="Typo in fact",
+            space=space,
+            validity_time=ts,
+            invalidation_time=None,
+            lifecycle_state="current",
+            supersedes=None,
+            superseded_by=None,
+        )
+        repo.save(observation, _make_provenance("obs-1", "observation"))
+
+        repo.correct(space, "obs-1", "Corrected fact")
+
+        result = repo.get(space, "obs-1")
+        assert result is not None
+        assert result.statement == "Corrected fact"
+        assert result.lifecycle_state == "current"
+
+    @pytest.mark.integration
+    def test_cross_space_isolation(self, neo4j_driver) -> None:
+        """Writing to space A then querying space B returns nothing."""
+        from memorable.storage.neo4j.repository import Neo4jObservationRepository
+
+        repo = Neo4jObservationRepository(driver=neo4j_driver)
+        space_a = _unique_name("test-write-")
+        space_b = _unique_name("test-read-")
+        ts = datetime(2026, 5, 25, 10, 0, 0, tzinfo=UTC)
+
+        observation = Observation(
+            id="obs-1",
+            statement="Some fact",
+            space=space_a,
+            validity_time=ts,
+            invalidation_time=None,
+            lifecycle_state="current",
+            supersedes=None,
+            superseded_by=None,
+        )
+        repo.save(observation, _make_provenance("obs-1", "observation"))
+
+        assert repo.get(space_b, "obs-1") is None
+        assert repo.list_by_space(space_b) == []
+
+    @pytest.mark.integration
+    def test_get_provenance_after_save(self, neo4j_driver) -> None:
+        """get_provenance returns the correct provenance after save."""
+        from memorable.storage.neo4j.repository import Neo4jObservationRepository
+
+        repo = Neo4jObservationRepository(driver=neo4j_driver)
+        space = _unique_name()
+        ts = datetime(2026, 5, 25, 10, 0, 0, tzinfo=UTC)
+        observation = Observation(
+            id="obs-1",
+            statement="A fact",
+            space=space,
+            validity_time=ts,
+            invalidation_time=None,
+            lifecycle_state="current",
+            supersedes=None,
+            superseded_by=None,
+        )
+        provenance = Provenance(
+            record_id="obs-1",
+            record_kind="observation",
+            source_id="src-42",
+            episode_id="ep-7",
+            writer="agent-x",
+            reason="discovered",
+            creation_time=ts,
+            validity_time=ts,
+        )
+
+        repo.save(observation, provenance)
+        result = repo.get_provenance(space, "obs-1")
+
+        assert result is not None
+        assert result.record_id == "obs-1"
+        assert result.record_kind == "observation"
+        assert result.source_id == "src-42"
+        assert result.writer == "agent-x"
 
 
 # --- Schema bootstrap integration tests ---

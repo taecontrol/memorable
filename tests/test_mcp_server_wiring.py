@@ -2,7 +2,7 @@
 
 Verifies:
 - FastMCP server instance is created with name "memorable"
-- All 13 handler functions are registered as MCP tools
+- All 16 handler functions are registered as MCP tools
 - Each tool name uses the memorable_ prefix
 - Tool descriptions use Memorable Core language
 - Tools are callable through call_tool() and return expected shapes
@@ -54,21 +54,24 @@ EXPECTED_TOOL_NAMES = {
     "memorable_inspect_space",
     "memorable_remember_entity",
     "memorable_remember_decision",
+    "memorable_remember_observation",
     "memorable_current_truth",
     "memorable_point_in_time_truth",
-    "memorable_inspect_decision_history",
+    "memorable_inspect_history",
     "memorable_inspect_provenance",
     "memorable_remember_task",
     "memorable_complete_task",
     "memorable_search_memory",
     "memorable_inspect_task",
+    "memorable_invalidate",
+    "memorable_correct",
 }
 
 
 class TestToolRegistration:
-    def test_all_13_tools_registered(self) -> None:
+    def test_all_16_tools_registered(self) -> None:
         tool_names = _list_tool_names()
-        assert len(tool_names) == 13
+        assert len(tool_names) == 16
 
     def test_all_expected_tool_names_present(self) -> None:
         tool_names = _list_tool_names()
@@ -95,6 +98,7 @@ REQUIRED_DOMAIN_TERMS = {
     "Entity",
     "Decision",
     "Task",
+    "Observation",
     "Source",
     "Episode",
     "Hybrid Retrieval",
@@ -155,7 +159,7 @@ class TestCallToolErrorPath:
     def test_current_truth_returns_error_for_missing_decision(self) -> None:
         result = _call_tool(
             "memorable_current_truth",
-            {"space": "nonexistent", "decision_id": "no-such-decision"},
+            {"space": "nonexistent", "record_id": "no-such-decision"},
         )
         _, structured = result
         assert "error" in structured
@@ -165,7 +169,7 @@ class TestCallToolErrorPath:
     def test_error_response_uses_domain_language(self) -> None:
         result = _call_tool(
             "memorable_current_truth",
-            {"space": "test-space", "decision_id": "missing"},
+            {"space": "test-space", "record_id": "missing"},
         )
         _, structured = result
         error_text = structured["error"].lower()

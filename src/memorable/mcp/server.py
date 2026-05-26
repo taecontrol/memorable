@@ -7,18 +7,22 @@ from mcp.server.fastmcp import FastMCP
 
 from memorable.core.application import (
     CompleteTaskService,
+    CorrectService,
     CurrentTruthService,
     InitService,
-    InspectDecisionHistoryService,
+    InspectHistoryService,
     InspectProvenanceService,
     InspectTaskService,
+    InvalidateService,
     PointInTimeTruthService,
     RememberDecisionService,
     RememberEntityService,
+    RememberObservationService,
     RememberTaskService,
     build_status_payload,
 )
 from memorable.core.context import ApplicationContext, default_context
+from memorable.core.ports import TemporalRecordRepository
 from memorable.core.profile import ProfileValidationError, load_profile_from_yaml
 from memorable.core.temporal import parse_iso_timestamp
 
@@ -37,6 +41,27 @@ def set_mcp_context(ctx: ApplicationContext) -> None:
     """
     global _context  # noqa: PLW0603
     _context = ctx
+
+
+def _resolve_repository(
+    record_type: str,
+) -> TemporalRecordRepository | dict[str, object]:
+    """Map a record_type string to the corresponding TemporalRecordRepository.
+
+    Returns the repository on success, or an error dict on failure.
+    Adding a new record type requires only updating this helper.
+    """
+    repos = {
+        "decision": lambda: _context.decision_repo,
+        "observation": lambda: _context.observation_repo,
+    }
+    accessor = repos.get(record_type)
+    if accessor is not None:
+        return accessor()
+    return {
+        "error": f"Unknown record_type '{record_type}'. "
+        f"Supported types: decision, observation."
+    }
 
 
 @mcp_server.tool(
@@ -245,111 +270,207 @@ def remember_decision_tool(
 
 
 @mcp_server.tool(
+    name="memorable_remember_observation",
+    description=(
+        "Remember an Observation with Provenance in a MemorySpace. "
+        "Supports Supersession to replace an earlier Observation."
+    ),
+)
+def remember_observation_tool(
+    space: str,
+    observation_id: str,
+    statement: str,
+    source: str,
+    at: str,
+    supersedes: str | None = None,
+    writer: str = "agent:memorable",
+    reason: str = "",
+) -> dict[str, object]:
+    """Remember an Observation with provenance in a MemorySpace.
+
+    Returns a dict with observation and provenance info on success,
+    or an error dict on failure.
+    """
+    try:
+        profile = _context.load_profile(space)
+    except ProfileValidationError as e:
+        return {"error": str(e)}
+
+    service = RememberObservationService(
+        repository=_context.observation_repo, profile=profile
+    )
+
+    timestamp = parse_iso_timestamp(at)
+
+    try:
+        result = service.remember(
+            space=space,
+            observation_id=observation_id,
+            statement=statement,
+            source_id=source,
+            at=timestamp,
+            writer=writer,
+            reason=reason,
+            supersedes=supersedes,
+        )
+    except ValueError as e:
+        return {"error": str(e)}
+
+    return {
+        "observation_id": result.observation.id,
+        "statement": result.observation.statement,
+        "space": result.observation.space,
+        "record_id": result.provenance.record_id,
+        "record_kind": result.provenance.record_kind,
+        "source": result.provenance.source_id,
+        "episode": result.provenance.episode_id,
+        "creation_time": result.provenance.creation_time.isoformat(),
+        "validity_time": result.provenance.validity_time.isoformat(),
+        "lifecycle_state": result.observation.lifecycle_state,
+    }
+
+
+@mcp_server.tool(
     name="memorable_current_truth",
     description=(
-        "Get the Current Truth for a Decision by following its Supersession chain. "
-        "Returns the active Decision or an error if not found."
+        "Get the Current Truth for a temporal record by following its "
+        "Supersession chain. Accepts record_type to select the repository "
+        "(decision, observation). Returns the active record or an error."
     ),
 )
 def current_truth_tool(
     space: str,
-    decision_id: str,
+    record_id: str,
+    record_type: str = "decision",
 ) -> dict[str, object]:
-    """Get the current truth for a Decision, following supersession chain.
+    """Get the current truth for a temporal record, following supersession chain.
 
-    Returns decision details on success, or an error dict on failure.
+    Args:
+        space: MemorySpace to search in.
+        record_id: ID of the record to resolve.
+        record_type: Type of record ("decision" or "observation").
+
+    Returns record details on success, or an error dict on failure.
     """
-    service = CurrentTruthService(repository=_context.decision_repo)
-    decision = service.current(space=space, decision_id=decision_id)
+    resolved = _resolve_repository(record_type)
+    if isinstance(resolved, dict):
+        return resolved
 
-    if decision is None:
+    service = CurrentTruthService(repository=resolved)
+    record = service.current(space=space, record_id=record_id)
+
+    if record is None:
+        label = record_type.capitalize()
         return {
-            "error": f"No Decision found for '{decision_id}' in MemorySpace '{space}'."
+            "error": f"No {label} found for '{record_id}' in MemorySpace '{space}'."
         }
 
     return {
-        "decision_id": decision.id,
-        "statement": decision.statement,
-        "space": decision.space,
-        "lifecycle_state": decision.lifecycle_state,
-        "validity_time": decision.validity_time.isoformat(),
+        "record_id": record.id,
+        "statement": record.statement,
+        "space": record.space,
+        "lifecycle_state": record.lifecycle_state,
+        "validity_time": record.validity_time.isoformat(),
     }
 
 
 @mcp_server.tool(
     name="memorable_point_in_time_truth",
     description=(
-        "Get the Point-In-Time Truth for a Decision at a specific timestamp. "
-        "Returns the Decision that was valid at that time."
+        "Get the Point-In-Time Truth for a temporal record at a specific "
+        "timestamp. Accepts record_type to select the repository "
+        "(decision, observation). Returns the record that was valid at that time."
     ),
 )
 def point_in_time_truth_tool(
     space: str,
-    decision_id: str,
+    record_id: str,
     at: str,
+    record_type: str = "decision",
 ) -> dict[str, object]:
-    """Get the Decision that was valid at a specific point in time.
+    """Get the temporal record that was valid at a specific point in time.
 
-    Returns decision details on success, or an error dict on failure.
+    Args:
+        space: MemorySpace to search in.
+        record_id: ID of the record to resolve.
+        at: ISO timestamp for the point-in-time query.
+        record_type: Type of record ("decision" or "observation").
+
+    Returns record details on success, or an error dict on failure.
     """
-    service = PointInTimeTruthService(repository=_context.decision_repo)
-    timestamp = parse_iso_timestamp(at)
-    decision = service.at(space=space, decision_id=decision_id, at=timestamp)
+    resolved = _resolve_repository(record_type)
+    if isinstance(resolved, dict):
+        return resolved
 
-    if decision is None:
+    service = PointInTimeTruthService(repository=resolved)
+    timestamp = parse_iso_timestamp(at)
+    record = service.at(space=space, record_id=record_id, at=timestamp)
+
+    if record is None:
+        label = record_type.capitalize()
         return {
-            "error": f"No Decision found for '{decision_id}' "
+            "error": f"No {label} found for '{record_id}' "
             f"in MemorySpace '{space}' at {timestamp.isoformat()}."
         }
 
     return {
-        "decision_id": decision.id,
-        "statement": decision.statement,
-        "space": decision.space,
-        "lifecycle_state": decision.lifecycle_state,
-        "validity_time": decision.validity_time.isoformat(),
+        "record_id": record.id,
+        "statement": record.statement,
+        "space": record.space,
+        "lifecycle_state": record.lifecycle_state,
+        "validity_time": record.validity_time.isoformat(),
     }
 
 
 @mcp_server.tool(
-    name="memorable_inspect_decision_history",
+    name="memorable_inspect_history",
     description=(
-        "Inspect the full Supersession chain for a Decision. "
+        "Inspect the full Supersession chain for a temporal record. "
+        "Accepts a record_type to select the repository. "
         "Returns Lifecycle State, Validity Time, "
         "and Invalidation Time for each version."
     ),
 )
-def inspect_decision_history_tool(
+def inspect_history_tool(
     space: str,
-    decision_id: str,
+    record_id: str,
+    record_type: str = "decision",
 ) -> dict[str, object]:
-    """Inspect the full supersession chain for a Decision.
+    """Inspect the full supersession chain for a temporal record.
+
+    Args:
+        space: MemorySpace to search in.
+        record_id: ID of the record to inspect.
+        record_type: Type of record ("decision" initially).
 
     Returns the history on success, or an error dict on failure.
     """
-    service = InspectDecisionHistoryService(repository=_context.decision_repo)
-    history = service.history(space=space, decision_id=decision_id)
+    resolved = _resolve_repository(record_type)
+    if isinstance(resolved, dict):
+        return resolved
+
+    service = InspectHistoryService(repository=resolved)
+    history = service.history(space=space, record_id=record_id)
 
     if not history:
-        return {
-            "error": f"No Decision found for '{decision_id}' in MemorySpace '{space}'."
-        }
+        return {"error": f"No record found for '{record_id}' in MemorySpace '{space}'."}
 
     return {
-        "decision_id": decision_id,
+        "record_id": record_id,
+        "record_type": record_type,
         "history": [
             {
-                "decision_id": d.id,
-                "statement": d.statement,
-                "lifecycle_state": d.lifecycle_state,
-                "validity_time": d.validity_time.isoformat(),
+                "record_id": r.id,
+                "statement": r.statement,
+                "lifecycle_state": r.lifecycle_state,
+                "validity_time": r.validity_time.isoformat(),
                 "invalidation_time": (
-                    d.invalidation_time.isoformat() if d.invalidation_time else None
+                    r.invalidation_time.isoformat() if r.invalidation_time else None
                 ),
-                "supersedes": d.supersedes,
-                "superseded_by": d.superseded_by,
+                "supersedes": r.supersedes,
+                "superseded_by": r.superseded_by,
             }
-            for d in history
+            for r in history
         ],
     }
 
@@ -582,4 +703,115 @@ def inspect_task_tool(
             task.completion_time.isoformat() if task.completion_time else None
         ),
         "completion_event_id": task.completion_event_id,
+    }
+
+
+@mcp_server.tool(
+    name="memorable_invalidate",
+    description=(
+        "Mark a temporal record as invalidated in a MemorySpace. "
+        "Invalidation means a claim stopped being true without a successor. "
+        "Sets Lifecycle State to invalidated and records Invalidation Time. "
+        "Accepts record_type to select the repository (decision, observation)."
+    ),
+)
+def invalidate_tool(
+    space: str,
+    record_id: str,
+    record_type: str,
+    at: str,
+) -> dict[str, object]:
+    """Mark a temporal record as invalidated.
+
+    Args:
+        space: MemorySpace containing the record.
+        record_id: ID of the record to invalidate.
+        record_type: Type of record ("decision" or "observation").
+        at: ISO timestamp when the claim stopped being true.
+
+    Returns a dict with invalidation info on success, or an error dict.
+    """
+    resolved = _resolve_repository(record_type)
+    if isinstance(resolved, dict):
+        return resolved
+
+    service = InvalidateService(repository=resolved)
+    timestamp = parse_iso_timestamp(at)
+
+    try:
+        result = service.invalidate(
+            space=space,
+            record_id=record_id,
+            at=timestamp,
+        )
+    except ValueError as e:
+        return {"error": str(e)}
+
+    return {
+        "record_id": result.record_id,
+        "space": result.space,
+        "lifecycle_state": result.lifecycle_state,
+        "invalidation_time": result.invalidation_time.isoformat(),
+    }
+
+
+@mcp_server.tool(
+    name="memorable_correct",
+    description=(
+        "Correct a temporal record's statement in place in a MemorySpace. "
+        "Correction means the old statement was never true — it was a mistake. "
+        "Updates the statement and replaces Provenance with Correction source. "
+        "Accepts record_type to select the repository (decision, observation)."
+    ),
+)
+def correct_tool(
+    space: str,
+    record_id: str,
+    record_type: str,
+    new_statement: str,
+    source: str,
+    at: str,
+    reason: str = "",
+    writer: str = "agent:memorable",
+) -> dict[str, object]:
+    """Correct a temporal record's statement in place.
+
+    Args:
+        space: MemorySpace containing the record.
+        record_id: ID of the record to correct.
+        record_type: Type of record ("decision" or "observation").
+        new_statement: The corrected statement.
+        source: Source ID for the correction provenance.
+        at: ISO timestamp for the correction.
+        reason: Optional reason for the correction.
+        writer: Identity of the agent or user making the correction.
+
+    Returns a dict with correction info on success, or an error dict.
+    """
+    resolved = _resolve_repository(record_type)
+    if isinstance(resolved, dict):
+        return resolved
+
+    service = CorrectService(repository=resolved)
+    timestamp = parse_iso_timestamp(at)
+
+    try:
+        result = service.correct(
+            space=space,
+            record_id=record_id,
+            new_statement=new_statement,
+            record_kind=record_type,
+            source=source,
+            writer=writer,
+            at=timestamp,
+            reason=reason,
+        )
+    except ValueError as e:
+        return {"error": str(e)}
+
+    return {
+        "record_id": result.record_id,
+        "space": result.space,
+        "old_statement": result.old_statement,
+        "new_statement": result.new_statement,
     }

@@ -71,25 +71,28 @@ class TestListToolsOverStdio:
             "memorable_inspect_space",
             "memorable_remember_entity",
             "memorable_remember_decision",
+            "memorable_remember_observation",
             "memorable_current_truth",
             "memorable_point_in_time_truth",
-            "memorable_inspect_decision_history",
+            "memorable_inspect_history",
             "memorable_inspect_provenance",
             "memorable_remember_task",
             "memorable_complete_task",
             "memorable_search_memory",
             "memorable_inspect_task",
+            "memorable_invalidate",
+            "memorable_correct",
         }
         assert tool_names == expected
 
     @pytest.mark.anyio
-    async def test_list_tools_returns_13_tools(self) -> None:
+    async def test_list_tools_returns_16_tools(self) -> None:
         async def _check(session):
             result = await session.list_tools()
             return len(result.tools)
 
         count = await _connect_and_run(_check)
-        assert count == 13
+        assert count == 16
 
 
 class TestCallToolOverStdio:
@@ -160,7 +163,7 @@ class TestCallToolErrorOverStdio:
         async def _check(session):
             result = await session.call_tool(
                 "memorable_current_truth",
-                {"space": "nonexistent", "decision_id": "no-such-decision"},
+                {"space": "nonexistent", "record_id": "no-such-decision"},
             )
             return result
 

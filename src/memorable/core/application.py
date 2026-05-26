@@ -8,6 +8,7 @@ from memorable.core.models import (
     Decision,
     Entity,
     MemorySpace,
+    Observation,
     Provenance,
     Task,
 )
@@ -15,7 +16,10 @@ from memorable.core.ports import (
     DecisionRepository,
     EntityRepository,
     MemorySpaceRepository,
+    ObservationRepository,
     TaskRepository,
+    TemporalRecord,
+    TemporalRecordRepository,
 )
 from memorable.core.profile import MemoryProfile, load_profile_from_yaml
 from memorable.core.temporal import make_episode_id
@@ -244,7 +248,7 @@ class RememberDecisionService:
         if supersedes is not None:
             self._repository.mark_superseded(
                 space=space,
-                decision_id=supersedes,
+                record_id=supersedes,
                 superseded_by=decision_id,
                 invalidation_time=at,
             )
@@ -252,44 +256,142 @@ class RememberDecisionService:
         return RememberDecisionResult(decision=decision, provenance=provenance)
 
 
-class CurrentTruthService:
-    """Application service that follows supersession chain to find current Decision."""
+@dataclass(frozen=True)
+class RememberObservationResult:
+    """Result of remembering an Observation with provenance."""
 
-    def __init__(self, repository: DecisionRepository) -> None:
+    observation: Observation
+    provenance: Provenance
+
+
+class RememberObservationService:
+    """Application service that validates and persists an Observation with provenance.
+
+    Validates that the MemoryProfile has at least one record that extends Observation.
+    When supersedes is provided, marks the old observation as superseded.
+    """
+
+    def __init__(
+        self,
+        repository: ObservationRepository,
+        profile: MemoryProfile,
+    ) -> None:
+        self._repository = repository
+        self._profile = profile
+
+    def remember(
+        self,
+        *,
+        space: str,
+        observation_id: str,
+        statement: str,
+        source_id: str,
+        at: datetime,
+        writer: str = "agent:memorable",
+        reason: str = "",
+        supersedes: str | None = None,
+    ) -> RememberObservationResult:
+        """Validate record type against MemoryProfile, create provenance, persist.
+
+        Raises ValueError if the profile has no record type extending Observation.
+        """
+        has_observation_record = any(
+            r.extends == "Observation" for r in self._profile.records
+        )
+        if not has_observation_record:
+            raise ValueError(
+                f"No record type extending Observation is declared in the "
+                f"MemoryProfile for space '{self._profile.space.name}'. "
+                f"Add a record with 'extends: Observation' to your profile."
+            )
+
+        observation = Observation(
+            id=observation_id,
+            statement=statement,
+            space=space,
+            validity_time=at,
+            invalidation_time=None,
+            lifecycle_state="current",
+            supersedes=supersedes,
+            superseded_by=None,
+        )
+
+        episode_id = make_episode_id(source_id, at)
+
+        provenance = Provenance(
+            record_id=observation_id,
+            record_kind="observation",
+            source_id=source_id,
+            episode_id=episode_id,
+            writer=writer,
+            reason=reason,
+            creation_time=at,
+            validity_time=at,
+        )
+
+        self._repository.save(observation, provenance)
+
+        if supersedes is not None:
+            self._repository.mark_superseded(
+                space=space,
+                record_id=supersedes,
+                superseded_by=observation_id,
+                invalidation_time=at,
+            )
+
+        return RememberObservationResult(observation=observation, provenance=provenance)
+
+
+class CurrentTruthService:
+    """Application service that follows supersession chain to find the current record.
+
+    Works with any repository satisfying TemporalRecordRepository: the returned
+    record must have id, superseded_by, and lifecycle_state attributes.
+    """
+
+    def __init__(self, repository: TemporalRecordRepository) -> None:
         self._repository = repository
 
-    def current(self, *, space: str, decision_id: str) -> Decision | None:
-        """Return the current Decision, following the supersession chain."""
-        decision = self._repository.get(space=space, decision_id=decision_id)
-        if decision is None:
+    def current(self, *, space: str, record_id: str) -> TemporalRecord | None:
+        """Return the current record, following the supersession chain."""
+        record = self._repository.get(space, record_id)
+        if record is None:
             return None
-        visited: set[str] = {decision.id}
-        while decision.superseded_by is not None:
-            if decision.superseded_by in visited:
+        visited: set[str] = {record.id}
+        while record.superseded_by is not None:
+            if record.superseded_by in visited:
                 break
-            visited.add(decision.superseded_by)
-            next_decision = self._repository.get(
-                space=space, decision_id=decision.superseded_by
-            )
-            if next_decision is None:
+            visited.add(record.superseded_by)
+            next_record = self._repository.get(space, record.superseded_by)
+            if next_record is None:
                 break
-            decision = next_decision
-        return decision
+            record = next_record
+        return record
 
 
 class PointInTimeTruthService:
-    """Application service that returns the Decision valid at a specific time."""
+    """Application service that returns the record valid at a specific time.
 
-    def __init__(self, repository: DecisionRepository) -> None:
+    Works with any repository satisfying TemporalRecordRepository: the returned
+    record must have id, superseded_by, invalidation_time, and lifecycle_state.
+    """
+
+    def __init__(self, repository: TemporalRecordRepository) -> None:
         self._repository = repository
 
-    def at(self, *, space: str, decision_id: str, at: datetime) -> Decision | None:
-        """Return the Decision that was valid at the given time."""
-        decision = self._repository.get(space=space, decision_id=decision_id)
-        if decision is None:
+    def at(
+        self,
+        *,
+        space: str,
+        record_id: str,
+        at: datetime,
+    ) -> TemporalRecord | None:
+        """Return the record that was valid at the given time."""
+        record = self._repository.get(space, record_id)
+        if record is None:
             return None
-        visited: set[str] = {decision.id}
-        current = decision
+        visited: set[str] = {record.id}
+        current = record
         while True:
             if current.invalidation_time is None or at < current.invalidation_time:
                 return current
@@ -298,39 +400,186 @@ class PointInTimeTruthService:
             if current.superseded_by in visited:
                 return current
             visited.add(current.superseded_by)
-            next_decision = self._repository.get(
-                space=space, decision_id=current.superseded_by
-            )
-            if next_decision is None:
+            next_record = self._repository.get(space, current.superseded_by)
+            if next_record is None:
                 return current
-            current = next_decision
+            current = next_record
 
 
-class InspectDecisionHistoryService:
-    """Application service that returns the full supersession chain for a Decision."""
+class InspectHistoryService:
+    """Return the full supersession chain for a temporal record.
 
-    def __init__(self, repository: DecisionRepository) -> None:
+    Works with any repository satisfying TemporalRecordRepository:
+    the returned records must have id and superseded_by attributes.
+    """
+
+    def __init__(self, repository: TemporalRecordRepository) -> None:
         self._repository = repository
 
-    def history(self, *, space: str, decision_id: str) -> list[Decision]:
-        """Return the supersession chain starting from the given Decision."""
-        decision = self._repository.get(space=space, decision_id=decision_id)
-        if decision is None:
+    def history(self, *, space: str, record_id: str) -> list[TemporalRecord]:
+        """Return the supersession chain starting from the given record."""
+        record = self._repository.get(space, record_id)
+        if record is None:
             return []
-        chain = [decision]
-        visited: set[str] = {decision.id}
-        while decision.superseded_by is not None:
-            if decision.superseded_by in visited:
+        chain = [record]
+        visited: set[str] = {record.id}
+        while record.superseded_by is not None:
+            if record.superseded_by in visited:
                 break
-            visited.add(decision.superseded_by)
-            next_decision = self._repository.get(
-                space=space, decision_id=decision.superseded_by
-            )
-            if next_decision is None:
+            visited.add(record.superseded_by)
+            next_record = self._repository.get(space, record.superseded_by)
+            if next_record is None:
                 break
-            chain.append(next_decision)
-            decision = next_decision
+            chain.append(next_record)
+            record = next_record
         return chain
+
+
+@dataclass(frozen=True)
+class InvalidateResult:
+    """Result of invalidating a temporal record."""
+
+    record_id: str
+    space: str
+    lifecycle_state: str
+    invalidation_time: datetime
+
+
+class InvalidateService:
+    """Generic application service that marks any temporal record as invalidated.
+
+    Invalidation means the claim stopped being true without a successor.
+    No replacement record is created. Sets lifecycle_state to "invalidated"
+    and records the invalidation_time.
+
+    Works with any repository satisfying TemporalRecordRepository.
+    """
+
+    def __init__(self, repository: TemporalRecordRepository) -> None:
+        self._repository = repository
+
+    def invalidate(
+        self,
+        *,
+        space: str,
+        record_id: str,
+        at: datetime,
+    ) -> InvalidateResult:
+        """Invalidate a temporal record.
+
+        Raises ValueError if the record is not found or already invalidated.
+        """
+        record = self._repository.get(space, record_id)
+        if record is None:
+            raise ValueError(
+                f"Record '{record_id}' not found in MemorySpace '{space}'."
+            )
+        if record.lifecycle_state == "invalidated":
+            raise ValueError(
+                f"Record '{record_id}' is already invalidated in MemorySpace '{space}'."
+            )
+
+        self._repository.invalidate(
+            space=space,
+            record_id=record_id,
+            invalidation_time=at,
+        )
+
+        return InvalidateResult(
+            record_id=record_id,
+            space=space,
+            lifecycle_state="invalidated",
+            invalidation_time=at,
+        )
+
+
+@dataclass(frozen=True)
+class CorrectResult:
+    """Result of correcting a temporal record's statement in place."""
+
+    record_id: str
+    space: str
+    old_statement: str
+    new_statement: str
+
+
+class CorrectService:
+    """Generic application service that corrects any temporal record in place.
+
+    Correction means the old statement was never true — it was a mistake.
+    The record's statement is updated in place, and provenance is replaced
+    with new provenance reflecting the correction source.
+
+    Works with any repository satisfying TemporalRecordRepository.
+    """
+
+    def __init__(self, repository: TemporalRecordRepository) -> None:
+        self._repository = repository
+
+    def correct(
+        self,
+        *,
+        space: str,
+        record_id: str,
+        new_statement: str,
+        record_kind: str,
+        source: str,
+        writer: str,
+        at: datetime,
+        reason: str = "",
+    ) -> CorrectResult:
+        """Correct a temporal record's statement in place.
+
+        Raises ValueError if the record is not found or already invalidated.
+        """
+        record = self._repository.get(space, record_id)
+        if record is None:
+            raise ValueError(
+                f"Record '{record_id}' not found in MemorySpace '{space}'."
+            )
+        if record.lifecycle_state == "invalidated":
+            raise ValueError(
+                f"Record '{record_id}' is already invalidated "
+                f"in MemorySpace '{space}'. Cannot correct an invalidated record."
+            )
+
+        old_statement = record.statement
+
+        self._repository.correct(
+            space=space,
+            record_id=record_id,
+            new_statement=new_statement,
+        )
+
+        # Build correction provenance
+        episode_id = make_episode_id(source, at)
+        if reason:
+            provenance_reason = f"Corrected from: '{old_statement}'. Reason: {reason}."
+        else:
+            provenance_reason = f"Corrected from: '{old_statement}'."
+
+        provenance = Provenance(
+            record_id=record_id,
+            record_kind=record_kind,
+            source_id=source,
+            episode_id=episode_id,
+            writer=writer,
+            reason=provenance_reason,
+            creation_time=at,
+            validity_time=at,
+        )
+        self._repository.save_provenance(
+            space=space,
+            record_id=record_id,
+            provenance=provenance,
+        )
+
+        return CorrectResult(
+            record_id=record_id,
+            space=space,
+            old_statement=old_statement,
+            new_statement=new_statement,
+        )
 
 
 class InspectProvenanceService:
