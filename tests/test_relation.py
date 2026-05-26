@@ -84,3 +84,29 @@ class TestRelationValidation:
 
         with pytest.raises(ValueError, match="self-relation"):
             Relation(**kwargs)
+
+
+class TestRelationTemporalProtocol:
+    """Relation structurally satisfies the TemporalRecord protocol."""
+
+    def test_relation_satisfies_temporal_record_protocol(self) -> None:
+        """A Relation instance is recognized as a TemporalRecord at runtime."""
+        from memorable.core.models import Relation
+        from memorable.core.ports import TemporalRecord
+
+        now = datetime(2026, 5, 26, 12, 0, tzinfo=UTC)
+        rel = Relation(
+            id="rel:1",
+            source_entity_id="entity:a",
+            target_entity_id="entity:b",
+            relation_type="depends-on",
+            statement="A depends on B",
+            space="my-project",
+            validity_time=now,
+            invalidation_time=None,
+            lifecycle_state="current",
+            supersedes=None,
+            superseded_by=None,
+        )
+
+        assert isinstance(rel, TemporalRecord)
