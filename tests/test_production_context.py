@@ -37,11 +37,12 @@ def test_build_production_context_returns_context_and_driver() -> None:
 
 
 def test_build_production_context_wires_all_neo4j_repos() -> None:
-    """All four repository slots use Neo4j adapters, not in-memory."""
+    """All five repository slots use Neo4j adapters, not in-memory."""
     from memorable.storage.neo4j.repository import (
         Neo4jDecisionRepository,
         Neo4jEntityRepository,
         Neo4jMemorySpaceRepository,
+        Neo4jObservationRepository,
         Neo4jTaskRepository,
     )
     from memorable.storage.production import build_production_context
@@ -57,6 +58,7 @@ def test_build_production_context_wires_all_neo4j_repos() -> None:
     assert isinstance(ctx.entity_repo, Neo4jEntityRepository)
     assert isinstance(ctx.decision_repo, Neo4jDecisionRepository)
     assert isinstance(ctx.task_repo, Neo4jTaskRepository)
+    assert isinstance(ctx.observation_repo, Neo4jObservationRepository)
     assert isinstance(ctx.memory_space_repo, Neo4jMemorySpaceRepository)
 
 
