@@ -155,3 +155,22 @@ class TestRelationDeclaration:
         assert profile.relations[0] == RelationDeclaration(name="depends-on")
         assert profile.relations[1] == RelationDeclaration(name="owns")
         assert profile.relations[2] == RelationDeclaration(name="serves")
+
+    def test_profile_without_relations_section_loads(self) -> None:
+        """A profile YAML without a relations: section loads with empty relations."""
+        import textwrap
+
+        from memorable.core.profile import load_profile_from_yaml
+
+        yaml_text = textwrap.dedent("""\
+            version: 1
+            space:
+              name: test-project
+            entities:
+              - name: Component
+        """)
+
+        profile = load_profile_from_yaml(yaml_text)
+
+        assert profile.relations == ()
+        assert len(profile.entities) == 1
