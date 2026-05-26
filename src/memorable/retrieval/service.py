@@ -233,8 +233,8 @@ class HybridRetrievalService:
         """Find related records via graph traversal.
 
         For the tracer bullet, this uses a simple heuristic:
-        entities relate to all decisions and tasks in the same space,
-        and decisions/tasks relate to all entities.
+        entities relate to all decisions, tasks, and observations in the
+        same space, and decisions/tasks/observations relate to all entities.
         """
         related: list[tuple[str, str]] = []
 
@@ -243,6 +243,9 @@ class HybridRetrievalService:
                 related.append((decision.id, "Decision"))
             for task in self._task_repo.list_by_space(space):
                 related.append((task.id, "Task"))
+            if self._observation_repo is not None:
+                for observation in self._observation_repo.list_by_space(space):
+                    related.append((observation.id, "Observation"))
 
         elif source_kind == "Decision":
             for entity in self._entity_repo.list_by_space(space):

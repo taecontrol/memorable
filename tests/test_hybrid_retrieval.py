@@ -1569,6 +1569,22 @@ class TestObservationGraphExpansion:
         # Should follow supersedes link back to v1
         assert "observation:storage-pref:v1" in related_ids
 
+    def test_graph_expand_entity_to_observations(self) -> None:
+        """Entity graph expansion includes observations in the same space."""
+        service, *_ = _build_observation_fixture()
+
+        related = service._graph_expand(
+            "memorable", "entity:memorable", "Entity"
+        )
+
+        related_ids = [r_id for r_id, _ in related]
+        related_kinds = [kind for _, kind in related]
+        # Entity should expand to observations
+        assert "Observation" in related_kinds
+        # Should include current observations
+        assert "observation:storage-pref:v2" in related_ids
+        assert "observation:coverage" in related_ids
+
 
 class TestObservationApplicationContext:
     """ApplicationContext wires observation_repo into HybridRetrievalService."""
