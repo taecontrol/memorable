@@ -22,6 +22,7 @@ from memorable.core.application import (
     build_status_payload,
 )
 from memorable.core.context import ApplicationContext, default_context
+from memorable.core.ports import TemporalRecordRepository
 from memorable.core.profile import ProfileValidationError, load_profile_from_yaml
 from memorable.core.temporal import parse_iso_timestamp
 
@@ -40,6 +41,27 @@ def set_mcp_context(ctx: ApplicationContext) -> None:
     """
     global _context  # noqa: PLW0603
     _context = ctx
+
+
+def _resolve_repository(
+    record_type: str,
+) -> TemporalRecordRepository | dict[str, object]:
+    """Map a record_type string to the corresponding TemporalRecordRepository.
+
+    Returns the repository on success, or an error dict on failure.
+    Adding a new record type requires only updating this helper.
+    """
+    repos = {
+        "decision": lambda: _context.decision_repo,
+        "observation": lambda: _context.observation_repo,
+    }
+    accessor = repos.get(record_type)
+    if accessor is not None:
+        return accessor()
+    return {
+        "error": f"Unknown record_type '{record_type}'. "
+        f"Supported types: decision, observation."
+    }
 
 
 @mcp_server.tool(
@@ -330,17 +352,11 @@ def current_truth_tool(
 
     Returns record details on success, or an error dict on failure.
     """
-    if record_type == "decision":
-        repository = _context.decision_repo
-    elif record_type == "observation":
-        repository = _context.observation_repo
-    else:
-        return {
-            "error": f"Unknown record_type '{record_type}'. "
-            f"Supported types: decision, observation."
-        }
+    resolved = _resolve_repository(record_type)
+    if isinstance(resolved, dict):
+        return resolved
 
-    service = CurrentTruthService(repository=repository)
+    service = CurrentTruthService(repository=resolved)
     record = service.current(space=space, record_id=record_id)
 
     if record is None:
@@ -382,17 +398,11 @@ def point_in_time_truth_tool(
 
     Returns record details on success, or an error dict on failure.
     """
-    if record_type == "decision":
-        repository = _context.decision_repo
-    elif record_type == "observation":
-        repository = _context.observation_repo
-    else:
-        return {
-            "error": f"Unknown record_type '{record_type}'. "
-            f"Supported types: decision, observation."
-        }
+    resolved = _resolve_repository(record_type)
+    if isinstance(resolved, dict):
+        return resolved
 
-    service = PointInTimeTruthService(repository=repository)
+    service = PointInTimeTruthService(repository=resolved)
     timestamp = parse_iso_timestamp(at)
     record = service.at(space=space, record_id=record_id, at=timestamp)
 
@@ -435,17 +445,11 @@ def inspect_history_tool(
 
     Returns the history on success, or an error dict on failure.
     """
-    if record_type == "decision":
-        repository = _context.decision_repo
-    elif record_type == "observation":
-        repository = _context.observation_repo
-    else:
-        return {
-            "error": f"Unknown record_type '{record_type}'. "
-            f"Supported types: decision, observation."
-        }
+    resolved = _resolve_repository(record_type)
+    if isinstance(resolved, dict):
+        return resolved
 
-    service = InspectHistoryService(repository=repository)
+    service = InspectHistoryService(repository=resolved)
     history = service.history(space=space, record_id=record_id)
 
     if not history:
@@ -727,17 +731,11 @@ def invalidate_tool(
 
     Returns a dict with invalidation info on success, or an error dict.
     """
-    if record_type == "decision":
-        repository = _context.decision_repo
-    elif record_type == "observation":
-        repository = _context.observation_repo
-    else:
-        return {
-            "error": f"Unknown record_type '{record_type}'. "
-            f"Supported types: decision, observation."
-        }
+    resolved = _resolve_repository(record_type)
+    if isinstance(resolved, dict):
+        return resolved
 
-    service = InvalidateService(repository=repository)
+    service = InvalidateService(repository=resolved)
     timestamp = parse_iso_timestamp(at)
 
     try:
@@ -790,17 +788,11 @@ def correct_tool(
 
     Returns a dict with correction info on success, or an error dict.
     """
-    if record_type == "decision":
-        repository = _context.decision_repo
-    elif record_type == "observation":
-        repository = _context.observation_repo
-    else:
-        return {
-            "error": f"Unknown record_type '{record_type}'. "
-            f"Supported types: decision, observation."
-        }
+    resolved = _resolve_repository(record_type)
+    if isinstance(resolved, dict):
+        return resolved
 
-    service = CorrectService(repository=repository)
+    service = CorrectService(repository=resolved)
     timestamp = parse_iso_timestamp(at)
 
     try:
