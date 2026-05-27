@@ -714,10 +714,18 @@ def _cmd_search(args: argparse.Namespace, ctx: ApplicationContext) -> int:
     """Search memory using hybrid GraphRAG retrieval."""
     space = resolve_space(getattr(args, "space", None))
 
-    from memorable.retrieval.embeddings import FakeEmbeddingProvider
+    from memorable.retrieval.embeddings import build_embedding_provider
     from memorable.retrieval.service import build_retrieval_service
 
-    service = build_retrieval_service(ctx, FakeEmbeddingProvider(dimensions=32))
+    config = load_runtime_config()
+    try:
+        provider = build_embedding_provider(
+            config.embeddings, api_key=config.embeddings.api_key
+        )
+    except (RuntimeError, ValueError) as e:
+        print(f"Error: {e}", file=sys.stderr)
+        return 1
+    service = build_retrieval_service(ctx, provider)
 
     raw_mode = getattr(args, "mode", "current") or "current"
     mode = cast(Literal["current", "as-of"], raw_mode)

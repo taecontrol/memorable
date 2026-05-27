@@ -311,6 +311,196 @@ class TestCLIMemoryCommandsUseProductionContext:
         assert "Cannot connect to Neo4j" in err
 
 
+class TestCLISearchUsesRuntimeConfig:
+    """CLI search builds embedding provider from runtime config."""
+
+    def test_search_builds_provider_from_runtime_config(
+        self, tmp_path: Path, monkeypatch, capsys
+    ) -> None:
+        """_cmd_search uses build_embedding_provider with config.embeddings."""
+        from memorable.cli import main
+        from memorable.config import EmbeddingSettings, RuntimeConfig
+        from memorable.retrieval.embeddings import FakeEmbeddingProvider
+
+        _setup_workspace(tmp_path)
+        shared_ctx = ApplicationContext()
+        mock_driver = _make_mock_driver()
+
+        # Configure a "fake" provider so no real model loads
+        config = RuntimeConfig(
+            embeddings=EmbeddingSettings(provider="fake", dimensions=32),
+        )
+
+        monkeypatch.chdir(tmp_path)
+        with (
+            patch(
+                "memorable.cli.build_production_context",
+            ) as mock_build,
+            patch(
+                "memorable.cli.load_runtime_config",
+                return_value=config,
+            ),
+            patch(
+                "memorable.retrieval.embeddings.build_embedding_provider",
+            ) as mock_build_provider,
+        ):
+            mock_build.return_value = (shared_ctx, mock_driver)
+            mock_build_provider.return_value = FakeEmbeddingProvider(dimensions=32)
+
+            rc = main(["search", "--query", "test query"])
+
+        assert rc == 0
+        mock_build_provider.assert_called_once_with(
+            config.embeddings,
+            api_key=config.embeddings.api_key,
+        )
+
+    def test_search_default_config_uses_fastembed(
+        self, tmp_path: Path, monkeypatch, capsys
+    ) -> None:
+        """Default config (no runtime.yaml, no .env) passes fastembed settings."""
+        from memorable.cli import main
+        from memorable.config import RuntimeConfig
+        from memorable.retrieval.embeddings import FakeEmbeddingProvider
+
+        _setup_workspace(tmp_path)
+        shared_ctx = ApplicationContext()
+        mock_driver = _make_mock_driver()
+
+        monkeypatch.chdir(tmp_path)
+        with (
+            patch(
+                "memorable.cli.build_production_context",
+            ) as mock_build,
+            patch(
+                "memorable.cli.load_runtime_config",
+                return_value=RuntimeConfig(),
+            ),
+            patch(
+                "memorable.retrieval.embeddings.build_embedding_provider",
+            ) as mock_build_provider,
+        ):
+            mock_build.return_value = (shared_ctx, mock_driver)
+            mock_build_provider.return_value = FakeEmbeddingProvider(dimensions=32)
+
+            rc = main(["search", "--query", "anything"])
+
+        assert rc == 0
+        called_settings = mock_build_provider.call_args[0][0]
+        assert called_settings.provider == "fastembed"
+        assert called_settings.api_key is None
+
+    def test_search_openrouter_without_api_key_prints_error(
+        self, tmp_path: Path, monkeypatch, capsys
+    ) -> None:
+        """openrouter without API key prints actionable error and exits 1."""
+        from memorable.cli import main
+        from memorable.config import EmbeddingSettings, RuntimeConfig
+
+        _setup_workspace(tmp_path)
+        shared_ctx = ApplicationContext()
+        mock_driver = _make_mock_driver()
+
+        config = RuntimeConfig(
+            embeddings=EmbeddingSettings(provider="openrouter"),
+        )
+
+        monkeypatch.chdir(tmp_path)
+        with (
+            patch(
+                "memorable.cli.build_production_context",
+            ) as mock_build,
+            patch(
+                "memorable.cli.load_runtime_config",
+                return_value=config,
+            ),
+        ):
+            mock_build.return_value = (shared_ctx, mock_driver)
+
+            rc = main(["search", "--query", "test"])
+
+        assert rc == 1
+        err = capsys.readouterr().err
+        assert "MEMORABLE_OPENROUTER_API_KEY" in err
+
+    def test_search_openrouter_with_api_key_builds_provider(
+        self, tmp_path: Path, monkeypatch, capsys
+    ) -> None:
+        """openrouter + api_key builds OpenRouter provider successfully."""
+        from memorable.cli import main
+        from memorable.config import EmbeddingSettings, RuntimeConfig
+        from memorable.retrieval.embeddings import FakeEmbeddingProvider
+
+        _setup_workspace(tmp_path)
+        shared_ctx = ApplicationContext()
+        mock_driver = _make_mock_driver()
+
+        config = RuntimeConfig(
+            embeddings=EmbeddingSettings(
+                provider="openrouter",
+                api_key="sk-or-test-key",
+            ),
+        )
+
+        monkeypatch.chdir(tmp_path)
+        with (
+            patch(
+                "memorable.cli.build_production_context",
+            ) as mock_build,
+            patch(
+                "memorable.cli.load_runtime_config",
+                return_value=config,
+            ),
+            patch(
+                "memorable.retrieval.embeddings.build_embedding_provider",
+            ) as mock_build_provider,
+        ):
+            mock_build.return_value = (shared_ctx, mock_driver)
+            mock_build_provider.return_value = FakeEmbeddingProvider(dimensions=32)
+
+            rc = main(["search", "--query", "test"])
+
+        assert rc == 0
+        mock_build_provider.assert_called_once_with(
+            config.embeddings,
+            api_key="sk-or-test-key",
+        )
+
+    def test_search_unknown_provider_prints_error_and_exits_1(
+        self, tmp_path: Path, monkeypatch, capsys
+    ) -> None:
+        """Unknown provider name (e.g. typo) prints actionable error, not traceback."""
+        from memorable.cli import main
+        from memorable.config import EmbeddingSettings, RuntimeConfig
+
+        _setup_workspace(tmp_path)
+        shared_ctx = ApplicationContext()
+        mock_driver = _make_mock_driver()
+
+        config = RuntimeConfig(
+            embeddings=EmbeddingSettings(provider="nonexistent"),
+        )
+
+        monkeypatch.chdir(tmp_path)
+        with (
+            patch(
+                "memorable.cli.build_production_context",
+            ) as mock_build,
+            patch(
+                "memorable.cli.load_runtime_config",
+                return_value=config,
+            ),
+        ):
+            mock_build.return_value = (shared_ctx, mock_driver)
+
+            rc = main(["search", "--query", "test"])
+
+        assert rc == 1
+        err = capsys.readouterr().err
+        assert "nonexistent" in err
+        assert "Error:" in err
+
+
 class TestCLICommandsNotNeedingContext:
     """Commands that don't need a context should still work without one."""
 

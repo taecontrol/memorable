@@ -47,6 +47,7 @@ class TestDefaultsOnly:
         assert config.embeddings.provider == "fastembed"
         assert config.embeddings.model == "BAAI/bge-small-en-v1.5"
         assert config.embeddings.dimensions == 384
+        assert config.embeddings.api_key is None
 
     def test_all_sources_are_builtin(self, tmp_path: Path) -> None:
         from memorable.config import load_runtime_config
@@ -139,9 +140,7 @@ class TestRuntimeYaml:
 
         config_dir = tmp_path / ".memorable"
         config_dir.mkdir()
-        (config_dir / "runtime.yaml").write_text(
-            "embeddings:\n  dimensions: 768\n"
-        )
+        (config_dir / "runtime.yaml").write_text("embeddings:\n  dimensions: 768\n")
 
         config = load_runtime_config(base_path=tmp_path)
 
@@ -280,6 +279,48 @@ class TestDotEnvSecrets:
         assert config.sources["neo4j.uri"] == ".env"
         assert config.sources["neo4j.user"] == ".env"
         assert config.sources["neo4j.password"] == ".env"
+
+
+class TestOpenRouterApiKeyFromDotEnv:
+    """MEMORABLE_OPENROUTER_API_KEY loads into embeddings.api_key."""
+
+    def test_api_key_loaded_from_dotenv(self, tmp_path: Path) -> None:
+        from memorable.config import load_runtime_config
+
+        config_dir = tmp_path / ".memorable"
+        config_dir.mkdir()
+        (config_dir / ".env").write_text("MEMORABLE_OPENROUTER_API_KEY=sk-or-test\n")
+
+        config = load_runtime_config(base_path=tmp_path)
+
+        assert config.embeddings.api_key == "sk-or-test"
+        assert config.sources["embeddings.api_key"] == ".env"
+
+    def test_api_key_from_environ_fallback(
+        self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        from memorable.config import load_runtime_config
+
+        monkeypatch.setenv("MEMORABLE_OPENROUTER_API_KEY", "sk-or-env")
+
+        config = load_runtime_config(base_path=tmp_path)
+
+        assert config.embeddings.api_key == "sk-or-env"
+        assert config.sources["embeddings.api_key"] == "environment"
+
+    def test_api_key_none_when_not_set(self, tmp_path: Path) -> None:
+        from memorable.config import load_runtime_config
+
+        config = load_runtime_config(base_path=tmp_path)
+
+        assert config.embeddings.api_key is None
+
+    def test_api_key_source_is_builtin_when_not_set(self, tmp_path: Path) -> None:
+        from memorable.config import load_runtime_config
+
+        config = load_runtime_config(base_path=tmp_path)
+
+        assert config.sources["embeddings.api_key"] == "built-in"
 
 
 class TestEnvironmentFallback:
