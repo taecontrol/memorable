@@ -711,7 +711,12 @@ def search_memory_tool(
         mode: "current" for Current Truth, "as-of" for Point-In-Time Truth
         as_of: ISO timestamp, required when mode is "as-of"
     """
-    service = _context.build_retrieval_service()
+    from memorable.retrieval.embeddings import FakeEmbeddingProvider
+    from memorable.retrieval.service import build_retrieval_service
+
+    service = build_retrieval_service(
+        _context, FakeEmbeddingProvider(dimensions=32)
+    )
 
     as_of_dt = None
     if as_of is not None:

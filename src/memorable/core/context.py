@@ -95,29 +95,6 @@ class ApplicationContext:
         self._profiles[space] = profile
         return profile
 
-    def build_retrieval_service(self):
-        """Build a HybridRetrievalService wired to this context's repos.
-
-        Uses FakeEmbeddingProvider by default. Use build_embedding_provider()
-        to select a real provider via environment configuration.
-        """
-        from memorable.retrieval.embeddings import (
-            FakeEmbeddingProvider,
-        )
-        from memorable.retrieval.service import (
-            HybridRetrievalService,
-        )
-
-        provider = FakeEmbeddingProvider(dimensions=32)
-        return HybridRetrievalService(
-            entity_repo=self.entity_repo,
-            decision_repo=self.decision_repo,
-            task_repo=self.task_repo,
-            embedding_provider=provider,
-            observation_repo=self.observation_repo,
-            relation_repo=self.relation_repo,
-        )
-
     def reset(self) -> None:
         """Clear all cached state. Useful for test isolation."""
         self.entity_repo = InMemoryEntityRepository()

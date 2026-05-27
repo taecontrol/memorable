@@ -235,16 +235,9 @@ class TracerService:
 
     def _verify_hybrid_retrieval(self, ctx: ApplicationContext) -> dict[str, object]:
         from memorable.retrieval.embeddings import FakeEmbeddingProvider
-        from memorable.retrieval.service import HybridRetrievalService
+        from memorable.retrieval.service import build_retrieval_service
 
-        provider = FakeEmbeddingProvider(dimensions=32)
-        retrieval = HybridRetrievalService(
-            entity_repo=ctx.entity_repo,
-            decision_repo=ctx.decision_repo,
-            task_repo=ctx.task_repo,
-            observation_repo=ctx.observation_repo,
-            embedding_provider=provider,
-        )
+        retrieval = build_retrieval_service(ctx, FakeEmbeddingProvider(dimensions=32))
 
         results = retrieval.search(
             space="memorable",

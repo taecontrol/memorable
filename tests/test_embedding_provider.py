@@ -344,12 +344,14 @@ class TestNoAccidentalRemoteUse:
     """Remote providers are never used unless explicitly configured."""
 
     def test_default_context_uses_fake_provider(self) -> None:
-        """ApplicationContext.build_retrieval_service() uses fake by default."""
+        """build_retrieval_service with FakeEmbeddingProvider wires fake by default."""
         from memorable.core.context import ApplicationContext
         from memorable.retrieval.embeddings import FakeEmbeddingProvider
+        from memorable.retrieval.service import build_retrieval_service
 
         ctx = ApplicationContext()
-        service = ctx.build_retrieval_service()
+        provider = FakeEmbeddingProvider(dimensions=32)
+        service = build_retrieval_service(ctx, provider)
 
         # The service's embedding provider should be FakeEmbeddingProvider
         assert isinstance(service._embedding_provider, FakeEmbeddingProvider)
