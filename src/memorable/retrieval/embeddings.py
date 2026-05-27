@@ -166,7 +166,6 @@ class OpenRouterEmbeddingProvider:
         return raw
 
 
-
 def build_embedding_provider(
     settings: EmbeddingSettings,
     api_key: str | None = None,
