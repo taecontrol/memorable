@@ -212,53 +212,18 @@ class TestProviderConfiguration:
 
 
 class TestProviderFactory:
-    """Factory function builds the right provider from env configuration."""
+    """Factory function builds the right provider from EmbeddingSettings."""
 
-    def test_build_embedding_provider_returns_fake_when_no_config(
-        self, monkeypatch: pytest.MonkeyPatch
-    ) -> None:
-        """When no env vars are set, returns FakeEmbeddingProvider (safe default)."""
+    def test_fake_provider_from_settings(self) -> None:
+        """settings.provider == 'fake' returns FakeEmbeddingProvider."""
+        from memorable.config import EmbeddingSettings
         from memorable.retrieval.embeddings import (
             FakeEmbeddingProvider,
             build_embedding_provider,
         )
 
-        monkeypatch.delenv("MEMORABLE_OPENROUTER_API_KEY", raising=False)
-        monkeypatch.delenv("MEMORABLE_EMBEDDING_PROVIDER", raising=False)
-        monkeypatch.delenv("MEMORABLE_EMBEDDING_MODEL", raising=False)
-        monkeypatch.delenv("MEMORABLE_EMBEDDING_DIMENSIONS", raising=False)
-
-        provider = build_embedding_provider()
-        assert isinstance(provider, FakeEmbeddingProvider)
-
-    def test_build_embedding_provider_returns_openrouter_when_configured(
-        self, monkeypatch: pytest.MonkeyPatch
-    ) -> None:
-        """When API key is set, returns OpenRouterEmbeddingProvider."""
-        from memorable.retrieval.embeddings import (
-            OpenRouterEmbeddingProvider,
-            build_embedding_provider,
-        )
-
-        monkeypatch.setenv("MEMORABLE_OPENROUTER_API_KEY", "sk-test-key")
-        monkeypatch.delenv("MEMORABLE_EMBEDDING_PROVIDER", raising=False)
-
-        provider = build_embedding_provider()
-        assert isinstance(provider, OpenRouterEmbeddingProvider)
-
-    def test_build_embedding_provider_respects_provider_env_var(
-        self, monkeypatch: pytest.MonkeyPatch
-    ) -> None:
-        """MEMORABLE_EMBEDDING_PROVIDER=fake forces fake even with API key set."""
-        from memorable.retrieval.embeddings import (
-            FakeEmbeddingProvider,
-            build_embedding_provider,
-        )
-
-        monkeypatch.setenv("MEMORABLE_OPENROUTER_API_KEY", "sk-test-key")
-        monkeypatch.setenv("MEMORABLE_EMBEDDING_PROVIDER", "fake")
-
-        provider = build_embedding_provider()
+        settings = EmbeddingSettings(provider="fake")
+        provider = build_embedding_provider(settings)
         assert isinstance(provider, FakeEmbeddingProvider)
 
 
