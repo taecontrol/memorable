@@ -33,8 +33,9 @@ class DockerSettings:
 
 @dataclass(frozen=True)
 class EmbeddingSettings:
-    provider: str = "openrouter"
-    model: str = "text-embedding-3-small"
+    provider: str = "fastembed"
+    model: str = "BAAI/bge-small-en-v1.5"
+    dimensions: int = 384
 
 
 @dataclass(frozen=True)
@@ -174,6 +175,7 @@ def load_runtime_config(base_path: Path | None = None) -> RuntimeConfig:
     embeddings = EmbeddingSettings(
         provider=embeddings_raw.get("provider", EmbeddingSettings.provider),
         model=embeddings_raw.get("model", EmbeddingSettings.model),
+        dimensions=embeddings_raw.get("dimensions", EmbeddingSettings.dimensions),
     )
 
     # Fill in "built-in" for any field not already tracked
@@ -186,6 +188,7 @@ def load_runtime_config(base_path: Path | None = None) -> RuntimeConfig:
         "docker.bolt_port",
         "embeddings.provider",
         "embeddings.model",
+        "embeddings.dimensions",
     ]
     for fp in all_fields:
         if fp not in sources:
