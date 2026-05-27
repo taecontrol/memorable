@@ -274,6 +274,32 @@ class TestProviderFactory:
         with pytest.raises(ValueError, match="Unknown embedding provider 'nonexistent'"):
             build_embedding_provider(settings)
 
+    def test_factory_passes_model_and_dimensions_to_fake(self) -> None:
+        """Factory forwards settings.dimensions to FakeEmbeddingProvider."""
+        from memorable.config import EmbeddingSettings
+        from memorable.retrieval.embeddings import build_embedding_provider
+
+        settings = EmbeddingSettings(provider="fake", dimensions=64)
+        provider = build_embedding_provider(settings)
+
+        vector = provider.embed("test")
+        assert len(vector) == 64
+
+    def test_factory_passes_model_and_dimensions_to_openrouter(self) -> None:
+        """Factory forwards settings.model and settings.dimensions to OpenRouterEmbeddingProvider."""
+        from memorable.config import EmbeddingSettings
+        from memorable.retrieval.embeddings import build_embedding_provider
+
+        settings = EmbeddingSettings(
+            provider="openrouter",
+            model="custom/model-v2",
+            dimensions=512,
+        )
+        provider = build_embedding_provider(settings, api_key="sk-test-key")
+
+        assert provider.model_name == "custom/model-v2"
+        assert provider.dimensions == 512
+
 
 # =====================================================================
 # 4. Embedding metadata preservation tests
