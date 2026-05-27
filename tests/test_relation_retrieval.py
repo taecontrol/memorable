@@ -648,3 +648,20 @@ class TestSupersessionTraversalUnchanged:
 
         related_ids = [r_id for r_id, _ in related]
         assert "obs:v1" in related_ids
+
+
+# =====================================================================
+# 7. ApplicationContext wiring
+# =====================================================================
+
+
+class TestApplicationContextRelationWiring:
+    """ApplicationContext passes relation_repo to HybridRetrievalService."""
+
+    def test_build_retrieval_service_wires_relation_repo(self) -> None:
+        from memorable.core.context import ApplicationContext
+
+        ctx = ApplicationContext()
+        service = ctx.build_retrieval_service()
+
+        assert service._relation_repo is ctx.relation_repo
