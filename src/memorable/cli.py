@@ -21,6 +21,7 @@ from memorable.core.application import (
     RememberDecisionService,
     RememberEntityService,
     RememberObservationService,
+    RememberRelationService,
     RememberTaskService,
     build_status_payload,
 )
@@ -211,6 +212,46 @@ def _cmd_init(args: argparse.Namespace) -> int:
         driver.close()
 
 
+def _cmd_profile_show(args: argparse.Namespace) -> int:
+    """Show the loaded MemoryProfile including relation type declarations."""
+    base_path = Path(args.path) if args.path else Path.cwd()
+    profile_path = base_path / ".memorable" / "memory.yaml"
+
+    if not profile_path.exists():
+        print(
+            f"Error: No memory.yaml found at {profile_path}. "
+            "Create a .memorable/memory.yaml to define your MemoryProfile.",
+            file=sys.stderr,
+        )
+        return 1
+
+    yaml_text = profile_path.read_text(encoding="utf-8")
+
+    try:
+        profile = load_profile_from_yaml(yaml_text)
+    except ProfileValidationError as e:
+        print(f"Error: {e}", file=sys.stderr)
+        return 1
+
+    output = {
+        "space_name": profile.space.name,
+        "description": profile.space.description,
+        "entity_count": len(profile.entities),
+        "record_count": len(profile.records),
+        "relation_count": len(profile.relations),
+        "write_policy_default": profile.write_policy.default,
+        "write_policy_sensitive": profile.write_policy.sensitive,
+        "entities": [e.name for e in profile.entities],
+        "relations": [r.name for r in profile.relations],
+        "records": [
+            {"name": r.name, "extends": r.extends} for r in profile.records
+        ],
+    }
+
+    print(json.dumps(output, sort_keys=True, indent=2))
+    return 0
+
+
 def _cmd_tracer_run(args: argparse.Namespace) -> int:
     """Run the tracer-bullet fixture and output verification results."""
     default_context.reset()
@@ -395,6 +436,65 @@ def _cmd_remember_observation(args: argparse.Namespace, ctx: ApplicationContext)
                 "creation_time": result.provenance.creation_time.isoformat(),
                 "validity_time": result.provenance.validity_time.isoformat(),
                 "lifecycle_state": result.observation.lifecycle_state,
+            },
+            sort_keys=True,
+        )
+    )
+    return 0
+
+
+def _cmd_remember_relation(args: argparse.Namespace, ctx: ApplicationContext) -> int:
+    """Remember a Relation with provenance."""
+    space = resolve_space(getattr(args, "space", None))
+
+    try:
+        profile = ctx.load_profile(space)
+    except ProfileValidationError as e:
+        print(f"Error: {e}", file=sys.stderr)
+        return 1
+
+    service = RememberRelationService(
+        relation_repo=ctx.relation_repo,
+        entity_repo=ctx.entity_repo,
+        profile=profile,
+    )
+
+    at = parse_iso_timestamp(args.at)
+    supersedes = getattr(args, "supersedes", None)
+
+    try:
+        result = service.remember(
+            space=space,
+            relation_id=args.id,
+            source_entity_id=args.source_entity_id,
+            target_entity_id=args.target_entity_id,
+            relation_type=args.relation_type,
+            statement=args.statement,
+            source_id=args.source,
+            at=at,
+            writer=getattr(args, "writer", "agent:memorable"),
+            reason=getattr(args, "reason", ""),
+            supersedes=supersedes,
+        )
+    except ValueError as e:
+        print(f"Error: {e}", file=sys.stderr)
+        return 1
+
+    print(
+        json.dumps(
+            {
+                "relation_id": result.relation.id,
+                "statement": result.relation.statement,
+                "space": result.relation.space,
+                "record_kind": result.provenance.record_kind,
+                "lifecycle_state": result.relation.lifecycle_state,
+                "source_entity_id": result.relation.source_entity_id,
+                "target_entity_id": result.relation.target_entity_id,
+                "relation_type": result.relation.relation_type,
+                "source": result.provenance.source_id,
+                "episode": result.provenance.episode_id,
+                "creation_time": result.provenance.creation_time.isoformat(),
+                "validity_time": result.provenance.validity_time.isoformat(),
             },
             sort_keys=True,
         )
@@ -754,6 +854,7 @@ _CONTEXT_HANDLERS: dict[
     ("remember", "entity"): _cmd_remember_entity,
     ("remember", "decision"): _cmd_remember_decision,
     ("remember", "observation"): _cmd_remember_observation,
+    ("remember", "relation"): _cmd_remember_relation,
     ("remember", "task"): _cmd_remember_task,
     ("complete", "task"): _cmd_complete_task,
     ("task", "inspect"): _cmd_task_inspect,
@@ -848,6 +949,20 @@ def main(argv: list[str] | None = None) -> int:
         help="Base directory containing .memorable/memory.yaml (default: cwd).",
     )
 
+    # profile subcommand
+    profile_parser = subparsers.add_parser(
+        "profile", help="Inspect the MemoryProfile."
+    )
+    profile_sub = profile_parser.add_subparsers(dest="profile_type", required=True)
+    profile_show_parser = profile_sub.add_parser(
+        "show", help="Show the loaded MemoryProfile."
+    )
+    profile_show_parser.add_argument(
+        "--path",
+        default=None,
+        help="Base directory containing .memorable/memory.yaml (default: cwd).",
+    )
+
     # remember entity subcommand
     remember_parser = subparsers.add_parser(
         "remember", help="Remember structured memory."
@@ -902,6 +1017,22 @@ def main(argv: list[str] | None = None) -> int:
     obs_parser.add_argument("--supersedes", default=None)
     obs_parser.add_argument("--writer", default="agent:memorable")
     obs_parser.add_argument("--reason", default="")
+
+    # remember relation subcommand
+    rel_parser = remember_sub.add_parser(
+        "relation", help="Remember a Relation with provenance."
+    )
+    rel_parser.add_argument("--space", default=None)
+    rel_parser.add_argument("--id", required=True)
+    rel_parser.add_argument("--source-entity-id", required=True)
+    rel_parser.add_argument("--target-entity-id", required=True)
+    rel_parser.add_argument("--relation-type", required=True)
+    rel_parser.add_argument("--statement", required=True)
+    rel_parser.add_argument("--source", required=True)
+    rel_parser.add_argument("--at", required=True)
+    rel_parser.add_argument("--supersedes", default=None)
+    rel_parser.add_argument("--writer", default="agent:memorable")
+    rel_parser.add_argument("--reason", default="")
 
     # complete subcommand
     complete_parser = subparsers.add_parser(
@@ -1019,6 +1150,10 @@ def main(argv: list[str] | None = None) -> int:
         raise AssertionError(f"unhandled db command: {args.db_type}")
     elif args.command == "init":
         return _cmd_init(args)
+    elif args.command == "profile":
+        if args.profile_type == "show":
+            return _cmd_profile_show(args)
+        raise AssertionError(f"unhandled profile command: {args.profile_type}")
     elif args.command == "tracer":
         if args.tracer_type == "run":
             return _cmd_tracer_run(args)
