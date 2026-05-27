@@ -259,9 +259,11 @@ class HybridRetrievalService:
     ) -> list[tuple[str, str]]:
         """Find related records via graph traversal.
 
-        For the tracer bullet, this uses a simple heuristic:
-        entities relate to all decisions, tasks, and observations in the
-        same space, and decisions/tasks/observations relate to all entities.
+        Entity expansion uses Relation-based 1-hop traversal (via
+        ``list_by_entity``), skipping superseded/invalidated relations.
+        Decision, Task, and Observation expansion still uses a heuristic:
+        each relates to all entities in the same space, plus supersession
+        chain neighbours where applicable.
         """
         related: list[tuple[str, str]] = []
 
@@ -690,7 +692,7 @@ class HybridRetrievalService:
                 return None
             lifecycle_state = relation.lifecycle_state
         else:
-            lifecycle_state = relation.lifecycle_state
+            lifecycle_state = relation.lifecycle_state  # as-of filtering TBD
 
         if is_semantic:
             stmt_preview = relation.statement[:60]
