@@ -183,7 +183,7 @@ class TestProviderFactory:
         assert isinstance(provider, FastembedEmbeddingProvider)
 
     def test_openrouter_provider_from_settings_with_api_key(self) -> None:
-        """settings.provider == 'openrouter' + api_key returns OpenRouterEmbeddingProvider."""
+        """openrouter + api_key returns OpenRouterEmbeddingProvider."""
         from memorable.config import EmbeddingSettings
         from memorable.retrieval.embeddings import (
             OpenRouterEmbeddingProvider,
@@ -215,7 +215,9 @@ class TestProviderFactory:
 
         settings = EmbeddingSettings(provider="nonexistent")
 
-        with pytest.raises(ValueError, match="Unknown embedding provider 'nonexistent'"):
+        with pytest.raises(
+            ValueError, match="Unknown embedding provider 'nonexistent'"
+        ):
             build_embedding_provider(settings)
 
     def test_factory_passes_model_and_dimensions_to_fake(self) -> None:
@@ -230,7 +232,7 @@ class TestProviderFactory:
         assert len(vector) == 64
 
     def test_factory_passes_model_and_dimensions_to_openrouter(self) -> None:
-        """Factory forwards settings.model and settings.dimensions to OpenRouterEmbeddingProvider."""
+        """Factory forwards model and dimensions to OpenRouter."""
         from memorable.config import EmbeddingSettings
         from memorable.retrieval.embeddings import build_embedding_provider
 

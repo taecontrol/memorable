@@ -7,7 +7,6 @@ from __future__ import annotations
 
 import hashlib
 import math
-import os
 import struct
 from typing import TYPE_CHECKING, Protocol, runtime_checkable
 
@@ -166,23 +165,6 @@ class OpenRouterEmbeddingProvider:
             return [v / magnitude for v in raw]
         return raw
 
-    @classmethod
-    def from_env(cls) -> OpenRouterEmbeddingProvider:
-        api_key = os.environ.get("MEMORABLE_OPENROUTER_API_KEY")
-        if not api_key:
-            msg = (
-                "MEMORABLE_OPENROUTER_API_KEY environment variable is required "
-                "for the OpenRouter embedding provider. "
-                "Set it to your OpenRouter API key."
-            )
-            raise RuntimeError(msg)
-
-        model = os.environ.get(
-            "MEMORABLE_EMBEDDING_MODEL",
-            "google/gemini-embedding-2-preview",
-        )
-        dimensions = int(os.environ.get("MEMORABLE_EMBEDDING_DIMENSIONS", "768"))
-        return cls(api_key=api_key, model=model, dimensions=dimensions)
 
 
 def build_embedding_provider(
