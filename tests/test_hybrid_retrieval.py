@@ -1129,7 +1129,7 @@ class TestLanguageBoundary:
             mode="current",
         )
 
-        valid_kinds = {"Entity", "Decision", "Task", "Observation"}
+        valid_kinds = {"Entity", "Decision", "Task", "Observation", "Relation"}
         for result in results:
             assert result.source_kind in valid_kinds, (
                 f"source_kind '{result.source_kind}' is not a domain term"
