@@ -361,3 +361,110 @@ class TestRelationSearchResults:
         ]
         assert len(relation_results) == 1
         assert relation_results[0].lifecycle_state == "current"
+
+
+# =====================================================================
+# 4. Real graph expansion from Entity via Relations
+# =====================================================================
+
+
+class TestRelationBasedGraphExpansion:
+    """Entity graph expansion uses list_by_entity() for real 1-hop traversal."""
+
+    def test_entity_expands_to_connected_entity_via_relation(self) -> None:
+        """From entity:auth-module, graph expansion finds entity:token-service
+        through the depends-on Relation."""
+        service, *_ = _build_relation_fixture()
+
+        results = service.search(
+            space="myproject",
+            query="Auth Module component",
+            mode="current",
+        )
+
+        result_ids = [r.source_id for r in results]
+        # auth-module is a semantic hit; token-service should be reached
+        # via 1-hop Relation traversal
+        assert "entity:auth-module" in result_ids
+        assert "entity:token-service" in result_ids
+
+    def test_expanded_entity_has_decayed_score(self) -> None:
+        """Entity reached via graph expansion has a lower score than
+        the directly matched entity."""
+        service, *_ = _build_relation_fixture()
+
+        results = service.search(
+            space="myproject",
+            query="Auth Module component",
+            mode="current",
+        )
+
+        auth_results = [
+            r for r in results if r.source_id == "entity:auth-module"
+        ]
+        token_results = [
+            r for r in results if r.source_id == "entity:token-service"
+        ]
+
+        # Both should be present
+        assert len(auth_results) == 1
+        assert len(token_results) == 1
+
+        # token-service came via graph expansion, should have decayed score
+        assert token_results[0].score < auth_results[0].score
+
+    def test_entity_does_not_expand_to_unconnected_entity(self) -> None:
+        """Entity expansion only follows Relations, not all entities
+        in the space."""
+        service, *_ = _build_relation_fixture()
+
+        results = service.search(
+            space="myproject",
+            query="Auth Module component",
+            mode="current",
+        )
+
+        result_ids = [r.source_id for r in results]
+        # entity:database has no Relation to entity:auth-module,
+        # so it should NOT appear via graph expansion from auth-module
+        # (it may appear via its own semantic match, but that's fine --
+        # the key invariant is that it's not reached via Entity expansion)
+
+        # Check that the graph expansion did not add database via
+        # the old "every Entity connects to every record" heuristic.
+        # If database appears, it must be a semantic hit, not graph-expanded.
+        db_results = [
+            r for r in results if r.source_id == "entity:database"
+        ]
+        for r in db_results:
+            # If it's in results, it should have been a semantic candidate,
+            # not graph-expanded
+            assert any(
+                "semantic" in e.lower() for e in r.explanation
+            ), (
+                "entity:database should only appear via semantic match, "
+                "not via Entity graph expansion"
+            )
+
+    def test_fake_entity_to_all_records_heuristic_removed(self) -> None:
+        """Entity expansion no longer returns all decisions/tasks/observations
+        in the space."""
+        service, *_ = _build_relation_fixture()
+
+        # Call _graph_expand directly to verify the heuristic is removed
+        related = service._graph_expand(
+            "myproject", "entity:auth-module", "Entity"
+        )
+
+        related_kinds = {kind for _, kind in related}
+        # Entity expansion should only produce Entity results
+        # (via Relation traversal), not Decision/Task/Observation
+        assert "Decision" not in related_kinds, (
+            "Entity expansion should not return all Decisions in the space"
+        )
+        assert "Task" not in related_kinds, (
+            "Entity expansion should not return all Tasks in the space"
+        )
+        assert "Observation" not in related_kinds, (
+            "Entity expansion should not return all Observations in the space"
+        )
