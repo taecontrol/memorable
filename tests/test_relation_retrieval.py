@@ -527,3 +527,124 @@ class TestRelationTemporalFilteringInExpansion:
 
         related_ids = [r_id for r_id, _ in related]
         assert "entity:token-service" in related_ids
+
+
+# =====================================================================
+# 6. Decision and Observation supersession traversal unchanged
+# =====================================================================
+
+
+class TestSupersessionTraversalUnchanged:
+    """Decision and Observation supersession traversal in graph expansion
+    is unchanged by the Relation integration."""
+
+    def test_decision_expansion_follows_supersession_chain(self) -> None:
+        """Decision graph expansion still follows supersession links."""
+        from memorable.core.application import RememberDecisionService
+        from memorable.core.profile import load_profile_from_yaml
+        from memorable.core.repositories import (
+            InMemoryDecisionRepository,
+            InMemoryEntityRepository,
+            InMemoryObservationRepository,
+            InMemoryRelationRepository,
+            InMemoryTaskRepository,
+        )
+        from memorable.retrieval.embeddings import FakeEmbeddingProvider
+        from memorable.retrieval.service import HybridRetrievalService
+
+        entity_repo = InMemoryEntityRepository()
+        decision_repo = InMemoryDecisionRepository()
+        task_repo = InMemoryTaskRepository()
+        observation_repo = InMemoryObservationRepository()
+        relation_repo = InMemoryRelationRepository()
+        profile = load_profile_from_yaml(RELATION_PROFILE_YAML)
+
+        decision_svc = RememberDecisionService(
+            repository=decision_repo, profile=profile
+        )
+        decision_svc.remember(
+            space="myproject",
+            decision_id="decision:v1",
+            statement="First approach",
+            source_id=SOURCE_ID,
+            at=RELATION_TIMESTAMPS["decision"],
+        )
+        decision_svc.remember(
+            space="myproject",
+            decision_id="decision:v2",
+            statement="Second approach supersedes first",
+            source_id=SOURCE_ID,
+            at=RELATION_TIMESTAMPS["relation_v2"],
+            supersedes="decision:v1",
+        )
+
+        service = HybridRetrievalService(
+            entity_repo=entity_repo,
+            decision_repo=decision_repo,
+            task_repo=task_repo,
+            observation_repo=observation_repo,
+            relation_repo=relation_repo,
+            embedding_provider=FakeEmbeddingProvider(dimensions=32),
+        )
+
+        related = service._graph_expand(
+            "myproject", "decision:v2", "Decision"
+        )
+
+        related_ids = [r_id for r_id, _ in related]
+        # Should follow supersedes link to v1
+        assert "decision:v1" in related_ids
+
+    def test_observation_expansion_follows_supersession_chain(self) -> None:
+        """Observation graph expansion still follows supersession links."""
+        from memorable.core.application import RememberObservationService
+        from memorable.core.profile import load_profile_from_yaml
+        from memorable.core.repositories import (
+            InMemoryDecisionRepository,
+            InMemoryEntityRepository,
+            InMemoryObservationRepository,
+            InMemoryRelationRepository,
+            InMemoryTaskRepository,
+        )
+        from memorable.retrieval.embeddings import FakeEmbeddingProvider
+        from memorable.retrieval.service import HybridRetrievalService
+
+        entity_repo = InMemoryEntityRepository()
+        decision_repo = InMemoryDecisionRepository()
+        task_repo = InMemoryTaskRepository()
+        observation_repo = InMemoryObservationRepository()
+        relation_repo = InMemoryRelationRepository()
+        profile = load_profile_from_yaml(RELATION_PROFILE_YAML)
+
+        obs_svc = RememberObservationService(
+            repository=observation_repo, profile=profile
+        )
+        obs_svc.remember(
+            space="myproject",
+            observation_id="obs:v1",
+            statement="Initial observation",
+            source_id=SOURCE_ID,
+            at=RELATION_TIMESTAMPS["observation"],
+        )
+        obs_svc.remember(
+            space="myproject",
+            observation_id="obs:v2",
+            statement="Updated observation supersedes initial",
+            source_id=SOURCE_ID,
+            at=RELATION_TIMESTAMPS["relation_v2"],
+            supersedes="obs:v1",
+        )
+
+        service = HybridRetrievalService(
+            entity_repo=entity_repo,
+            decision_repo=decision_repo,
+            task_repo=task_repo,
+            observation_repo=observation_repo,
+            relation_repo=relation_repo,
+            embedding_provider=FakeEmbeddingProvider(dimensions=32),
+        )
+
+        related = service._graph_expand("myproject", "obs:v2", "Observation")
+
+        related_ids = [r_id for r_id, _ in related]
+        assert "obs:v1" in related_ids
