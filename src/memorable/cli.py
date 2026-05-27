@@ -98,6 +98,9 @@ def _cmd_db_status(args: argparse.Namespace) -> int:
         "embeddings": {
             "provider": _field_entry(config.embeddings.provider, "embeddings.provider"),
             "model": _field_entry(config.embeddings.model, "embeddings.model"),
+            "dimensions": _field_entry(
+                config.embeddings.dimensions, "embeddings.dimensions"
+            ),
         },
     }
 
