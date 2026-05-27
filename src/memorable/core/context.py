@@ -115,6 +115,7 @@ class ApplicationContext:
             task_repo=self.task_repo,
             embedding_provider=provider,
             observation_repo=self.observation_repo,
+            relation_repo=self.relation_repo,
         )
 
     def reset(self) -> None:
