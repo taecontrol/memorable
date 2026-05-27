@@ -665,3 +665,49 @@ class TestApplicationContextRelationWiring:
         service = ctx.build_retrieval_service()
 
         assert service._relation_repo is ctx.relation_repo
+
+
+# =====================================================================
+# 8. Relation temporal filtering in search results
+# =====================================================================
+
+
+class TestRelationTemporalFilteringInSearch:
+    """Superseded and invalidated Relations excluded from current mode results."""
+
+    def test_superseded_relation_excluded_from_current_results(self) -> None:
+        service, _, _, _, _, relation_repo = _build_relation_fixture()
+
+        relation_repo.mark_superseded(
+            space="myproject",
+            record_id="relation:auth-depends-token",
+            superseded_by="relation:auth-depends-token:v2",
+            invalidation_time=RELATION_TIMESTAMPS["relation_v2"],
+        )
+
+        results = service.search(
+            space="myproject",
+            query="auth-module depends on token-service",
+            mode="current",
+        )
+
+        result_ids = [r.source_id for r in results]
+        assert "relation:auth-depends-token" not in result_ids
+
+    def test_invalidated_relation_excluded_from_current_results(self) -> None:
+        service, _, _, _, _, relation_repo = _build_relation_fixture()
+
+        relation_repo.invalidate(
+            space="myproject",
+            record_id="relation:auth-depends-token",
+            invalidation_time=RELATION_TIMESTAMPS["relation_v2"],
+        )
+
+        results = service.search(
+            space="myproject",
+            query="auth-module depends on token-service",
+            mode="current",
+        )
+
+        result_ids = [r.source_id for r in results]
+        assert "relation:auth-depends-token" not in result_ids
