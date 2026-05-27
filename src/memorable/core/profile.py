@@ -23,6 +23,9 @@ KERNEL_RECORD_TYPES = frozenset(
         "Measurement",
         "Event",
         "DerivedMemory",
+        # Relation is here so profiles can declare records extending it,
+        # even though Relations are normally declared via the 'relations'
+        # section. This keeps the kernel type set complete.
         "Relation",
     }
 )

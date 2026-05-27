@@ -162,7 +162,7 @@ class Task:
 class Relation:
     """A typed, directed, temporal connection between two Entities.
 
-    Relations are structural edges in the memory graph. They carry the same
+    Relations are directed connections in the memory graph. They carry the same
     temporal and supersession semantics as Decision and Observation, enabling
     current truth, point-in-time truth, invalidation, correction, and
     provenance on connections between Entities.

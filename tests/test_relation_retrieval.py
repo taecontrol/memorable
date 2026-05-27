@@ -690,3 +690,89 @@ class TestRelationTemporalFilteringInSearch:
 
         result_ids = [r.source_id for r in results]
         assert "relation:auth-depends-token" not in result_ids
+
+    def test_as_of_before_supersession_returns_original_relation(self) -> None:
+        """Point-in-time before supersession returns the original relation."""
+        from memorable.core.application import RememberRelationService
+        from memorable.core.profile import load_profile_from_yaml
+
+        service, entity_repo, _, _, _, relation_repo = _build_relation_fixture()
+
+        profile = load_profile_from_yaml(RELATION_PROFILE_YAML)
+        relation_svc = RememberRelationService(
+            relation_repo=relation_repo, entity_repo=entity_repo, profile=profile
+        )
+        relation_svc.remember(
+            space="myproject",
+            relation_id="relation:auth-depends-token:v2",
+            source_entity_id="entity:auth-module",
+            target_entity_id="entity:token-service",
+            relation_type="depends-on",
+            statement="auth-module depends on token-service v2",
+            source_id=SOURCE_ID,
+            at=RELATION_TIMESTAMPS["relation_v2"],
+            supersedes="relation:auth-depends-token",
+        )
+
+        results = service.search(
+            space="myproject",
+            query="auth-module depends on token-service",
+            mode="as-of",
+            as_of=datetime(2026, 5, 25, 10, 15, 0, tzinfo=UTC),
+        )
+
+        result_ids = [r.source_id for r in results]
+        assert "relation:auth-depends-token" in result_ids
+
+    def test_as_of_after_supersession_excludes_superseded_relation(self) -> None:
+        """Point-in-time after supersession excludes the superseded relation."""
+        from memorable.core.application import RememberRelationService
+        from memorable.core.profile import load_profile_from_yaml
+
+        service, entity_repo, _, _, _, relation_repo = _build_relation_fixture()
+
+        profile = load_profile_from_yaml(RELATION_PROFILE_YAML)
+        relation_svc = RememberRelationService(
+            relation_repo=relation_repo, entity_repo=entity_repo, profile=profile
+        )
+        relation_svc.remember(
+            space="myproject",
+            relation_id="relation:auth-depends-token:v2",
+            source_entity_id="entity:auth-module",
+            target_entity_id="entity:token-service",
+            relation_type="depends-on",
+            statement="auth-module depends on token-service v2",
+            source_id=SOURCE_ID,
+            at=RELATION_TIMESTAMPS["relation_v2"],
+            supersedes="relation:auth-depends-token",
+        )
+
+        results = service.search(
+            space="myproject",
+            query="auth-module depends on token-service",
+            mode="as-of",
+            as_of=datetime(2026, 5, 25, 10, 25, 0, tzinfo=UTC),
+        )
+
+        result_ids = [r.source_id for r in results]
+        assert "relation:auth-depends-token" not in result_ids
+
+    def test_as_of_before_invalidation_returns_invalidated_relation(self) -> None:
+        """Point-in-time before invalidation returns the invalidated relation."""
+        service, _, _, _, _, relation_repo = _build_relation_fixture()
+
+        relation_repo.invalidate(
+            space="myproject",
+            record_id="relation:auth-depends-token",
+            invalidation_time=RELATION_TIMESTAMPS["relation_v2"],
+        )
+
+        results = service.search(
+            space="myproject",
+            query="auth-module depends on token-service",
+            mode="as-of",
+            as_of=datetime(2026, 5, 25, 10, 15, 0, tzinfo=UTC),
+        )
+
+        result_ids = [r.source_id for r in results]
+        assert "relation:auth-depends-token" in result_ids

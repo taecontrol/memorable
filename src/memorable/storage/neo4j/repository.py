@@ -858,7 +858,10 @@ class Neo4jRelationRepository:
         """Persist a Relation with structural edges and provenance.
 
         Uses MATCH to find existing Entity nodes and CREATE for the Relation
-        node, structural edges (:FROM, :TO), and Provenance.
+        node, structural edges (:FROM, :TO), and Provenance. If either
+        endpoint Entity does not exist in Neo4j, the MATCH produces zero
+        rows and no Relation is created. The application service validates
+        entity existence before calling save().
         """
         with self._driver.session() as session:
             session.run(

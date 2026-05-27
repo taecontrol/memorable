@@ -411,7 +411,7 @@ def remember_relation_tool(
     description=(
         "Get the Current Truth for a temporal record by following its "
         "Supersession chain. Accepts record_type to select the repository "
-        "(decision, observation). Returns the active record or an error."
+        "(decision, observation, relation). Returns the active record or an error."
     ),
 )
 def current_truth_tool(
@@ -455,7 +455,8 @@ def current_truth_tool(
     description=(
         "Get the Point-In-Time Truth for a temporal record at a specific "
         "timestamp. Accepts record_type to select the repository "
-        "(decision, observation). Returns the record that was valid at that time."
+        "(decision, observation, relation). Returns the record that was "
+        "valid at that time."
     ),
 )
 def point_in_time_truth_tool(
@@ -502,9 +503,9 @@ def point_in_time_truth_tool(
     name="memorable_inspect_history",
     description=(
         "Inspect the full Supersession chain for a temporal record. "
-        "Accepts a record_type to select the repository. "
-        "Returns Lifecycle State, Validity Time, "
-        "and Invalidation Time for each version."
+        "Accepts a record_type to select the repository "
+        "(decision, observation, relation). Returns Lifecycle State, "
+        "Validity Time, and Invalidation Time for each version."
     ),
 )
 def inspect_history_tool(
@@ -788,7 +789,8 @@ def inspect_task_tool(
         "Mark a temporal record as invalidated in a MemorySpace. "
         "Invalidation means a claim stopped being true without a successor. "
         "Sets Lifecycle State to invalidated and records Invalidation Time. "
-        "Accepts record_type to select the repository (decision, observation)."
+        "Accepts record_type to select the repository "
+        "(decision, observation, relation)."
     ),
 )
 def invalidate_tool(
@@ -837,7 +839,8 @@ def invalidate_tool(
         "Correct a temporal record's statement in place in a MemorySpace. "
         "Correction means the old statement was never true — it was a mistake. "
         "Updates the statement and replaces Provenance with Correction source. "
-        "Accepts record_type to select the repository (decision, observation)."
+        "Accepts record_type to select the repository "
+        "(decision, observation, relation)."
     ),
 )
 def correct_tool(

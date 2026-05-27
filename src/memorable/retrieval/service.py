@@ -72,6 +72,11 @@ class HybridRetrievalService:
         self._observation_pit_service = PointInTimeTruthService(
             repository=observation_repo
         )
+        self._relation_pit_service: PointInTimeTruthService | None = (
+            PointInTimeTruthService(repository=relation_repo)
+            if relation_repo is not None
+            else None
+        )
 
     def _rebuild_index(self, space: str) -> None:
         """Rebuild the embedding index from all records in the space.
@@ -386,6 +391,7 @@ class HybridRetrievalService:
                 relation,
                 score,
                 mode,
+                as_of,
                 is_semantic,
                 is_graph_expanded,
             )
@@ -682,6 +688,7 @@ class HybridRetrievalService:
         relation: Relation,
         score: float,
         mode: Literal["current", "as-of"],
+        as_of: datetime | None,
         is_semantic: bool,
         is_graph_expanded: bool,
     ) -> RetrievalResult | None:
@@ -691,8 +698,23 @@ class HybridRetrievalService:
             if relation.lifecycle_state in ("superseded", "invalidated"):
                 return None
             lifecycle_state = relation.lifecycle_state
+        elif (
+            mode == "as-of"
+            and as_of is not None
+            and self._relation_pit_service is not None
+        ):
+            pit_relation = self._relation_pit_service.at(
+                space=space, record_id=relation.id, at=as_of
+            )
+            if pit_relation is None:
+                return None
+            if pit_relation.id != relation.id:
+                return None
+            lifecycle_state = pit_relation.lifecycle_state
+            if pit_relation.validity_time > as_of:
+                return None
         else:
-            lifecycle_state = relation.lifecycle_state  # as-of filtering TBD
+            lifecycle_state = relation.lifecycle_state
 
         if is_semantic:
             stmt_preview = relation.statement[:60]
@@ -706,9 +728,33 @@ class HybridRetrievalService:
             explanation.append(
                 "temporal filter kept it because it is current at query time"
             )
+        elif mode == "as-of" and as_of is not None:
+            explanation.append(
+                f"temporal filter kept it because it was valid at {as_of.isoformat()}"
+            )
 
-        assert self._relation_repo is not None
-        provenance = self._relation_repo.get_provenance(space, relation.id)
+        # Supersession history context
+        has_chain = (
+            relation.superseded_by is not None or relation.supersedes is not None
+        )
+        if has_chain and self._relation_repo is not None:
+            supersession_parts = []
+            if relation.supersedes:
+                old = self._relation_repo.get(space, relation.supersedes)
+                if old:
+                    inv_time = (
+                        old.invalidation_time.isoformat()
+                        if old.invalidation_time
+                        else "unknown"
+                    )
+                    supersession_parts.append(f"{old.id} was superseded at {inv_time}")
+            if supersession_parts:
+                explanation.append(
+                    "supersession history: " + "; ".join(supersession_parts)
+                )
+
+        # _relation_repo is guaranteed non-None by the caller's guard
+        provenance = self._relation_repo.get_provenance(space, relation.id)  # type: ignore[union-attr]
         prov_summary: dict[str, str] = {}
         if provenance:
             prov_summary = {
