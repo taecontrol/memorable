@@ -16,6 +16,7 @@ from memorable.core.models import (
     MemorySpace,
     Observation,
     Provenance,
+    Relation,
     Task,
 )
 
@@ -839,6 +840,304 @@ class Neo4jTaskRepository:
             ]
 
 
+# --- Relation adapter ---
+
+
+class Neo4jRelationRepository:
+    """Storage adapter that persists Relations in Neo4j.
+
+    Implements the RelationRepository and TemporalRecordRepository protocols
+    defined in core.ports. Uses CREATE for append-only semantics and
+    structural edges (:FROM, :TO) to connect to endpoint Entity nodes.
+    """
+
+    def __init__(self, driver: Neo4jDriver) -> None:
+        self._driver = driver
+
+    def save(self, relation: Relation, provenance: Provenance) -> None:
+        """Persist a Relation with structural edges and provenance.
+
+        Uses MATCH to find existing Entity nodes and CREATE for the Relation
+        node, structural edges (:FROM, :TO), and Provenance. If either
+        endpoint Entity does not exist in Neo4j, the MATCH produces zero
+        rows and no Relation is created. The application service validates
+        entity existence before calling save().
+        """
+        with self._driver.session() as session:
+            session.run(
+                "MATCH (src:Entity {space: $space, id: $source_entity_id}) "
+                "MATCH (tgt:Entity {space: $space, id: $target_entity_id}) "
+                "CREATE (r:Relation {"
+                "  space: $space, id: $id, "
+                "  source_entity_id: $source_entity_id, "
+                "  target_entity_id: $target_entity_id, "
+                "  relation_type: $relation_type, "
+                "  statement: $statement, "
+                "  validity_time: $validity_time, "
+                "  invalidation_time: $invalidation_time, "
+                "  lifecycle_state: $lifecycle_state, "
+                "  supersedes: $supersedes, "
+                "  superseded_by: $superseded_by"
+                "}) "
+                "CREATE (r)-[:FROM]->(src) "
+                "CREATE (r)-[:TO]->(tgt) "
+                "WITH r "
+                "CREATE (p:Provenance {"
+                "  record_id: $record_id, record_kind: $record_kind, "
+                "  source_id: $source_id, episode_id: $episode_id, "
+                "  writer: $writer, reason: $reason, "
+                "  creation_time: $creation_time, "
+                "  validity_time: $prov_validity_time"
+                "}) "
+                "CREATE (p)-[:PROVENANCE_OF]->(r)",
+                space=relation.space,
+                id=relation.id,
+                source_entity_id=relation.source_entity_id,
+                target_entity_id=relation.target_entity_id,
+                relation_type=relation.relation_type,
+                statement=relation.statement,
+                validity_time=_to_iso(relation.validity_time),
+                invalidation_time=_to_iso(relation.invalidation_time),
+                lifecycle_state=relation.lifecycle_state,
+                supersedes=relation.supersedes,
+                superseded_by=relation.superseded_by,
+                record_id=provenance.record_id,
+                record_kind=provenance.record_kind,
+                source_id=provenance.source_id,
+                episode_id=provenance.episode_id,
+                writer=provenance.writer,
+                reason=provenance.reason,
+                creation_time=_to_iso(provenance.creation_time),
+                prov_validity_time=_to_iso(provenance.validity_time),
+            )
+
+    def get(self, space: str, record_id: str) -> Relation | None:
+        """Retrieve a Relation by space and id, or None if not found."""
+        with self._driver.session() as session:
+            result = session.run(
+                "MATCH (r:Relation {space: $space, id: $id}) "
+                "RETURN r.id AS id, "
+                "       r.source_entity_id AS source_entity_id, "
+                "       r.target_entity_id AS target_entity_id, "
+                "       r.relation_type AS relation_type, "
+                "       r.statement AS statement, "
+                "       r.space AS space, "
+                "       r.validity_time AS validity_time, "
+                "       r.invalidation_time AS invalidation_time, "
+                "       r.lifecycle_state AS lifecycle_state, "
+                "       r.supersedes AS supersedes, "
+                "       r.superseded_by AS superseded_by",
+                space=space,
+                id=record_id,
+            )
+            record = result.single()
+            if record is None:
+                return None
+            return Relation(
+                id=record["id"],
+                source_entity_id=record["source_entity_id"],
+                target_entity_id=record["target_entity_id"],
+                relation_type=record["relation_type"],
+                statement=record["statement"],
+                space=record["space"],
+                validity_time=_from_iso(record["validity_time"]),
+                invalidation_time=_from_iso(record["invalidation_time"]),
+                lifecycle_state=record["lifecycle_state"],
+                supersedes=record["supersedes"],
+                superseded_by=record["superseded_by"],
+            )
+
+    def get_provenance(self, space: str, record_id: str) -> Provenance | None:
+        """Retrieve the provenance for a Relation, or None if not found."""
+        with self._driver.session() as session:
+            result = session.run(
+                "MATCH (p:Provenance)-[:PROVENANCE_OF]"
+                "->(r:Relation {space: $space, id: $id}) "
+                "RETURN p.record_id AS record_id, p.record_kind AS record_kind, "
+                "       p.source_id AS source_id, p.episode_id AS episode_id, "
+                "       p.writer AS writer, p.reason AS reason, "
+                "       p.creation_time AS creation_time, "
+                "       p.validity_time AS validity_time",
+                space=space,
+                id=record_id,
+            )
+            record = result.single()
+            if record is None:
+                return None
+            return Provenance(
+                record_id=record["record_id"],
+                record_kind=record["record_kind"],
+                source_id=record["source_id"],
+                episode_id=record["episode_id"],
+                writer=record["writer"],
+                reason=record["reason"],
+                creation_time=_from_iso(record["creation_time"]),
+                validity_time=_from_iso(record["validity_time"]),
+            )
+
+    def list_by_space(self, space: str) -> list[Relation]:
+        """Return all relations in the given space."""
+        with self._driver.session() as session:
+            result = session.run(
+                "MATCH (r:Relation {space: $space}) "
+                "RETURN r.id AS id, "
+                "       r.source_entity_id AS source_entity_id, "
+                "       r.target_entity_id AS target_entity_id, "
+                "       r.relation_type AS relation_type, "
+                "       r.statement AS statement, "
+                "       r.space AS space, "
+                "       r.validity_time AS validity_time, "
+                "       r.invalidation_time AS invalidation_time, "
+                "       r.lifecycle_state AS lifecycle_state, "
+                "       r.supersedes AS supersedes, "
+                "       r.superseded_by AS superseded_by",
+                space=space,
+            )
+            return [
+                Relation(
+                    id=record["id"],
+                    source_entity_id=record["source_entity_id"],
+                    target_entity_id=record["target_entity_id"],
+                    relation_type=record["relation_type"],
+                    statement=record["statement"],
+                    space=record["space"],
+                    validity_time=_from_iso(record["validity_time"]),
+                    invalidation_time=_from_iso(record["invalidation_time"]),
+                    lifecycle_state=record["lifecycle_state"],
+                    supersedes=record["supersedes"],
+                    superseded_by=record["superseded_by"],
+                )
+                for record in result
+            ]
+
+    def mark_superseded(
+        self,
+        space: str,
+        record_id: str,
+        superseded_by: str,
+        invalidation_time: datetime,
+    ) -> None:
+        """Mark a Relation as superseded by another."""
+        with self._driver.session() as session:
+            session.run(
+                "MATCH (r:Relation {space: $space, id: $id}) "
+                "SET r.superseded_by = $superseded_by, "
+                "    r.invalidation_time = $invalidation_time, "
+                "    r.lifecycle_state = $lifecycle_state",
+                space=space,
+                id=record_id,
+                superseded_by=superseded_by,
+                invalidation_time=_to_iso(invalidation_time),
+                lifecycle_state="superseded",
+            )
+
+    def list_by_entity(self, space: str, entity_id: str) -> list[Relation]:
+        """Return all Relations where entity_id is source or target.
+
+        Uses graph traversal via :FROM and :TO edges rather than
+        property scanning.
+        """
+        with self._driver.session() as session:
+            result = session.run(
+                "MATCH (e:Entity {space: $space, id: $entity_id})"
+                "<-[:FROM|TO]-(r:Relation {space: $space}) "
+                "RETURN r.id AS id, "
+                "       r.source_entity_id AS source_entity_id, "
+                "       r.target_entity_id AS target_entity_id, "
+                "       r.relation_type AS relation_type, "
+                "       r.statement AS statement, "
+                "       r.space AS space, "
+                "       r.validity_time AS validity_time, "
+                "       r.invalidation_time AS invalidation_time, "
+                "       r.lifecycle_state AS lifecycle_state, "
+                "       r.supersedes AS supersedes, "
+                "       r.superseded_by AS superseded_by",
+                space=space,
+                entity_id=entity_id,
+            )
+            return [
+                Relation(
+                    id=record["id"],
+                    source_entity_id=record["source_entity_id"],
+                    target_entity_id=record["target_entity_id"],
+                    relation_type=record["relation_type"],
+                    statement=record["statement"],
+                    space=record["space"],
+                    validity_time=_from_iso(record["validity_time"]),
+                    invalidation_time=_from_iso(record["invalidation_time"]),
+                    lifecycle_state=record["lifecycle_state"],
+                    supersedes=record["supersedes"],
+                    superseded_by=record["superseded_by"],
+                )
+                for record in result
+            ]
+
+    def invalidate(
+        self,
+        space: str,
+        record_id: str,
+        invalidation_time: datetime,
+    ) -> None:
+        """Mark a Relation as invalidated (no replacement)."""
+        with self._driver.session() as session:
+            session.run(
+                "MATCH (r:Relation {space: $space, id: $id}) "
+                "SET r.invalidation_time = $invalidation_time, "
+                "    r.lifecycle_state = $lifecycle_state",
+                space=space,
+                id=record_id,
+                invalidation_time=_to_iso(invalidation_time),
+                lifecycle_state="invalidated",
+            )
+
+    def correct(
+        self,
+        space: str,
+        record_id: str,
+        new_statement: str,
+    ) -> None:
+        """Correct a Relation's statement in place."""
+        with self._driver.session() as session:
+            session.run(
+                "MATCH (r:Relation {space: $space, id: $id}) "
+                "SET r.statement = $statement",
+                space=space,
+                id=record_id,
+                statement=new_statement,
+            )
+
+    def save_provenance(
+        self,
+        space: str,
+        record_id: str,
+        provenance: Provenance,
+    ) -> None:
+        """Replace the provenance for a Relation."""
+        with self._driver.session() as session:
+            session.run(
+                "MATCH (p:Provenance)-[:PROVENANCE_OF]"
+                "->(r:Relation {space: $space, id: $id}) "
+                "SET p.record_id = $record_id, "
+                "    p.record_kind = $record_kind, "
+                "    p.source_id = $source_id, "
+                "    p.episode_id = $episode_id, "
+                "    p.writer = $writer, "
+                "    p.reason = $reason, "
+                "    p.creation_time = $creation_time, "
+                "    p.validity_time = $validity_time",
+                space=space,
+                id=record_id,
+                record_id=provenance.record_id,
+                record_kind=provenance.record_kind,
+                source_id=provenance.source_id,
+                episode_id=provenance.episode_id,
+                writer=provenance.writer,
+                reason=provenance.reason,
+                creation_time=_to_iso(provenance.creation_time),
+                validity_time=_to_iso(provenance.validity_time),
+            )
+
+
 # --- Schema bootstrap ---
 
 
@@ -874,4 +1173,9 @@ def ensure_all_constraints(driver: Neo4jDriver) -> None:
             "CREATE CONSTRAINT observation_space_id_unique "
             "IF NOT EXISTS FOR (o:Observation) "
             "REQUIRE (o.space, o.id) IS UNIQUE"
+        )
+        session.run(
+            "CREATE CONSTRAINT relation_space_id_unique "
+            "IF NOT EXISTS FOR (r:Relation) "
+            "REQUIRE (r.space, r.id) IS UNIQUE"
         )

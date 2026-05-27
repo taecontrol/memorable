@@ -18,6 +18,7 @@ from memorable.core.application import (
     RememberDecisionService,
     RememberEntityService,
     RememberObservationService,
+    RememberRelationService,
     RememberTaskService,
     build_status_payload,
 )
@@ -54,13 +55,14 @@ def _resolve_repository(
     repos = {
         "decision": lambda: _context.decision_repo,
         "observation": lambda: _context.observation_repo,
+        "relation": lambda: _context.relation_repo,
     }
     accessor = repos.get(record_type)
     if accessor is not None:
         return accessor()
     return {
         "error": f"Unknown record_type '{record_type}'. "
-        f"Supported types: decision, observation."
+        f"Supported types: decision, observation, relation."
     }
 
 
@@ -142,9 +144,11 @@ def inspect_space_tool(base_path: str) -> dict[str, object]:
         "description": profile.space.description,
         "entity_count": len(profile.entities),
         "record_count": len(profile.records),
+        "relation_count": len(profile.relations),
         "write_policy_default": profile.write_policy.default,
         "write_policy_sensitive": profile.write_policy.sensitive,
         "entities": [e.name for e in profile.entities],
+        "relations": [r.name for r in profile.relations],
         "records": [{"name": r.name, "extends": r.extends} for r in profile.records],
     }
 
@@ -331,11 +335,83 @@ def remember_observation_tool(
 
 
 @mcp_server.tool(
+    name="memorable_remember_relation",
+    description=(
+        "Remember a Relation with Provenance in a MemorySpace. "
+        "A Relation is a directed, temporal connection between two Entities. "
+        "Supports Supersession to replace an earlier Relation."
+    ),
+)
+def remember_relation_tool(
+    space: str,
+    relation_id: str,
+    source_entity_id: str,
+    target_entity_id: str,
+    relation_type: str,
+    statement: str,
+    source: str,
+    at: str,
+    supersedes: str | None = None,
+    writer: str = "agent:memorable",
+    reason: str = "",
+) -> dict[str, object]:
+    """Remember a Relation with provenance in a MemorySpace.
+
+    Returns a dict with relation and provenance info on success,
+    or an error dict on failure.
+    """
+    try:
+        profile = _context.load_profile(space)
+    except ProfileValidationError as e:
+        return {"error": str(e)}
+
+    service = RememberRelationService(
+        relation_repo=_context.relation_repo,
+        entity_repo=_context.entity_repo,
+        profile=profile,
+    )
+
+    timestamp = parse_iso_timestamp(at)
+
+    try:
+        result = service.remember(
+            space=space,
+            relation_id=relation_id,
+            source_entity_id=source_entity_id,
+            target_entity_id=target_entity_id,
+            relation_type=relation_type,
+            statement=statement,
+            source_id=source,
+            at=timestamp,
+            writer=writer,
+            reason=reason,
+            supersedes=supersedes,
+        )
+    except ValueError as e:
+        return {"error": str(e)}
+
+    return {
+        "relation_id": result.relation.id,
+        "statement": result.relation.statement,
+        "space": result.relation.space,
+        "record_kind": result.provenance.record_kind,
+        "lifecycle_state": result.relation.lifecycle_state,
+        "source_entity_id": result.relation.source_entity_id,
+        "target_entity_id": result.relation.target_entity_id,
+        "relation_type": result.relation.relation_type,
+        "source": result.provenance.source_id,
+        "episode": result.provenance.episode_id,
+        "creation_time": result.provenance.creation_time.isoformat(),
+        "validity_time": result.provenance.validity_time.isoformat(),
+    }
+
+
+@mcp_server.tool(
     name="memorable_current_truth",
     description=(
         "Get the Current Truth for a temporal record by following its "
         "Supersession chain. Accepts record_type to select the repository "
-        "(decision, observation). Returns the active record or an error."
+        "(decision, observation, relation). Returns the active record or an error."
     ),
 )
 def current_truth_tool(
@@ -379,7 +455,8 @@ def current_truth_tool(
     description=(
         "Get the Point-In-Time Truth for a temporal record at a specific "
         "timestamp. Accepts record_type to select the repository "
-        "(decision, observation). Returns the record that was valid at that time."
+        "(decision, observation, relation). Returns the record that was "
+        "valid at that time."
     ),
 )
 def point_in_time_truth_tool(
@@ -426,9 +503,9 @@ def point_in_time_truth_tool(
     name="memorable_inspect_history",
     description=(
         "Inspect the full Supersession chain for a temporal record. "
-        "Accepts a record_type to select the repository. "
-        "Returns Lifecycle State, Validity Time, "
-        "and Invalidation Time for each version."
+        "Accepts a record_type to select the repository "
+        "(decision, observation, relation). Returns Lifecycle State, "
+        "Validity Time, and Invalidation Time for each version."
     ),
 )
 def inspect_history_tool(
@@ -712,7 +789,8 @@ def inspect_task_tool(
         "Mark a temporal record as invalidated in a MemorySpace. "
         "Invalidation means a claim stopped being true without a successor. "
         "Sets Lifecycle State to invalidated and records Invalidation Time. "
-        "Accepts record_type to select the repository (decision, observation)."
+        "Accepts record_type to select the repository "
+        "(decision, observation, relation)."
     ),
 )
 def invalidate_tool(
@@ -761,7 +839,8 @@ def invalidate_tool(
         "Correct a temporal record's statement in place in a MemorySpace. "
         "Correction means the old statement was never true — it was a mistake. "
         "Updates the statement and replaces Provenance with Correction source. "
-        "Accepts record_type to select the repository (decision, observation)."
+        "Accepts record_type to select the repository "
+        "(decision, observation, relation)."
     ),
 )
 def correct_tool(

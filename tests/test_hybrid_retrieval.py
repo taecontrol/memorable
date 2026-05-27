@@ -1129,7 +1129,7 @@ class TestLanguageBoundary:
             mode="current",
         )
 
-        valid_kinds = {"Entity", "Decision", "Task", "Observation"}
+        valid_kinds = {"Entity", "Decision", "Task", "Observation", "Relation"}
         for result in results:
             assert result.source_kind in valid_kinds, (
                 f"source_kind '{result.source_kind}' is not a domain term"
@@ -1628,19 +1628,21 @@ class TestObservationGraphExpansion:
         # Should follow supersedes link back to v1
         assert "observation:storage-pref:v1" in related_ids
 
-    def test_graph_expand_entity_to_observations(self) -> None:
-        """Entity graph expansion includes observations in the same space."""
+    def test_graph_expand_entity_uses_relations_not_all_observations(self) -> None:
+        """Entity graph expansion uses Relations, not the old heuristic
+        of connecting to all observations in the space.
+
+        Without Relations connecting entity:memorable to observations,
+        Entity expansion returns no observation results.
+        """
         service, *_ = _build_observation_fixture()
 
         related = service._graph_expand("memorable", "entity:memorable", "Entity")
 
-        related_ids = [r_id for r_id, _ in related]
-        related_kinds = [kind for _, kind in related]
-        # Entity should expand to observations
-        assert "Observation" in related_kinds
-        # Should include current observations
-        assert "observation:storage-pref:v2" in related_ids
-        assert "observation:coverage" in related_ids
+        related_kinds = {kind for _, kind in related}
+        # Entity expansion now only follows Relations (none here),
+        # so no Observations should appear via graph expansion
+        assert "Observation" not in related_kinds
 
 
 class TestObservationRepoRequired:

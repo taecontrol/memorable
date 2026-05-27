@@ -35,6 +35,14 @@ class TestResolveRepositoryHappyPath:
         result = _resolve_repository("observation")
         assert isinstance(result, TemporalRecordRepository)
 
+    def test_returns_relation_repo_for_relation(self) -> None:
+        result = _resolve_repository("relation")
+        assert result is self.ctx.relation_repo
+
+    def test_relation_repo_satisfies_temporal_record_repository(self) -> None:
+        result = _resolve_repository("relation")
+        assert isinstance(result, TemporalRecordRepository)
+
 
 class TestResolveRepositoryErrorPath:
     def setup_method(self) -> None:
@@ -60,7 +68,7 @@ class TestResolveRepositoryErrorPath:
         result = _resolve_repository("nope")
         expected = {
             "error": "Unknown record_type 'nope'. "
-            "Supported types: decision, observation."
+            "Supported types: decision, observation, relation."
         }
         assert result == expected
 

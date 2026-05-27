@@ -10,7 +10,7 @@ from datetime import UTC, datetime
 
 import pytest
 
-from memorable.core.models import Decision, Entity, Provenance, Task
+from memorable.core.models import Decision, Entity, Provenance, Relation, Task
 
 # --- Fake driver for unit tests ---
 
@@ -62,8 +62,14 @@ class FakeSession:
             return FakeResult()
 
         # --- Provenance retrieval (must be checked BEFORE record MATCH) ---
-        # Exclude SET queries — those are save_provenance writes handled later.
-        if "Provenance" in query and "MATCH" in query and "SET" not in query:
+        # Exclude SET queries (save_provenance writes) and CREATE queries
+        # (record save with embedded provenance creation).
+        if (
+            "Provenance" in query
+            and "MATCH" in query
+            and "SET" not in query
+            and "CREATE" not in query
+        ):
             space = str(params.get("space", ""))
             record_id = str(params.get("id", ""))
             provs = self._store.get("Provenance", {})
@@ -73,6 +79,8 @@ class FakeSession:
                 prov = provs.get(("decision", space, record_id))
             elif "Task" in query:
                 prov = provs.get(("task", space, record_id))
+            elif "Relation" in query:
+                prov = provs.get(("relation", space, record_id))
             else:
                 prov = None
             if prov:
@@ -107,7 +115,9 @@ class FakeSession:
             return FakeResult()
 
         # --- Entity MATCH (single or list) ---
-        if "Entity" in query and "MATCH" in query:
+        # Exclude queries that also contain Relation (e.g. Relation save
+        # does MATCH Entity ... CREATE Relation).
+        if "Entity" in query and "MATCH" in query and "Relation" not in query:
             space = str(params.get("space", ""))
             if "id" not in params:
                 entities = self._store.get("Entity", {})
@@ -255,6 +265,105 @@ class FakeSession:
             task = tasks.get((space, task_id))
             if task:
                 return FakeResult([task])
+            return FakeResult()
+
+        # --- Relation CREATE ---
+        if "Relation" in query and "CREATE" in query and "Provenance" in query:
+            relations = self._store.setdefault("Relation", {})
+            space = str(params.get("space", ""))
+            relation_id = str(params.get("id", ""))
+            key = (space, relation_id)
+            relations[key] = {
+                "id": relation_id,
+                "source_entity_id": params.get("source_entity_id", ""),
+                "target_entity_id": params.get("target_entity_id", ""),
+                "relation_type": params.get("relation_type", ""),
+                "statement": params.get("statement", ""),
+                "space": space,
+                "validity_time": params.get("validity_time", ""),
+                "invalidation_time": params.get("invalidation_time"),
+                "lifecycle_state": params.get("lifecycle_state", ""),
+                "supersedes": params.get("supersedes"),
+                "superseded_by": params.get("superseded_by"),
+            }
+            if "record_id" in params:
+                provs = self._store.setdefault("Provenance", {})
+                provs[("relation", space, relation_id)] = {
+                    "record_id": params.get("record_id", ""),
+                    "record_kind": params.get("record_kind", ""),
+                    "source_id": params.get("source_id", ""),
+                    "episode_id": params.get("episode_id", ""),
+                    "writer": params.get("writer", ""),
+                    "reason": params.get("reason", ""),
+                    "creation_time": params.get("creation_time", ""),
+                    "validity_time": params.get("prov_validity_time", ""),
+                }
+            return FakeResult()
+
+        # --- Relation save_provenance (Provenance + Relation + SET) ---
+        if "Provenance" in query and "Relation" in query and "SET" in query:
+            space = str(params.get("space", ""))
+            record_id = str(params.get("id", ""))
+            provs = self._store.setdefault("Provenance", {})
+            provs[("relation", space, record_id)] = {
+                "record_id": params.get("record_id", ""),
+                "record_kind": params.get("record_kind", ""),
+                "source_id": params.get("source_id", ""),
+                "episode_id": params.get("episode_id", ""),
+                "writer": params.get("writer", ""),
+                "reason": params.get("reason", ""),
+                "creation_time": params.get("creation_time", ""),
+                "validity_time": params.get("validity_time", ""),
+            }
+            return FakeResult()
+
+        # --- Relation MATCH + SET (mark_superseded, invalidate, correct) ---
+        if "Relation" in query and "SET" in query:
+            space = str(params.get("space", ""))
+            relation_id = str(params.get("id", ""))
+            relations = self._store.get("Relation", {})
+            key = (space, relation_id)
+            if key in relations:
+                if "superseded_by" in params:
+                    relations[key]["superseded_by"] = params.get("superseded_by")
+                if "invalidation_time" in params:
+                    relations[key]["invalidation_time"] = params.get(
+                        "invalidation_time"
+                    )
+                if "lifecycle_state" in params:
+                    relations[key]["lifecycle_state"] = params.get("lifecycle_state")
+                if "statement" in params:
+                    relations[key]["statement"] = params.get("statement")
+            return FakeResult()
+
+        # --- Relation list_by_entity (graph traversal via FROM|TO) ---
+        if "Relation" in query and "FROM|TO" in query:
+            space = str(params.get("space", ""))
+            entity_id = str(params.get("entity_id", ""))
+            relations = self._store.get("Relation", {})
+            results = [
+                r
+                for (s, _), r in relations.items()
+                if s == space
+                and (
+                    r["source_entity_id"] == entity_id
+                    or r["target_entity_id"] == entity_id
+                )
+            ]
+            return FakeResult(results)
+
+        # --- Relation MATCH (single or list) ---
+        if "Relation" in query and "MATCH" in query:
+            space = str(params.get("space", ""))
+            if "id" not in params:
+                relations = self._store.get("Relation", {})
+                results = [r for (s, _), r in relations.items() if s == space]
+                return FakeResult(results)
+            relation_id = str(params["id"])
+            relations = self._store.get("Relation", {})
+            relation = relations.get((space, relation_id))
+            if relation:
+                return FakeResult([relation])
             return FakeResult()
 
         return FakeResult()
@@ -975,6 +1084,561 @@ class TestNeo4jTaskRepository:
 
         repo = Neo4jTaskRepository(driver=FakeDriver())
         assert repo.get_provenance(space="proj-a", task_id="nonexistent") is None
+
+
+# --- Relation adapter tests ---
+
+
+class TestNeo4jRelationRepository:
+    """Unit tests for Neo4jRelationRepository."""
+
+    def test_implements_relation_repository_protocol(self) -> None:
+        """Neo4jRelationRepository must have all RelationRepository methods."""
+        from memorable.storage.neo4j.repository import Neo4jRelationRepository
+
+        assert hasattr(Neo4jRelationRepository, "save")
+        assert hasattr(Neo4jRelationRepository, "get")
+        assert hasattr(Neo4jRelationRepository, "get_provenance")
+        assert hasattr(Neo4jRelationRepository, "list_by_space")
+        assert hasattr(Neo4jRelationRepository, "mark_superseded")
+        assert hasattr(Neo4jRelationRepository, "list_by_entity")
+        assert hasattr(Neo4jRelationRepository, "invalidate")
+        assert hasattr(Neo4jRelationRepository, "correct")
+        assert hasattr(Neo4jRelationRepository, "save_provenance")
+
+    def test_save_and_get_roundtrip(self) -> None:
+        """save then get returns the same Relation."""
+        from memorable.storage.neo4j.repository import (
+            Neo4jEntityRepository,
+            Neo4jRelationRepository,
+        )
+
+        driver = FakeDriver()
+        entity_repo = Neo4jEntityRepository(driver=driver)
+        repo = Neo4jRelationRepository(driver=driver)
+        ts = datetime(2025, 2, 1, 9, 0, 0, tzinfo=UTC)
+
+        # Entities must exist for MATCH in save()
+        entity_repo.save(
+            Entity(id="ent-1", entity_type="component", name="Auth", space="proj-a"),
+            _make_provenance("ent-1", "entity"),
+        )
+        entity_repo.save(
+            Entity(id="ent-2", entity_type="component", name="DB", space="proj-a"),
+            _make_provenance("ent-2", "entity"),
+        )
+
+        relation = Relation(
+            id="rel-1",
+            source_entity_id="ent-1",
+            target_entity_id="ent-2",
+            relation_type="depends-on",
+            statement="Auth depends on Database",
+            space="proj-a",
+            validity_time=ts,
+            invalidation_time=None,
+            lifecycle_state="current",
+            supersedes=None,
+            superseded_by=None,
+        )
+        provenance = _make_provenance("rel-1", "relation")
+
+        repo.save(relation, provenance)
+        result = repo.get("proj-a", "rel-1")
+
+        assert result is not None
+        assert result.id == "rel-1"
+        assert result.source_entity_id == "ent-1"
+        assert result.target_entity_id == "ent-2"
+        assert result.relation_type == "depends-on"
+        assert result.statement == "Auth depends on Database"
+        assert result.space == "proj-a"
+        assert result.lifecycle_state == "current"
+        assert result.invalidation_time is None
+        assert result.supersedes is None
+        assert result.superseded_by is None
+
+    def test_get_returns_none_for_missing(self) -> None:
+        """get returns None when relation does not exist."""
+        from memorable.storage.neo4j.repository import Neo4jRelationRepository
+
+        repo = Neo4jRelationRepository(driver=FakeDriver())
+        assert repo.get("proj-a", "nonexistent") is None
+
+    def test_list_by_space_returns_relations_in_space(self) -> None:
+        """list_by_space returns only relations in the given space."""
+        from memorable.storage.neo4j.repository import (
+            Neo4jEntityRepository,
+            Neo4jRelationRepository,
+        )
+
+        driver = FakeDriver()
+        entity_repo = Neo4jEntityRepository(driver=driver)
+        repo = Neo4jRelationRepository(driver=driver)
+        ts = datetime(2025, 2, 1, 9, 0, 0, tzinfo=UTC)
+
+        # Entities in proj-a
+        entity_repo.save(
+            Entity(id="e1", entity_type="api", name="Users", space="proj-a"),
+            _make_provenance("e1", "entity"),
+        )
+        entity_repo.save(
+            Entity(id="e2", entity_type="api", name="Orders", space="proj-a"),
+            _make_provenance("e2", "entity"),
+        )
+        entity_repo.save(
+            Entity(id="e3", entity_type="api", name="Billing", space="proj-a"),
+            _make_provenance("e3", "entity"),
+        )
+        # Entity in proj-b
+        entity_repo.save(
+            Entity(id="e4", entity_type="api", name="X", space="proj-b"),
+            _make_provenance("e4", "entity"),
+        )
+        entity_repo.save(
+            Entity(id="e5", entity_type="api", name="Y", space="proj-b"),
+            _make_provenance("e5", "entity"),
+        )
+
+        r1 = Relation(
+            id="r1",
+            source_entity_id="e1",
+            target_entity_id="e2",
+            relation_type="depends-on",
+            statement="Users depends on Orders",
+            space="proj-a",
+            validity_time=ts,
+            invalidation_time=None,
+            lifecycle_state="current",
+            supersedes=None,
+            superseded_by=None,
+        )
+        r2 = Relation(
+            id="r2",
+            source_entity_id="e2",
+            target_entity_id="e3",
+            relation_type="owns",
+            statement="Orders owns Billing",
+            space="proj-a",
+            validity_time=ts,
+            invalidation_time=None,
+            lifecycle_state="current",
+            supersedes=None,
+            superseded_by=None,
+        )
+        r3 = Relation(
+            id="r3",
+            source_entity_id="e4",
+            target_entity_id="e5",
+            relation_type="uses",
+            statement="X uses Y",
+            space="proj-b",
+            validity_time=ts,
+            invalidation_time=None,
+            lifecycle_state="current",
+            supersedes=None,
+            superseded_by=None,
+        )
+
+        repo.save(r1, _make_provenance("r1", "relation"))
+        repo.save(r2, _make_provenance("r2", "relation"))
+        repo.save(r3, _make_provenance("r3", "relation"))
+
+        results = repo.list_by_space("proj-a")
+        assert len(results) == 2
+        ids = {r.id for r in results}
+        assert ids == {"r1", "r2"}
+
+    def test_mark_superseded_updates_fields(self) -> None:
+        """mark_superseded sets superseded_by, invalidation_time, lifecycle_state."""
+        from memorable.storage.neo4j.repository import (
+            Neo4jEntityRepository,
+            Neo4jRelationRepository,
+        )
+
+        driver = FakeDriver()
+        entity_repo = Neo4jEntityRepository(driver=driver)
+        repo = Neo4jRelationRepository(driver=driver)
+        ts = datetime(2025, 2, 1, 9, 0, 0, tzinfo=UTC)
+        inv_time = datetime(2025, 3, 1, 12, 0, 0, tzinfo=UTC)
+
+        entity_repo.save(
+            Entity(id="ent-1", entity_type="component", name="A", space="proj-a"),
+            _make_provenance("ent-1", "entity"),
+        )
+        entity_repo.save(
+            Entity(id="ent-2", entity_type="component", name="B", space="proj-a"),
+            _make_provenance("ent-2", "entity"),
+        )
+
+        relation = Relation(
+            id="rel-1",
+            source_entity_id="ent-1",
+            target_entity_id="ent-2",
+            relation_type="depends-on",
+            statement="A depends on B",
+            space="proj-a",
+            validity_time=ts,
+            invalidation_time=None,
+            lifecycle_state="current",
+            supersedes=None,
+            superseded_by=None,
+        )
+        repo.save(relation, _make_provenance("rel-1", "relation"))
+
+        repo.mark_superseded("proj-a", "rel-1", "rel-2", inv_time)
+
+        result = repo.get("proj-a", "rel-1")
+        assert result is not None
+        assert result.superseded_by == "rel-2"
+        assert result.invalidation_time == inv_time
+        assert result.lifecycle_state == "superseded"
+
+    def test_get_provenance_returns_provenance_after_save(self) -> None:
+        """get_provenance returns the provenance stored with the relation."""
+        from memorable.storage.neo4j.repository import (
+            Neo4jEntityRepository,
+            Neo4jRelationRepository,
+        )
+
+        driver = FakeDriver()
+        entity_repo = Neo4jEntityRepository(driver=driver)
+        repo = Neo4jRelationRepository(driver=driver)
+        ts = datetime(2025, 2, 1, 9, 0, 0, tzinfo=UTC)
+
+        entity_repo.save(
+            Entity(id="ent-1", entity_type="component", name="A", space="proj-a"),
+            _make_provenance("ent-1", "entity"),
+        )
+        entity_repo.save(
+            Entity(id="ent-2", entity_type="component", name="B", space="proj-a"),
+            _make_provenance("ent-2", "entity"),
+        )
+
+        relation = Relation(
+            id="rel-1",
+            source_entity_id="ent-1",
+            target_entity_id="ent-2",
+            relation_type="depends-on",
+            statement="A depends on B",
+            space="proj-a",
+            validity_time=ts,
+            invalidation_time=None,
+            lifecycle_state="current",
+            supersedes=None,
+            superseded_by=None,
+        )
+        provenance = Provenance(
+            record_id="rel-1",
+            record_kind="relation",
+            source_id="src-10",
+            episode_id="ep-5",
+            writer="agent-y",
+            reason="discovered dependency",
+            creation_time=ts,
+            validity_time=ts,
+        )
+
+        repo.save(relation, provenance)
+        result = repo.get_provenance("proj-a", "rel-1")
+
+        assert result is not None
+        assert result.record_id == "rel-1"
+        assert result.record_kind == "relation"
+        assert result.source_id == "src-10"
+        assert result.writer == "agent-y"
+
+    def test_get_provenance_returns_none_for_missing(self) -> None:
+        """get_provenance returns None when relation has no provenance."""
+        from memorable.storage.neo4j.repository import Neo4jRelationRepository
+
+        repo = Neo4jRelationRepository(driver=FakeDriver())
+        assert repo.get_provenance("proj-a", "nonexistent") is None
+
+    def test_invalidate_sets_lifecycle_and_time(self) -> None:
+        """invalidate sets lifecycle_state to invalidated and records time."""
+        from memorable.storage.neo4j.repository import (
+            Neo4jEntityRepository,
+            Neo4jRelationRepository,
+        )
+
+        driver = FakeDriver()
+        entity_repo = Neo4jEntityRepository(driver=driver)
+        repo = Neo4jRelationRepository(driver=driver)
+        ts = datetime(2025, 2, 1, 9, 0, 0, tzinfo=UTC)
+        inv_time = datetime(2025, 3, 1, 12, 0, 0, tzinfo=UTC)
+
+        entity_repo.save(
+            Entity(id="ent-1", entity_type="component", name="A", space="proj-a"),
+            _make_provenance("ent-1", "entity"),
+        )
+        entity_repo.save(
+            Entity(id="ent-2", entity_type="component", name="B", space="proj-a"),
+            _make_provenance("ent-2", "entity"),
+        )
+
+        relation = Relation(
+            id="rel-1",
+            source_entity_id="ent-1",
+            target_entity_id="ent-2",
+            relation_type="depends-on",
+            statement="A depends on B",
+            space="proj-a",
+            validity_time=ts,
+            invalidation_time=None,
+            lifecycle_state="current",
+            supersedes=None,
+            superseded_by=None,
+        )
+        repo.save(relation, _make_provenance("rel-1", "relation"))
+
+        repo.invalidate("proj-a", "rel-1", inv_time)
+
+        result = repo.get("proj-a", "rel-1")
+        assert result is not None
+        assert result.lifecycle_state == "invalidated"
+        assert result.invalidation_time == inv_time
+
+    def test_correct_updates_statement_in_place(self) -> None:
+        """correct updates the statement without changing other fields."""
+        from memorable.storage.neo4j.repository import (
+            Neo4jEntityRepository,
+            Neo4jRelationRepository,
+        )
+
+        driver = FakeDriver()
+        entity_repo = Neo4jEntityRepository(driver=driver)
+        repo = Neo4jRelationRepository(driver=driver)
+        ts = datetime(2025, 2, 1, 9, 0, 0, tzinfo=UTC)
+
+        entity_repo.save(
+            Entity(id="ent-1", entity_type="component", name="A", space="proj-a"),
+            _make_provenance("ent-1", "entity"),
+        )
+        entity_repo.save(
+            Entity(id="ent-2", entity_type="component", name="B", space="proj-a"),
+            _make_provenance("ent-2", "entity"),
+        )
+
+        relation = Relation(
+            id="rel-1",
+            source_entity_id="ent-1",
+            target_entity_id="ent-2",
+            relation_type="depends-on",
+            statement="A depends on B (wrong)",
+            space="proj-a",
+            validity_time=ts,
+            invalidation_time=None,
+            lifecycle_state="current",
+            supersedes=None,
+            superseded_by=None,
+        )
+        repo.save(relation, _make_provenance("rel-1", "relation"))
+
+        repo.correct("proj-a", "rel-1", "A depends on B (corrected)")
+
+        result = repo.get("proj-a", "rel-1")
+        assert result is not None
+        assert result.statement == "A depends on B (corrected)"
+        assert result.lifecycle_state == "current"
+        assert result.invalidation_time is None
+
+    def test_save_provenance_replaces_existing(self) -> None:
+        """save_provenance replaces the provenance for a relation."""
+        from memorable.storage.neo4j.repository import (
+            Neo4jEntityRepository,
+            Neo4jRelationRepository,
+        )
+
+        driver = FakeDriver()
+        entity_repo = Neo4jEntityRepository(driver=driver)
+        repo = Neo4jRelationRepository(driver=driver)
+        ts = datetime(2025, 2, 1, 9, 0, 0, tzinfo=UTC)
+        correction_ts = datetime(2025, 3, 1, 12, 0, 0, tzinfo=UTC)
+
+        entity_repo.save(
+            Entity(id="ent-1", entity_type="component", name="A", space="proj-a"),
+            _make_provenance("ent-1", "entity"),
+        )
+        entity_repo.save(
+            Entity(id="ent-2", entity_type="component", name="B", space="proj-a"),
+            _make_provenance("ent-2", "entity"),
+        )
+
+        relation = Relation(
+            id="rel-1",
+            source_entity_id="ent-1",
+            target_entity_id="ent-2",
+            relation_type="depends-on",
+            statement="A depends on B",
+            space="proj-a",
+            validity_time=ts,
+            invalidation_time=None,
+            lifecycle_state="current",
+            supersedes=None,
+            superseded_by=None,
+        )
+        repo.save(relation, _make_provenance("rel-1", "relation"))
+
+        new_prov = Provenance(
+            record_id="rel-1",
+            record_kind="relation",
+            source_id="src-correction",
+            episode_id="ep-correction",
+            writer="human:reviewer",
+            reason="Corrected provenance.",
+            creation_time=correction_ts,
+            validity_time=correction_ts,
+        )
+        repo.save_provenance("proj-a", "rel-1", new_prov)
+
+        result = repo.get_provenance("proj-a", "rel-1")
+        assert result is not None
+        assert result.source_id == "src-correction"
+        assert result.writer == "human:reviewer"
+        assert "Corrected" in result.reason
+
+    def test_list_by_entity_returns_relations_for_entity(self) -> None:
+        """list_by_entity returns relations where entity is source or target."""
+        from memorable.storage.neo4j.repository import (
+            Neo4jEntityRepository,
+            Neo4jRelationRepository,
+        )
+
+        driver = FakeDriver()
+        entity_repo = Neo4jEntityRepository(driver=driver)
+        repo = Neo4jRelationRepository(driver=driver)
+        ts = datetime(2025, 2, 1, 9, 0, 0, tzinfo=UTC)
+
+        entity_repo.save(
+            Entity(id="e1", entity_type="component", name="A", space="proj-a"),
+            _make_provenance("e1", "entity"),
+        )
+        entity_repo.save(
+            Entity(id="e2", entity_type="component", name="B", space="proj-a"),
+            _make_provenance("e2", "entity"),
+        )
+        entity_repo.save(
+            Entity(id="e3", entity_type="component", name="C", space="proj-a"),
+            _make_provenance("e3", "entity"),
+        )
+
+        # e1 -> e2
+        r1 = Relation(
+            id="r1",
+            source_entity_id="e1",
+            target_entity_id="e2",
+            relation_type="depends-on",
+            statement="A depends on B",
+            space="proj-a",
+            validity_time=ts,
+            invalidation_time=None,
+            lifecycle_state="current",
+            supersedes=None,
+            superseded_by=None,
+        )
+        # e3 -> e1 (e1 is target here)
+        r2 = Relation(
+            id="r2",
+            source_entity_id="e3",
+            target_entity_id="e1",
+            relation_type="owns",
+            statement="C owns A",
+            space="proj-a",
+            validity_time=ts,
+            invalidation_time=None,
+            lifecycle_state="current",
+            supersedes=None,
+            superseded_by=None,
+        )
+        # e2 -> e3 (does not involve e1)
+        r3 = Relation(
+            id="r3",
+            source_entity_id="e2",
+            target_entity_id="e3",
+            relation_type="uses",
+            statement="B uses C",
+            space="proj-a",
+            validity_time=ts,
+            invalidation_time=None,
+            lifecycle_state="current",
+            supersedes=None,
+            superseded_by=None,
+        )
+
+        repo.save(r1, _make_provenance("r1", "relation"))
+        repo.save(r2, _make_provenance("r2", "relation"))
+        repo.save(r3, _make_provenance("r3", "relation"))
+
+        results = repo.list_by_entity("proj-a", "e1")
+        assert len(results) == 2
+        ids = {r.id for r in results}
+        assert ids == {"r1", "r2"}
+
+    def test_list_by_entity_excludes_other_spaces(self) -> None:
+        """list_by_entity does not return relations from other spaces."""
+        from memorable.storage.neo4j.repository import (
+            Neo4jEntityRepository,
+            Neo4jRelationRepository,
+        )
+
+        driver = FakeDriver()
+        entity_repo = Neo4jEntityRepository(driver=driver)
+        repo = Neo4jRelationRepository(driver=driver)
+        ts = datetime(2025, 2, 1, 9, 0, 0, tzinfo=UTC)
+
+        # Entities in proj-a
+        entity_repo.save(
+            Entity(id="e1", entity_type="component", name="A", space="proj-a"),
+            _make_provenance("e1", "entity"),
+        )
+        entity_repo.save(
+            Entity(id="e2", entity_type="component", name="B", space="proj-a"),
+            _make_provenance("e2", "entity"),
+        )
+        # Entities in proj-b (same id e1 in different space)
+        entity_repo.save(
+            Entity(id="e1", entity_type="component", name="A2", space="proj-b"),
+            _make_provenance("e1", "entity"),
+        )
+        entity_repo.save(
+            Entity(id="e3", entity_type="component", name="C", space="proj-b"),
+            _make_provenance("e3", "entity"),
+        )
+
+        r_a = Relation(
+            id="ra",
+            source_entity_id="e1",
+            target_entity_id="e2",
+            relation_type="depends-on",
+            statement="A depends on B",
+            space="proj-a",
+            validity_time=ts,
+            invalidation_time=None,
+            lifecycle_state="current",
+            supersedes=None,
+            superseded_by=None,
+        )
+        r_b = Relation(
+            id="rb",
+            source_entity_id="e1",
+            target_entity_id="e3",
+            relation_type="uses",
+            statement="A2 uses C",
+            space="proj-b",
+            validity_time=ts,
+            invalidation_time=None,
+            lifecycle_state="current",
+            supersedes=None,
+            superseded_by=None,
+        )
+
+        repo.save(r_a, _make_provenance("ra", "relation"))
+        repo.save(r_b, _make_provenance("rb", "relation"))
+
+        results = repo.list_by_entity("proj-a", "e1")
+        assert len(results) == 1
+        assert results[0].id == "ra"
 
 
 # --- Schema bootstrap tests ---

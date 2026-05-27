@@ -10,6 +10,7 @@ from memorable.core.models import (
     MemorySpace,
     Observation,
     Provenance,
+    Relation,
     Task,
 )
 from memorable.core.ports import (
@@ -17,6 +18,7 @@ from memorable.core.ports import (
     EntityRepository,
     MemorySpaceRepository,
     ObservationRepository,
+    RelationRepository,
     TaskRepository,
     TemporalRecord,
     TemporalRecordRepository,
@@ -340,6 +342,127 @@ class RememberObservationService:
             )
 
         return RememberObservationResult(observation=observation, provenance=provenance)
+
+
+@dataclass(frozen=True)
+class RememberRelationResult:
+    """Result of remembering a Relation with provenance."""
+
+    relation: Relation
+    provenance: Provenance
+
+
+class RememberRelationService:
+    """Application service that validates and persists a Relation with provenance.
+
+    Validates that (1) the relation type is declared in the MemoryProfile,
+    (2) both source and target Entities exist in the space, and
+    (3) source and target are different entities.
+    When supersedes is provided, marks the old relation as superseded.
+    """
+
+    def __init__(
+        self,
+        relation_repo: RelationRepository,
+        entity_repo: EntityRepository,
+        profile: MemoryProfile,
+    ) -> None:
+        self._relation_repo = relation_repo
+        self._entity_repo = entity_repo
+        self._profile = profile
+
+    def remember(
+        self,
+        *,
+        space: str,
+        relation_id: str,
+        source_entity_id: str,
+        target_entity_id: str,
+        relation_type: str,
+        statement: str,
+        source_id: str,
+        at: datetime,
+        writer: str = "agent:memorable",
+        reason: str = "",
+        supersedes: str | None = None,
+    ) -> RememberRelationResult:
+        """Validate inputs, create provenance, persist.
+
+        Raises ValueError if:
+        - relation type is not declared in the MemoryProfile
+        - source or target Entity does not exist in the space
+        - source and target are the same entity
+        """
+        # Validate relation type
+        declared_names = {r.name for r in self._profile.relations}
+        if relation_type not in declared_names:
+            raise ValueError(
+                f"Relation type '{relation_type}' is not declared in the "
+                f"MemoryProfile for space '{self._profile.space.name}'. "
+                f"Declared types: {sorted(declared_names)}."
+            )
+
+        # Validate self-relation
+        if source_entity_id == target_entity_id:
+            raise ValueError(
+                f"Cannot create a self-relation: source and target are both "
+                f"'{source_entity_id}'."
+            )
+
+        # Validate source entity exists
+        source_entity = self._entity_repo.get(space, source_entity_id)
+        if source_entity is None:
+            raise ValueError(
+                f"Relation source Entity '{source_entity_id}' not found "
+                f"in MemorySpace '{space}'."
+            )
+
+        # Validate target entity exists
+        target_entity = self._entity_repo.get(space, target_entity_id)
+        if target_entity is None:
+            raise ValueError(
+                f"Relation target Entity '{target_entity_id}' not found "
+                f"in MemorySpace '{space}'."
+            )
+
+        relation = Relation(
+            id=relation_id,
+            source_entity_id=source_entity_id,
+            target_entity_id=target_entity_id,
+            relation_type=relation_type,
+            statement=statement,
+            space=space,
+            validity_time=at,
+            invalidation_time=None,
+            lifecycle_state="current",
+            supersedes=supersedes,
+            superseded_by=None,
+        )
+
+        episode_id = make_episode_id(source_id, at)
+
+        provenance = Provenance(
+            record_id=relation_id,
+            record_kind="relation",
+            source_id=source_id,
+            episode_id=episode_id,
+            writer=writer,
+            reason=reason,
+            creation_time=at,
+            validity_time=at,
+        )
+
+        self._relation_repo.save(relation, provenance)
+
+        if supersedes is not None:
+            self._relation_repo.mark_superseded(
+                space=space,
+                record_id=supersedes,
+                superseded_by=relation_id,
+                invalidation_time=at,
+            )
+
+        return RememberRelationResult(relation=relation, provenance=provenance)
 
 
 class CurrentTruthService:

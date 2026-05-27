@@ -55,6 +55,7 @@ EXPECTED_TOOL_NAMES = {
     "memorable_remember_entity",
     "memorable_remember_decision",
     "memorable_remember_observation",
+    "memorable_remember_relation",
     "memorable_current_truth",
     "memorable_point_in_time_truth",
     "memorable_inspect_history",
@@ -69,9 +70,9 @@ EXPECTED_TOOL_NAMES = {
 
 
 class TestToolRegistration:
-    def test_all_16_tools_registered(self) -> None:
+    def test_all_17_tools_registered(self) -> None:
         tool_names = _list_tool_names()
-        assert len(tool_names) == 16
+        assert len(tool_names) == 17
 
     def test_all_expected_tool_names_present(self) -> None:
         tool_names = _list_tool_names()
@@ -99,6 +100,7 @@ REQUIRED_DOMAIN_TERMS = {
     "Decision",
     "Task",
     "Observation",
+    "Relation",
     "Source",
     "Episode",
     "Hybrid Retrieval",

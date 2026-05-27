@@ -10,11 +10,12 @@ from datetime import datetime
 from typing import Literal
 
 from memorable.core.application import InspectTaskService, PointInTimeTruthService
-from memorable.core.models import Decision, Entity, Observation, Task
+from memorable.core.models import Decision, Entity, Observation, Relation, Task
 from memorable.core.ports import (
     DecisionRepository,
     EntityRepository,
     ObservationRepository,
+    RelationRepository,
     TaskRepository,
 )
 from memorable.retrieval.embeddings import EmbeddingProvider
@@ -23,6 +24,7 @@ from memorable.retrieval.indexable_text import (
     indexable_text_for_decision,
     indexable_text_for_entity,
     indexable_text_for_observation,
+    indexable_text_for_relation,
     indexable_text_for_task,
 )
 from memorable.retrieval.models import EmbeddingRecord, RetrievalResult
@@ -47,11 +49,13 @@ class HybridRetrievalService:
         dimensions: int = 32,
         point_in_time_service: PointInTimeTruthService | None = None,
         inspect_task_service: InspectTaskService | None = None,
+        relation_repo: RelationRepository | None = None,
     ) -> None:
         self._entity_repo = entity_repo
         self._decision_repo = decision_repo
         self._task_repo = task_repo
         self._observation_repo = observation_repo
+        self._relation_repo = relation_repo
         self._embedding_provider = embedding_provider
         self._dimensions = dimensions
         self._index = InMemoryEmbeddingIndex()
@@ -67,6 +71,11 @@ class HybridRetrievalService:
         )
         self._observation_pit_service = PointInTimeTruthService(
             repository=observation_repo
+        )
+        self._relation_pit_service: PointInTimeTruthService | None = (
+            PointInTimeTruthService(repository=relation_repo)
+            if relation_repo is not None
+            else None
         )
 
     def _rebuild_index(self, space: str) -> None:
@@ -140,6 +149,23 @@ class HybridRetrievalService:
                     dimensions=self._dimensions,
                 )
             )
+
+        if self._relation_repo is not None:
+            for relation in self._relation_repo.list_by_space(space):
+                text = indexable_text_for_relation(relation)
+                vector = self._embedding_provider.embed(text)
+                self._index.store(
+                    EmbeddingRecord(
+                        source_id=relation.id,
+                        source_kind="Relation",
+                        space=space,
+                        indexable_text=text,
+                        vector=vector,
+                        provider_name=self._embedding_provider.provider_name,
+                        model_name=self._embedding_provider.model_name,
+                        dimensions=self._dimensions,
+                    )
+                )
 
     def search(
         self,
@@ -238,19 +264,30 @@ class HybridRetrievalService:
     ) -> list[tuple[str, str]]:
         """Find related records via graph traversal.
 
-        For the tracer bullet, this uses a simple heuristic:
-        entities relate to all decisions, tasks, and observations in the
-        same space, and decisions/tasks/observations relate to all entities.
+        Entity expansion uses Relation-based 1-hop traversal (via
+        ``list_by_entity``), skipping superseded/invalidated relations.
+        Decision, Task, and Observation expansion still uses a heuristic:
+        each relates to all entities in the same space, plus supersession
+        chain neighbours where applicable.
         """
         related: list[tuple[str, str]] = []
 
         if source_kind == "Entity":
-            for decision in self._decision_repo.list_by_space(space):
-                related.append((decision.id, "Decision"))
-            for task in self._task_repo.list_by_space(space):
-                related.append((task.id, "Task"))
-            for observation in self._observation_repo.list_by_space(space):
-                related.append((observation.id, "Observation"))
+            if self._relation_repo is not None:
+                relations = self._relation_repo.list_by_entity(space, source_id)
+                for relation in relations:
+                    if relation.lifecycle_state in (
+                        "superseded",
+                        "invalidated",
+                    ):
+                        continue
+                    # Extract the other endpoint Entity
+                    other_entity_id = (
+                        relation.target_entity_id
+                        if relation.source_entity_id == source_id
+                        else relation.source_entity_id
+                    )
+                    related.append((other_entity_id, "Entity"))
 
         elif source_kind == "Decision":
             for entity in self._entity_repo.list_by_space(space):
@@ -339,6 +376,19 @@ class HybridRetrievalService:
             return self._build_observation_result(
                 space,
                 observation,
+                score,
+                mode,
+                as_of,
+                is_semantic,
+                is_graph_expanded,
+            )
+        elif source_kind == "Relation" and self._relation_repo is not None:
+            relation = self._relation_repo.get(space, source_id)
+            if relation is None:
+                return None
+            return self._build_relation_result(
+                space,
+                relation,
                 score,
                 mode,
                 as_of,
@@ -626,6 +676,100 @@ class HybridRetrievalService:
         return RetrievalResult(
             source_id=observation.id,
             source_kind="Observation",
+            lifecycle_state=lifecycle_state,
+            score=score,
+            explanation=explanation,
+            provenance_summary=prov_summary,
+        )
+
+    def _build_relation_result(
+        self,
+        space: str,
+        relation: Relation,
+        score: float,
+        mode: Literal["current", "as-of"],
+        as_of: datetime | None,
+        is_semantic: bool,
+        is_graph_expanded: bool,
+    ) -> RetrievalResult | None:
+        explanation: list[str] = []
+
+        if mode == "current":
+            if relation.lifecycle_state in ("superseded", "invalidated"):
+                return None
+            lifecycle_state = relation.lifecycle_state
+        elif (
+            mode == "as-of"
+            and as_of is not None
+            and self._relation_pit_service is not None
+        ):
+            pit_relation = self._relation_pit_service.at(
+                space=space, record_id=relation.id, at=as_of
+            )
+            if pit_relation is None:
+                return None
+            if pit_relation.id != relation.id:
+                return None
+            lifecycle_state = pit_relation.lifecycle_state
+            if pit_relation.validity_time > as_of:
+                return None
+        else:
+            lifecycle_state = relation.lifecycle_state
+
+        if is_semantic:
+            stmt_preview = relation.statement[:60]
+            explanation.append(
+                f"semantic candidate from Indexable Text for {stmt_preview}"
+            )
+        if is_graph_expanded:
+            explanation.append("graph expansion connected it to related records")
+
+        if mode == "current":
+            explanation.append(
+                "temporal filter kept it because it is current at query time"
+            )
+        elif mode == "as-of" and as_of is not None:
+            explanation.append(
+                f"temporal filter kept it because it was valid at {as_of.isoformat()}"
+            )
+
+        # Supersession history context
+        has_chain = (
+            relation.superseded_by is not None or relation.supersedes is not None
+        )
+        if has_chain and self._relation_repo is not None:
+            supersession_parts = []
+            if relation.supersedes:
+                old = self._relation_repo.get(space, relation.supersedes)
+                if old:
+                    inv_time = (
+                        old.invalidation_time.isoformat()
+                        if old.invalidation_time
+                        else "unknown"
+                    )
+                    supersession_parts.append(f"{old.id} was superseded at {inv_time}")
+            if supersession_parts:
+                explanation.append(
+                    "supersession history: " + "; ".join(supersession_parts)
+                )
+
+        # _relation_repo is guaranteed non-None by the caller's guard
+        provenance = self._relation_repo.get_provenance(space, relation.id)  # type: ignore[union-attr]
+        prov_summary: dict[str, str] = {}
+        if provenance:
+            prov_summary = {
+                "source_id": provenance.source_id,
+                "episode_id": provenance.episode_id,
+            }
+            explanation.append(
+                "provenance is available from"
+                f" {provenance.source_id}"
+                f" / {provenance.episode_id}"
+            )
+
+        return RetrievalResult(
+            source_id=relation.id,
+            source_kind="Relation",
             lifecycle_state=lifecycle_state,
             score=score,
             explanation=explanation,

@@ -18,7 +18,7 @@ class EmbeddingRecord:
     """
 
     source_id: str
-    source_kind: str  # "Entity", "Decision", "Task"
+    source_kind: str  # "Entity", "Decision", "Task", "Observation", "Relation"
     space: str
     indexable_text: str
     vector: list[float]
