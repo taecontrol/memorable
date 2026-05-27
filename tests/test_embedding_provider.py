@@ -1,11 +1,11 @@
-"""Tests for real embedding provider (OpenRouter) and provider factory.
+"""Tests for embedding providers and the build_embedding_provider() factory.
 
-Covers slice #10 acceptance criteria:
-- Remote embedding providers are never used unless explicitly configured.
-- Runtime config is separate from .memorable/memory.yaml (env vars only).
-- Embedded items preserve provider, model, dimensions, and creation time.
-- Missing provider configuration produces actionable diagnostics.
-- The runnable tracer bullet can use the real provider path when configured.
+Covers:
+- OpenRouterEmbeddingProvider unit behavior (protocol, embed, normalization).
+- Factory dispatches by EmbeddingSettings.provider to the correct provider.
+- Factory raises actionable errors for missing api_key or unknown provider.
+- Default EmbeddingSettings never triggers remote calls.
+- EmbeddingRecord preserves provider metadata.
 """
 
 from __future__ import annotations
@@ -230,6 +230,25 @@ class TestProviderFactory:
 
         vector = provider.embed("test")
         assert len(vector) == 64
+
+    def test_factory_passes_model_and_dimensions_to_fastembed(self) -> None:
+        """Factory forwards model and dimensions to FastembedEmbeddingProvider."""
+        from memorable.config import EmbeddingSettings
+        from memorable.retrieval.embeddings import (
+            FastembedEmbeddingProvider,
+            build_embedding_provider,
+        )
+
+        settings = EmbeddingSettings(
+            provider="fastembed",
+            model="BAAI/bge-base-en-v1.5",
+            dimensions=768,
+        )
+        provider = build_embedding_provider(settings)
+
+        assert isinstance(provider, FastembedEmbeddingProvider)
+        assert provider.model_name == "BAAI/bge-base-en-v1.5"
+        assert provider._dimensions == 768
 
     def test_factory_passes_model_and_dimensions_to_openrouter(self) -> None:
         """Factory forwards model and dimensions to OpenRouter."""
