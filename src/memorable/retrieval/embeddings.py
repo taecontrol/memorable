@@ -13,6 +13,8 @@ from typing import TYPE_CHECKING, Protocol, runtime_checkable
 
 from openai import OpenAI
 
+from memorable.config import EmbeddingSettings
+
 if TYPE_CHECKING:
     from fastembed import TextEmbedding
 
@@ -183,14 +185,45 @@ class OpenRouterEmbeddingProvider:
         return cls(api_key=api_key, model=model, dimensions=dimensions)
 
 
-def build_embedding_provider() -> EmbeddingProvider:
-    """Build an embedding provider from environment configuration."""
-    provider_name = os.environ.get("MEMORABLE_EMBEDDING_PROVIDER", "")
-    if provider_name == "fake":
-        return FakeEmbeddingProvider()
+def build_embedding_provider(
+    settings: EmbeddingSettings,
+    api_key: str | None = None,
+) -> EmbeddingProvider:
+    """Build an embedding provider from explicit settings.
 
-    api_key = os.environ.get("MEMORABLE_OPENROUTER_API_KEY")
-    if api_key:
-        return OpenRouterEmbeddingProvider.from_env()
+    Parameters
+    ----------
+    settings:
+        Which provider, model, and dimensions to use.
+    api_key:
+        API key for remote providers (e.g. OpenRouter).  Must be supplied
+        when ``settings.provider`` is ``"openrouter"``.
+    """
+    if settings.provider == "fake":
+        return FakeEmbeddingProvider(dimensions=settings.dimensions)
 
-    return FakeEmbeddingProvider()
+    if settings.provider == "fastembed":
+        return FastembedEmbeddingProvider(
+            model=settings.model, dimensions=settings.dimensions
+        )
+
+    if settings.provider == "openrouter":
+        if not api_key:
+            msg = (
+                "api_key is required when settings.provider is 'openrouter'. "
+                "Set MEMORABLE_OPENROUTER_API_KEY in .memorable/.env "
+                "or pass api_key explicitly."
+            )
+            raise RuntimeError(msg)
+        return OpenRouterEmbeddingProvider(
+            api_key=api_key,
+            model=settings.model,
+            dimensions=settings.dimensions,
+        )
+
+    valid = ("fastembed", "openrouter", "fake")
+    msg = (
+        f"Unknown embedding provider {settings.provider!r}. "
+        f"Valid providers: {', '.join(valid)}"
+    )
+    raise ValueError(msg)
