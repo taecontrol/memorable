@@ -254,6 +254,16 @@ class TestProviderFactory:
         provider = build_embedding_provider(settings, api_key="sk-test-key")
         assert isinstance(provider, OpenRouterEmbeddingProvider)
 
+    def test_openrouter_without_api_key_raises(self) -> None:
+        """settings.provider == 'openrouter' without api_key raises actionable error."""
+        from memorable.config import EmbeddingSettings
+        from memorable.retrieval.embeddings import build_embedding_provider
+
+        settings = EmbeddingSettings(provider="openrouter")
+
+        with pytest.raises(RuntimeError, match="api_key is required"):
+            build_embedding_provider(settings)
+
 
 # =====================================================================
 # 4. Embedding metadata preservation tests
