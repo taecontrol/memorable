@@ -94,16 +94,11 @@ class TestDbStatusOutput:
             "source": "built-in",
         }
 
-    def test_embeddings_reflects_yaml_config(
-        self, tmp_path: Path, capsys
-    ) -> None:
+    def test_embeddings_reflects_yaml_config(self, tmp_path: Path, capsys) -> None:
         config_dir = tmp_path / ".memorable"
         config_dir.mkdir()
         (config_dir / "runtime.yaml").write_text(
-            "embeddings:\n"
-            "  provider: fake\n"
-            "  model: test-model\n"
-            "  dimensions: 128\n"
+            "embeddings:\n  provider: fake\n  model: test-model\n  dimensions: 128\n"
         )
 
         main(["db", "status", "--path", str(tmp_path)])

@@ -156,13 +156,9 @@ class TestMCPSearchUsesRuntimeConfig:
                     "memorable.retrieval.embeddings.build_embedding_provider",
                 ) as mock_build_provider,
             ):
-                mock_build_provider.return_value = FakeEmbeddingProvider(
-                    dimensions=32
-                )
+                mock_build_provider.return_value = FakeEmbeddingProvider(dimensions=32)
 
-                result = search_memory_tool(
-                    space="memorable", query="test query"
-                )
+                result = search_memory_tool(space="memorable", query="test query")
 
             assert "error" not in result
             mock_build_provider.assert_called_once_with(
@@ -197,13 +193,9 @@ class TestMCPSearchUsesRuntimeConfig:
                     "memorable.retrieval.embeddings.build_embedding_provider",
                 ) as mock_build_provider,
             ):
-                mock_build_provider.return_value = FakeEmbeddingProvider(
-                    dimensions=32
-                )
+                mock_build_provider.return_value = FakeEmbeddingProvider(dimensions=32)
 
-                result = search_memory_tool(
-                    space="memorable", query="test"
-                )
+                result = search_memory_tool(space="memorable", query="test")
 
             assert "error" not in result
             mock_build_provider.assert_called_once_with(
@@ -229,9 +221,7 @@ class TestMCPSearchUsesRuntimeConfig:
                 "memorable.mcp.server.load_runtime_config",
                 return_value=config,
             ):
-                result = search_memory_tool(
-                    space="memorable", query="test"
-                )
+                result = search_memory_tool(space="memorable", query="test")
 
             assert "error" in result
             assert "nonexistent" in result["error"]
@@ -254,9 +244,7 @@ class TestMCPSearchUsesRuntimeConfig:
                 "memorable.mcp.server.load_runtime_config",
                 return_value=config,
             ):
-                result = search_memory_tool(
-                    space="memorable", query="test"
-                )
+                result = search_memory_tool(space="memorable", query="test")
 
             assert "error" in result
             assert "MEMORABLE_OPENROUTER_API_KEY" in result["error"]
@@ -281,13 +269,9 @@ class TestMCPSearchUsesRuntimeConfig:
                     "memorable.retrieval.embeddings.build_embedding_provider",
                 ) as mock_build_provider,
             ):
-                mock_build_provider.return_value = FakeEmbeddingProvider(
-                    dimensions=32
-                )
+                mock_build_provider.return_value = FakeEmbeddingProvider(dimensions=32)
 
-                result = search_memory_tool(
-                    space="memorable", query="anything"
-                )
+                result = search_memory_tool(space="memorable", query="anything")
 
             assert "error" not in result
             called_settings = mock_build_provider.call_args[0][0]
