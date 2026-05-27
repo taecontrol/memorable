@@ -424,7 +424,6 @@ class TestRelationBasedGraphExpansion:
             mode="current",
         )
 
-        result_ids = [r.source_id for r in results]
         # entity:database has no Relation to entity:auth-module,
         # so it should NOT appear via graph expansion from auth-module
         # (it may appear via its own semantic match, but that's fine --
