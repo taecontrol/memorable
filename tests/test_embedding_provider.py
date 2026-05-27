@@ -264,6 +264,16 @@ class TestProviderFactory:
         with pytest.raises(RuntimeError, match="api_key is required"):
             build_embedding_provider(settings)
 
+    def test_unknown_provider_raises_with_valid_names(self) -> None:
+        """Unknown provider name raises ValueError listing valid providers."""
+        from memorable.config import EmbeddingSettings
+        from memorable.retrieval.embeddings import build_embedding_provider
+
+        settings = EmbeddingSettings(provider="nonexistent")
+
+        with pytest.raises(ValueError, match="Unknown embedding provider 'nonexistent'"):
+            build_embedding_provider(settings)
+
 
 # =====================================================================
 # 4. Embedding metadata preservation tests
