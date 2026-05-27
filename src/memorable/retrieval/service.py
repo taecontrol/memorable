@@ -10,11 +10,12 @@ from datetime import datetime
 from typing import Literal
 
 from memorable.core.application import InspectTaskService, PointInTimeTruthService
-from memorable.core.models import Decision, Entity, Observation, Task
+from memorable.core.models import Decision, Entity, Observation, Relation, Task
 from memorable.core.ports import (
     DecisionRepository,
     EntityRepository,
     ObservationRepository,
+    RelationRepository,
     TaskRepository,
 )
 from memorable.retrieval.embeddings import EmbeddingProvider
@@ -23,6 +24,7 @@ from memorable.retrieval.indexable_text import (
     indexable_text_for_decision,
     indexable_text_for_entity,
     indexable_text_for_observation,
+    indexable_text_for_relation,
     indexable_text_for_task,
 )
 from memorable.retrieval.models import EmbeddingRecord, RetrievalResult
@@ -47,11 +49,13 @@ class HybridRetrievalService:
         dimensions: int = 32,
         point_in_time_service: PointInTimeTruthService | None = None,
         inspect_task_service: InspectTaskService | None = None,
+        relation_repo: RelationRepository | None = None,
     ) -> None:
         self._entity_repo = entity_repo
         self._decision_repo = decision_repo
         self._task_repo = task_repo
         self._observation_repo = observation_repo
+        self._relation_repo = relation_repo
         self._embedding_provider = embedding_provider
         self._dimensions = dimensions
         self._index = InMemoryEmbeddingIndex()
@@ -140,6 +144,23 @@ class HybridRetrievalService:
                     dimensions=self._dimensions,
                 )
             )
+
+        if self._relation_repo is not None:
+            for relation in self._relation_repo.list_by_space(space):
+                text = indexable_text_for_relation(relation)
+                vector = self._embedding_provider.embed(text)
+                self._index.store(
+                    EmbeddingRecord(
+                        source_id=relation.id,
+                        source_kind="Relation",
+                        space=space,
+                        indexable_text=text,
+                        vector=vector,
+                        provider_name=self._embedding_provider.provider_name,
+                        model_name=self._embedding_provider.model_name,
+                        dimensions=self._dimensions,
+                    )
+                )
 
     def search(
         self,
@@ -342,6 +363,18 @@ class HybridRetrievalService:
                 score,
                 mode,
                 as_of,
+                is_semantic,
+                is_graph_expanded,
+            )
+        elif source_kind == "Relation" and self._relation_repo is not None:
+            relation = self._relation_repo.get(space, source_id)
+            if relation is None:
+                return None
+            return self._build_relation_result(
+                space,
+                relation,
+                score,
+                mode,
                 is_semantic,
                 is_graph_expanded,
             )
@@ -626,6 +659,60 @@ class HybridRetrievalService:
         return RetrievalResult(
             source_id=observation.id,
             source_kind="Observation",
+            lifecycle_state=lifecycle_state,
+            score=score,
+            explanation=explanation,
+            provenance_summary=prov_summary,
+        )
+
+    def _build_relation_result(
+        self,
+        space: str,
+        relation: Relation,
+        score: float,
+        mode: Literal["current", "as-of"],
+        is_semantic: bool,
+        is_graph_expanded: bool,
+    ) -> RetrievalResult | None:
+        explanation: list[str] = []
+
+        if mode == "current":
+            if relation.lifecycle_state in ("superseded", "invalidated"):
+                return None
+            lifecycle_state = relation.lifecycle_state
+        else:
+            lifecycle_state = relation.lifecycle_state
+
+        if is_semantic:
+            stmt_preview = relation.statement[:60]
+            explanation.append(
+                f"semantic candidate from Indexable Text for {stmt_preview}"
+            )
+        if is_graph_expanded:
+            explanation.append("graph expansion connected it to related records")
+
+        if mode == "current":
+            explanation.append(
+                "temporal filter kept it because it is current at query time"
+            )
+
+        assert self._relation_repo is not None
+        provenance = self._relation_repo.get_provenance(space, relation.id)
+        prov_summary: dict[str, str] = {}
+        if provenance:
+            prov_summary = {
+                "source_id": provenance.source_id,
+                "episode_id": provenance.episode_id,
+            }
+            explanation.append(
+                "provenance is available from"
+                f" {provenance.source_id}"
+                f" / {provenance.episode_id}"
+            )
+
+        return RetrievalResult(
+            source_id=relation.id,
+            source_kind="Relation",
             lifecycle_state=lifecycle_state,
             score=score,
             explanation=explanation,
