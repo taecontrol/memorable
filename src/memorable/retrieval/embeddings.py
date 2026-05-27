@@ -9,9 +9,12 @@ import hashlib
 import math
 import os
 import struct
-from typing import Protocol, runtime_checkable
+from typing import TYPE_CHECKING, Protocol, runtime_checkable
 
 from openai import OpenAI
+
+if TYPE_CHECKING:
+    from fastembed import TextEmbedding
 
 
 @runtime_checkable
@@ -69,6 +72,55 @@ class FakeEmbeddingProvider:
         if magnitude > 0:
             return [v / magnitude for v in raw_floats]
         return raw_floats
+
+
+class FastembedEmbeddingProvider:
+    """Local embedding provider backed by fastembed (ONNX Runtime).
+
+    Works after ``pip install memorable`` with zero configuration and no API key.
+    Wraps ``fastembed.TextEmbedding`` internally, handles numpy-to-list conversion
+    and L2 normalization.
+    """
+
+    def __init__(
+        self,
+        model: str = "BAAI/bge-small-en-v1.5",
+        dimensions: int = 384,
+    ) -> None:
+        self._model = model
+        self._dimensions = dimensions
+        # Lazy init: defer heavy model load until first embed() call
+        self._engine: TextEmbedding | None = None
+
+    def _get_engine(self) -> TextEmbedding:
+        if self._engine is None:
+            from fastembed import TextEmbedding
+
+            self._engine = TextEmbedding(model_name=self._model)
+        return self._engine
+
+    @property
+    def provider_name(self) -> str:
+        return "fastembed"
+
+    @property
+    def model_name(self) -> str:
+        return self._model
+
+    def embed(self, text: str) -> list[float]:
+        engine = self._get_engine()
+        # fastembed returns a generator of numpy arrays; take the first
+        embeddings = list(engine.embed([text]))
+        raw = embeddings[0].tolist()
+
+        # Truncate or validate dimensions
+        raw = raw[: self._dimensions]
+
+        # L2-normalize
+        magnitude = math.sqrt(sum(v * v for v in raw))
+        if magnitude > 0:
+            return [v / magnitude for v in raw]
+        return raw
 
 
 class OpenRouterEmbeddingProvider:

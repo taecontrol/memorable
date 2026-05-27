@@ -9,6 +9,7 @@ description = "Project-scoped GraphRAG memory for agents."
 readme = "docs/product.md"
 requires-python = ">=3.14"
 dependencies = [
+    "fastembed>=0.6",
     "mcp>=1.27,<2",
     "neo4j>=5.0",
     "openai>=1.0",
