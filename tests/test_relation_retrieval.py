@@ -130,9 +130,7 @@ def _build_relation_fixture():
     )
 
     # Decision (for testing that Decision supersession is unchanged)
-    decision_svc = RememberDecisionService(
-        repository=decision_repo, profile=profile
-    )
+    decision_svc = RememberDecisionService(repository=decision_repo, profile=profile)
     decision_svc.remember(
         space="myproject",
         decision_id="decision:use-jwt",
@@ -399,12 +397,8 @@ class TestRelationBasedGraphExpansion:
             mode="current",
         )
 
-        auth_results = [
-            r for r in results if r.source_id == "entity:auth-module"
-        ]
-        token_results = [
-            r for r in results if r.source_id == "entity:token-service"
-        ]
+        auth_results = [r for r in results if r.source_id == "entity:auth-module"]
+        token_results = [r for r in results if r.source_id == "entity:token-service"]
 
         # Both should be present
         assert len(auth_results) == 1
@@ -432,15 +426,11 @@ class TestRelationBasedGraphExpansion:
         # Check that the graph expansion did not add database via
         # the old "every Entity connects to every record" heuristic.
         # If database appears, it must be a semantic hit, not graph-expanded.
-        db_results = [
-            r for r in results if r.source_id == "entity:database"
-        ]
+        db_results = [r for r in results if r.source_id == "entity:database"]
         for r in db_results:
             # If it's in results, it should have been a semantic candidate,
             # not graph-expanded
-            assert any(
-                "semantic" in e.lower() for e in r.explanation
-            ), (
+            assert any("semantic" in e.lower() for e in r.explanation), (
                 "entity:database should only appear via semantic match, "
                 "not via Entity graph expansion"
             )
@@ -451,9 +441,7 @@ class TestRelationBasedGraphExpansion:
         service, *_ = _build_relation_fixture()
 
         # Call _graph_expand directly to verify the heuristic is removed
-        related = service._graph_expand(
-            "myproject", "entity:auth-module", "Entity"
-        )
+        related = service._graph_expand("myproject", "entity:auth-module", "Entity")
 
         related_kinds = {kind for _, kind in related}
         # Entity expansion should only produce Entity results
@@ -489,9 +477,7 @@ class TestRelationTemporalFilteringInExpansion:
             invalidation_time=RELATION_TIMESTAMPS["relation_v2"],
         )
 
-        related = service._graph_expand(
-            "myproject", "entity:auth-module", "Entity"
-        )
+        related = service._graph_expand("myproject", "entity:auth-module", "Entity")
 
         related_ids = [r_id for r_id, _ in related]
         # token-service should NOT appear because the only Relation
@@ -509,9 +495,7 @@ class TestRelationTemporalFilteringInExpansion:
             invalidation_time=RELATION_TIMESTAMPS["relation_v2"],
         )
 
-        related = service._graph_expand(
-            "myproject", "entity:auth-module", "Entity"
-        )
+        related = service._graph_expand("myproject", "entity:auth-module", "Entity")
 
         related_ids = [r_id for r_id, _ in related]
         assert "entity:token-service" not in related_ids
@@ -520,9 +504,7 @@ class TestRelationTemporalFilteringInExpansion:
         """A current Relation should contribute to graph expansion."""
         service, *_ = _build_relation_fixture()
 
-        related = service._graph_expand(
-            "myproject", "entity:auth-module", "Entity"
-        )
+        related = service._graph_expand("myproject", "entity:auth-module", "Entity")
 
         related_ids = [r_id for r_id, _ in related]
         assert "entity:token-service" in related_ids
@@ -586,9 +568,7 @@ class TestSupersessionTraversalUnchanged:
             embedding_provider=FakeEmbeddingProvider(dimensions=32),
         )
 
-        related = service._graph_expand(
-            "myproject", "decision:v2", "Decision"
-        )
+        related = service._graph_expand("myproject", "decision:v2", "Decision")
 
         related_ids = [r_id for r_id, _ in related]
         # Should follow supersedes link to v1

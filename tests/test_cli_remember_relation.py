@@ -449,9 +449,7 @@ class TestProfileShowRelationTypes:
         assert "relations" in output
         assert output["relations"] == ["depends-on", "owns"]
 
-    def test_cli_profile_show_with_path_flag(
-        self, tmp_path: Path, capsys
-    ) -> None:
+    def test_cli_profile_show_with_path_flag(self, tmp_path: Path, capsys) -> None:
         """CLI profile show --path reads from specified directory."""
         from memorable.cli import main
 
@@ -476,20 +474,14 @@ class TestProfileShowRelationTypes:
         err = capsys.readouterr().err
         assert "memory.yaml" in err
 
-    def test_cli_profile_show_empty_relations(
-        self, tmp_path: Path, capsys
-    ) -> None:
+    def test_cli_profile_show_empty_relations(self, tmp_path: Path, capsys) -> None:
         """Profile with no relation declarations shows empty list."""
         from memorable.cli import main
 
         memorable_dir = tmp_path / ".memorable"
         memorable_dir.mkdir()
         (memorable_dir / "memory.yaml").write_text(
-            "version: 1\n"
-            "space:\n"
-            "  name: no-relations\n"
-            "entities:\n"
-            "  - name: Project\n",
+            "version: 1\nspace:\n  name: no-relations\nentities:\n  - name: Project\n",
             encoding="utf-8",
         )
 

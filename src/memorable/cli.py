@@ -243,9 +243,7 @@ def _cmd_profile_show(args: argparse.Namespace) -> int:
         "write_policy_sensitive": profile.write_policy.sensitive,
         "entities": [e.name for e in profile.entities],
         "relations": [r.name for r in profile.relations],
-        "records": [
-            {"name": r.name, "extends": r.extends} for r in profile.records
-        ],
+        "records": [{"name": r.name, "extends": r.extends} for r in profile.records],
     }
 
     print(json.dumps(output, sort_keys=True, indent=2))
@@ -950,9 +948,7 @@ def main(argv: list[str] | None = None) -> int:
     )
 
     # profile subcommand
-    profile_parser = subparsers.add_parser(
-        "profile", help="Inspect the MemoryProfile."
-    )
+    profile_parser = subparsers.add_parser("profile", help="Inspect the MemoryProfile.")
     profile_sub = profile_parser.add_subparsers(dest="profile_type", required=True)
     profile_show_parser = profile_sub.add_parser(
         "show", help="Show the loaded MemoryProfile."

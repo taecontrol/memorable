@@ -125,7 +125,9 @@ class TestInMemoryRelationRepositorySaveAndRetrieve:
         repo = InMemoryRelationRepository()
         r1, p1 = self._make_relation(rel_id="rel:1")
         r2, p2 = self._make_relation(
-            rel_id="rel:2", source=ENTITY_B_ID, target=ENTITY_C_ID,
+            rel_id="rel:2",
+            source=ENTITY_B_ID,
+            target=ENTITY_C_ID,
         )
 
         repo.save(r1, p1)
