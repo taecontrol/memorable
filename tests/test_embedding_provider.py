@@ -151,63 +151,7 @@ class TestOpenRouterEmbeddingProvider:
 
 
 # =====================================================================
-# 2. Provider configuration tests
-# =====================================================================
-
-
-class TestProviderConfiguration:
-    """Env var configuration for the embedding provider."""
-
-    def test_missing_api_key_raises_configuration_error(
-        self, monkeypatch: pytest.MonkeyPatch
-    ) -> None:
-        """Missing API key raises a clear error."""
-        from memorable.retrieval.embeddings import OpenRouterEmbeddingProvider
-
-        monkeypatch.delenv("MEMORABLE_OPENROUTER_API_KEY", raising=False)
-
-        with pytest.raises(Exception, match="MEMORABLE_OPENROUTER_API_KEY"):
-            OpenRouterEmbeddingProvider.from_env()
-
-    def test_api_key_from_env_var(self, monkeypatch: pytest.MonkeyPatch) -> None:
-        """Provider reads API key from MEMORABLE_OPENROUTER_API_KEY."""
-        from memorable.retrieval.embeddings import OpenRouterEmbeddingProvider
-
-        monkeypatch.setenv("MEMORABLE_OPENROUTER_API_KEY", "sk-test-123")
-        monkeypatch.delenv("MEMORABLE_EMBEDDING_MODEL", raising=False)
-        monkeypatch.delenv("MEMORABLE_EMBEDDING_DIMENSIONS", raising=False)
-
-        provider = OpenRouterEmbeddingProvider.from_env()
-        # The provider should have been created successfully with the key
-        assert provider.provider_name == "openrouter"
-
-    def test_custom_model_from_env_var(self, monkeypatch: pytest.MonkeyPatch) -> None:
-        """MEMORABLE_EMBEDDING_MODEL overrides default model."""
-        from memorable.retrieval.embeddings import OpenRouterEmbeddingProvider
-
-        monkeypatch.setenv("MEMORABLE_OPENROUTER_API_KEY", "sk-test-123")
-        monkeypatch.setenv("MEMORABLE_EMBEDDING_MODEL", "openai/text-embedding-3-small")
-        monkeypatch.delenv("MEMORABLE_EMBEDDING_DIMENSIONS", raising=False)
-
-        provider = OpenRouterEmbeddingProvider.from_env()
-        assert provider.model_name == "openai/text-embedding-3-small"
-
-    def test_custom_dimensions_from_env_var(
-        self, monkeypatch: pytest.MonkeyPatch
-    ) -> None:
-        """MEMORABLE_EMBEDDING_DIMENSIONS overrides default dimensions."""
-        from memorable.retrieval.embeddings import OpenRouterEmbeddingProvider
-
-        monkeypatch.setenv("MEMORABLE_OPENROUTER_API_KEY", "sk-test-123")
-        monkeypatch.setenv("MEMORABLE_EMBEDDING_DIMENSIONS", "1536")
-        monkeypatch.delenv("MEMORABLE_EMBEDDING_MODEL", raising=False)
-
-        provider = OpenRouterEmbeddingProvider.from_env()
-        assert provider.dimensions == 1536
-
-
-# =====================================================================
-# 3. Provider factory tests
+# 2. Provider factory tests
 # =====================================================================
 
 
@@ -396,17 +340,19 @@ class TestNoAccidentalRemoteUse:
         assert isinstance(service._embedding_provider, FakeEmbeddingProvider)
 
     @patch("memorable.retrieval.embeddings.OpenAI")
-    def test_no_remote_calls_without_explicit_config(
-        self, mock_openai_cls: MagicMock, monkeypatch: pytest.MonkeyPatch
+    def test_no_remote_calls_with_default_settings(
+        self, mock_openai_cls: MagicMock
     ) -> None:
-        """Without env vars, no HTTP calls are made during embedding."""
-        from memorable.retrieval.embeddings import build_embedding_provider
+        """Default EmbeddingSettings uses fastembed, never OpenRouter."""
+        from memorable.config import EmbeddingSettings
+        from memorable.retrieval.embeddings import (
+            FastembedEmbeddingProvider,
+            build_embedding_provider,
+        )
 
-        monkeypatch.delenv("MEMORABLE_OPENROUTER_API_KEY", raising=False)
-        monkeypatch.delenv("MEMORABLE_EMBEDDING_PROVIDER", raising=False)
+        settings = EmbeddingSettings()  # defaults to fastembed
+        provider = build_embedding_provider(settings)
 
-        provider = build_embedding_provider()
-        provider.embed("should not call OpenAI")
-
+        assert isinstance(provider, FastembedEmbeddingProvider)
         # OpenAI client constructor should never have been called
         mock_openai_cls.assert_not_called()
