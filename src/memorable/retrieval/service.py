@@ -266,12 +266,21 @@ class HybridRetrievalService:
         related: list[tuple[str, str]] = []
 
         if source_kind == "Entity":
-            for decision in self._decision_repo.list_by_space(space):
-                related.append((decision.id, "Decision"))
-            for task in self._task_repo.list_by_space(space):
-                related.append((task.id, "Task"))
-            for observation in self._observation_repo.list_by_space(space):
-                related.append((observation.id, "Observation"))
+            if self._relation_repo is not None:
+                relations = self._relation_repo.list_by_entity(space, source_id)
+                for relation in relations:
+                    if relation.lifecycle_state in (
+                        "superseded",
+                        "invalidated",
+                    ):
+                        continue
+                    # Extract the other endpoint Entity
+                    other_entity_id = (
+                        relation.target_entity_id
+                        if relation.source_entity_id == source_id
+                        else relation.source_entity_id
+                    )
+                    related.append((other_entity_id, "Entity"))
 
         elif source_kind == "Decision":
             for entity in self._entity_repo.list_by_space(space):
