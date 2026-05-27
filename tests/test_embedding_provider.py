@@ -226,6 +226,18 @@ class TestProviderFactory:
         provider = build_embedding_provider(settings)
         assert isinstance(provider, FakeEmbeddingProvider)
 
+    def test_fastembed_provider_from_settings(self) -> None:
+        """settings.provider == 'fastembed' returns FastembedEmbeddingProvider."""
+        from memorable.config import EmbeddingSettings
+        from memorable.retrieval.embeddings import (
+            FastembedEmbeddingProvider,
+            build_embedding_provider,
+        )
+
+        settings = EmbeddingSettings(provider="fastembed")
+        provider = build_embedding_provider(settings)
+        assert isinstance(provider, FastembedEmbeddingProvider)
+
 
 # =====================================================================
 # 4. Embedding metadata preservation tests
