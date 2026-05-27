@@ -238,6 +238,22 @@ class TestProviderFactory:
         provider = build_embedding_provider(settings)
         assert isinstance(provider, FastembedEmbeddingProvider)
 
+    def test_openrouter_provider_from_settings_with_api_key(self) -> None:
+        """settings.provider == 'openrouter' + api_key returns OpenRouterEmbeddingProvider."""
+        from memorable.config import EmbeddingSettings
+        from memorable.retrieval.embeddings import (
+            OpenRouterEmbeddingProvider,
+            build_embedding_provider,
+        )
+
+        settings = EmbeddingSettings(
+            provider="openrouter",
+            model="google/gemini-embedding-2-preview",
+            dimensions=768,
+        )
+        provider = build_embedding_provider(settings, api_key="sk-test-key")
+        assert isinstance(provider, OpenRouterEmbeddingProvider)
+
 
 # =====================================================================
 # 4. Embedding metadata preservation tests
