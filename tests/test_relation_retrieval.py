@@ -468,3 +468,62 @@ class TestRelationBasedGraphExpansion:
         assert "Observation" not in related_kinds, (
             "Entity expansion should not return all Observations in the space"
         )
+
+
+# =====================================================================
+# 5. Superseded and invalidated Relations excluded from graph expansion
+# =====================================================================
+
+
+class TestRelationTemporalFilteringInExpansion:
+    """Superseded and invalidated Relations are excluded from graph expansion."""
+
+    def test_superseded_relation_excluded_from_expansion(self) -> None:
+        """A superseded Relation should not contribute to graph expansion."""
+        service, _, _, _, _, relation_repo = _build_relation_fixture()
+
+        # Supersede the relation
+        relation_repo.mark_superseded(
+            space="myproject",
+            record_id="relation:auth-depends-token",
+            superseded_by="relation:auth-depends-token:v2",
+            invalidation_time=RELATION_TIMESTAMPS["relation_v2"],
+        )
+
+        related = service._graph_expand(
+            "myproject", "entity:auth-module", "Entity"
+        )
+
+        related_ids = [r_id for r_id, _ in related]
+        # token-service should NOT appear because the only Relation
+        # connecting them is now superseded
+        assert "entity:token-service" not in related_ids
+
+    def test_invalidated_relation_excluded_from_expansion(self) -> None:
+        """An invalidated Relation should not contribute to graph expansion."""
+        service, _, _, _, _, relation_repo = _build_relation_fixture()
+
+        # Invalidate the relation
+        relation_repo.invalidate(
+            space="myproject",
+            record_id="relation:auth-depends-token",
+            invalidation_time=RELATION_TIMESTAMPS["relation_v2"],
+        )
+
+        related = service._graph_expand(
+            "myproject", "entity:auth-module", "Entity"
+        )
+
+        related_ids = [r_id for r_id, _ in related]
+        assert "entity:token-service" not in related_ids
+
+    def test_current_relation_included_in_expansion(self) -> None:
+        """A current Relation should contribute to graph expansion."""
+        service, *_ = _build_relation_fixture()
+
+        related = service._graph_expand(
+            "myproject", "entity:auth-module", "Entity"
+        )
+
+        related_ids = [r_id for r_id, _ in related]
+        assert "entity:token-service" in related_ids
