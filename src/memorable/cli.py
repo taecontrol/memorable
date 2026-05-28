@@ -7,7 +7,7 @@ from collections.abc import Callable
 from pathlib import Path
 from typing import Literal, cast
 
-from memorable.config import load_runtime_config
+from memorable.config import RuntimeConfig, load_runtime_config
 from memorable.core.application import (
     CompleteTaskService,
     CorrectService,
@@ -267,7 +267,11 @@ def _cmd_tracer_run(args: argparse.Namespace) -> int:
 # =====================================================================
 
 
-def _cmd_remember_entity(args: argparse.Namespace, ctx: ApplicationContext) -> int:
+def _cmd_remember_entity(
+    args: argparse.Namespace,
+    ctx: ApplicationContext,
+    config: RuntimeConfig,
+) -> int:
     """Remember an Entity with provenance."""
     space = resolve_space(getattr(args, "space", None))
 
@@ -316,7 +320,11 @@ def _cmd_remember_entity(args: argparse.Namespace, ctx: ApplicationContext) -> i
     return 0
 
 
-def _cmd_inspect_provenance(args: argparse.Namespace, ctx: ApplicationContext) -> int:
+def _cmd_inspect_provenance(
+    args: argparse.Namespace,
+    ctx: ApplicationContext,
+    config: RuntimeConfig,
+) -> int:
     """Inspect provenance for a remembered Entity."""
     space = resolve_space(getattr(args, "space", None))
 
@@ -342,7 +350,11 @@ def _cmd_inspect_provenance(args: argparse.Namespace, ctx: ApplicationContext) -
     return 0
 
 
-def _cmd_remember_decision(args: argparse.Namespace, ctx: ApplicationContext) -> int:
+def _cmd_remember_decision(
+    args: argparse.Namespace,
+    ctx: ApplicationContext,
+    config: RuntimeConfig,
+) -> int:
     """Remember a Decision with provenance."""
     space = resolve_space(getattr(args, "space", None))
 
@@ -392,7 +404,11 @@ def _cmd_remember_decision(args: argparse.Namespace, ctx: ApplicationContext) ->
     return 0
 
 
-def _cmd_remember_observation(args: argparse.Namespace, ctx: ApplicationContext) -> int:
+def _cmd_remember_observation(
+    args: argparse.Namespace,
+    ctx: ApplicationContext,
+    config: RuntimeConfig,
+) -> int:
     """Remember an Observation with provenance."""
     space = resolve_space(getattr(args, "space", None))
 
@@ -444,7 +460,11 @@ def _cmd_remember_observation(args: argparse.Namespace, ctx: ApplicationContext)
     return 0
 
 
-def _cmd_remember_relation(args: argparse.Namespace, ctx: ApplicationContext) -> int:
+def _cmd_remember_relation(
+    args: argparse.Namespace,
+    ctx: ApplicationContext,
+    config: RuntimeConfig,
+) -> int:
     """Remember a Relation with provenance."""
     space = resolve_space(getattr(args, "space", None))
 
@@ -503,7 +523,11 @@ def _cmd_remember_relation(args: argparse.Namespace, ctx: ApplicationContext) ->
     return 0
 
 
-def _cmd_truth_current(args: argparse.Namespace, ctx: ApplicationContext) -> int:
+def _cmd_truth_current(
+    args: argparse.Namespace,
+    ctx: ApplicationContext,
+    config: RuntimeConfig,
+) -> int:
     """Show the current truth for a Decision, following supersession chain."""
     space = resolve_space(getattr(args, "space", None))
 
@@ -532,7 +556,11 @@ def _cmd_truth_current(args: argparse.Namespace, ctx: ApplicationContext) -> int
     return 0
 
 
-def _cmd_truth_as_of(args: argparse.Namespace, ctx: ApplicationContext) -> int:
+def _cmd_truth_as_of(
+    args: argparse.Namespace,
+    ctx: ApplicationContext,
+    config: RuntimeConfig,
+) -> int:
     """Show the Decision that was valid at a specific time."""
     space = resolve_space(getattr(args, "space", None))
 
@@ -563,7 +591,11 @@ def _cmd_truth_as_of(args: argparse.Namespace, ctx: ApplicationContext) -> int:
     return 0
 
 
-def _cmd_inspect_history(args: argparse.Namespace, ctx: ApplicationContext) -> int:
+def _cmd_inspect_history(
+    args: argparse.Namespace,
+    ctx: ApplicationContext,
+    config: RuntimeConfig,
+) -> int:
     """Show the full supersession chain for a Decision."""
     space = resolve_space(getattr(args, "space", None))
 
@@ -592,7 +624,11 @@ def _cmd_inspect_history(args: argparse.Namespace, ctx: ApplicationContext) -> i
     return 0
 
 
-def _cmd_remember_task(args: argparse.Namespace, ctx: ApplicationContext) -> int:
+def _cmd_remember_task(
+    args: argparse.Namespace,
+    ctx: ApplicationContext,
+    config: RuntimeConfig,
+) -> int:
     """Remember a Task with provenance."""
     space = resolve_space(getattr(args, "space", None))
 
@@ -640,7 +676,11 @@ def _cmd_remember_task(args: argparse.Namespace, ctx: ApplicationContext) -> int
     return 0
 
 
-def _cmd_complete_task(args: argparse.Namespace, ctx: ApplicationContext) -> int:
+def _cmd_complete_task(
+    args: argparse.Namespace,
+    ctx: ApplicationContext,
+    config: RuntimeConfig,
+) -> int:
     """Complete a Task."""
     space = resolve_space(getattr(args, "space", None))
 
@@ -672,7 +712,11 @@ def _cmd_complete_task(args: argparse.Namespace, ctx: ApplicationContext) -> int
     return 0
 
 
-def _cmd_task_inspect(args: argparse.Namespace, ctx: ApplicationContext) -> int:
+def _cmd_task_inspect(
+    args: argparse.Namespace,
+    ctx: ApplicationContext,
+    config: RuntimeConfig,
+) -> int:
     """Inspect task lifecycle."""
     space = resolve_space(getattr(args, "space", None))
 
@@ -710,14 +754,17 @@ def _cmd_task_inspect(args: argparse.Namespace, ctx: ApplicationContext) -> int:
     return 0
 
 
-def _cmd_search(args: argparse.Namespace, ctx: ApplicationContext) -> int:
+def _cmd_search(
+    args: argparse.Namespace,
+    ctx: ApplicationContext,
+    config: RuntimeConfig,
+) -> int:
     """Search memory using hybrid GraphRAG retrieval."""
     space = resolve_space(getattr(args, "space", None))
 
     from memorable.retrieval.embeddings import build_embedding_provider
     from memorable.retrieval.service import build_retrieval_service
 
-    config = load_runtime_config()
     try:
         provider = build_embedding_provider(
             config.embeddings, api_key=config.embeddings.api_key
@@ -760,7 +807,11 @@ def _cmd_search(args: argparse.Namespace, ctx: ApplicationContext) -> int:
     return 0
 
 
-def _cmd_invalidate(args: argparse.Namespace, ctx: ApplicationContext) -> int:
+def _cmd_invalidate(
+    args: argparse.Namespace,
+    ctx: ApplicationContext,
+    config: RuntimeConfig,
+) -> int:
     """Invalidate a temporal record (Decision or Observation)."""
     space = resolve_space(getattr(args, "space", None))
     record_type = args.record_type
@@ -804,7 +855,11 @@ def _cmd_invalidate(args: argparse.Namespace, ctx: ApplicationContext) -> int:
     return 0
 
 
-def _cmd_correct(args: argparse.Namespace, ctx: ApplicationContext) -> int:
+def _cmd_correct(
+    args: argparse.Namespace,
+    ctx: ApplicationContext,
+    config: RuntimeConfig,
+) -> int:
     """Correct a temporal record's statement in place (Decision or Observation)."""
     space = resolve_space(getattr(args, "space", None))
     record_type = args.record_type
@@ -861,7 +916,7 @@ def _cmd_correct(args: argparse.Namespace, ctx: ApplicationContext) -> int:
 # Single source of truth: _needs_production_context and dispatch both use this.
 _CONTEXT_HANDLERS: dict[
     tuple[str, str | None],
-    Callable[[argparse.Namespace, ApplicationContext], int],
+    Callable[[argparse.Namespace, ApplicationContext, RuntimeConfig], int],
 ] = {
     ("remember", "entity"): _cmd_remember_entity,
     ("remember", "decision"): _cmd_remember_decision,
@@ -904,13 +959,17 @@ def _needs_production_context(args: argparse.Namespace) -> bool:
     return _resolve_context_key(args) in _CONTEXT_HANDLERS
 
 
-def _dispatch_context_command(args: argparse.Namespace, ctx: ApplicationContext) -> int:
+def _dispatch_context_command(
+    args: argparse.Namespace,
+    ctx: ApplicationContext,
+    config: RuntimeConfig,
+) -> int:
     """Dispatch a command that uses the production context."""
     key = _resolve_context_key(args)
     handler = _CONTEXT_HANDLERS.get(key)
     if handler is None:
         raise AssertionError(f"unhandled context command: {args.command}")
-    return handler(args, ctx)
+    return handler(args, ctx, config)
 
 
 def main(argv: list[str] | None = None) -> int:
@@ -1179,7 +1238,7 @@ def main(argv: list[str] | None = None) -> int:
             return 1
 
         try:
-            return _dispatch_context_command(args, ctx)
+            return _dispatch_context_command(args, ctx, config)
         finally:
             driver.close()
 

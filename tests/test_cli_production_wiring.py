@@ -500,6 +500,49 @@ class TestCLISearchUsesRuntimeConfig:
         assert "nonexistent" in err
         assert "Error:" in err
 
+    def test_search_loads_runtime_config_only_once(
+        self, tmp_path: Path, monkeypatch, capsys
+    ) -> None:
+        """Runtime config must be loaded exactly once per ``memorable search`` run.
+
+        Reading ``runtime.yaml`` / ``runtime.local.yaml`` / ``.env`` twice is
+        wasted I/O and risks inconsistent behaviour if files change between
+        reads. ``main()`` already loads the config to build the production
+        context; ``_cmd_search`` must reuse that config instead of re-loading.
+        """
+        from memorable.cli import main
+        from memorable.config import EmbeddingSettings, RuntimeConfig
+        from memorable.retrieval.embeddings import FakeEmbeddingProvider
+
+        _setup_workspace(tmp_path)
+        shared_ctx = ApplicationContext()
+        mock_driver = _make_mock_driver()
+
+        config = RuntimeConfig(
+            embeddings=EmbeddingSettings(provider="fake", dimensions=32),
+        )
+
+        monkeypatch.chdir(tmp_path)
+        with (
+            patch(
+                "memorable.cli.build_production_context",
+            ) as mock_build,
+            patch(
+                "memorable.cli.load_runtime_config",
+                return_value=config,
+            ) as mock_load,
+            patch(
+                "memorable.retrieval.embeddings.build_embedding_provider",
+            ) as mock_build_provider,
+        ):
+            mock_build.return_value = (shared_ctx, mock_driver)
+            mock_build_provider.return_value = FakeEmbeddingProvider(dimensions=32)
+
+            rc = main(["search", "--query", "anything"])
+
+        assert rc == 0
+        mock_load.assert_called_once()
+
 
 class TestCLICommandsNotNeedingContext:
     """Commands that don't need a context should still work without one."""

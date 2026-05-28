@@ -8,6 +8,7 @@ from __future__ import annotations
 import hashlib
 import math
 import struct
+import warnings
 from typing import TYPE_CHECKING, Protocol, runtime_checkable
 
 from openai import OpenAI
@@ -92,6 +93,10 @@ class FastembedEmbeddingProvider:
         self._dimensions = dimensions
         # Lazy init: defer heavy model load until first embed() call
         self._engine: TextEmbedding | None = None
+        # Warn at most once per instance when the model's native dimension
+        # differs from the configured ``dimensions``. We can only detect this
+        # after the first embed() call (lazy load), so track it on self.
+        self._dimension_mismatch_warned = False
 
     def _get_engine(self) -> TextEmbedding:
         if self._engine is None:
@@ -113,6 +118,22 @@ class FastembedEmbeddingProvider:
         # fastembed returns a generator of numpy arrays; take the first
         embeddings = list(engine.embed([text]))
         raw = embeddings[0].tolist()
+
+        # Surface configuration mistakes: if the model emits a different
+        # number of dimensions than the runtime config declares, the
+        # truncation below silently drops information. Warn once per
+        # instance so a developer sees the mismatch without spamming logs.
+        if len(raw) != self._dimensions and not self._dimension_mismatch_warned:
+            warnings.warn(
+                f"FastembedEmbeddingProvider: model {self._model!r} emits "
+                f"{len(raw)}-dimensional vectors but configured dimensions is "
+                f"{self._dimensions}. Vectors will be truncated to "
+                f"{self._dimensions}. Adjust embeddings.dimensions in "
+                f"runtime.yaml or choose a model whose native size matches.",
+                UserWarning,
+                stacklevel=2,
+            )
+            self._dimension_mismatch_warned = True
 
         # Truncate or validate dimensions
         raw = raw[: self._dimensions]

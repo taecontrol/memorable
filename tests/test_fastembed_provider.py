@@ -99,3 +99,69 @@ class TestFastembedEmbed:
         vec_b = provider.embed("quantum mechanics describes particle behavior")
 
         assert vec_a != vec_b
+
+
+class TestFastembedDimensionMismatchWarning:
+    """FastembedEmbeddingProvider warns when configured dims != model native dims.
+
+    The provider truncates the model output to the configured dimensions so the
+    rest of the system keeps working, but a mismatch is almost always a config
+    error. Surface it as a ``UserWarning`` the first time ``embed()`` is called
+    so the developer can either fix the config or the model choice.
+    """
+
+    def test_warns_when_configured_dimensions_smaller_than_model(self) -> None:
+        import pytest
+
+        from memorable.retrieval.embeddings import FastembedEmbeddingProvider
+
+        # BAAI/bge-small-en-v1.5 emits 384-dim vectors; configure 128 to mismatch.
+        provider = FastembedEmbeddingProvider(
+            model="BAAI/bge-small-en-v1.5", dimensions=128
+        )
+
+        with pytest.warns(UserWarning, match=r"384.*128|128.*384"):
+            provider.embed("hello")
+
+    def test_warns_only_once_per_provider_instance(self) -> None:
+        import warnings as warnings_mod
+
+        from memorable.retrieval.embeddings import FastembedEmbeddingProvider
+
+        provider = FastembedEmbeddingProvider(
+            model="BAAI/bge-small-en-v1.5", dimensions=128
+        )
+
+        with warnings_mod.catch_warnings(record=True) as recorded:
+            warnings_mod.simplefilter("always")
+            provider.embed("first call")
+            provider.embed("second call")
+            provider.embed("third call")
+
+        mismatch_warnings = [
+            w
+            for w in recorded
+            if issubclass(w.category, UserWarning)
+            and "FastembedEmbeddingProvider" in str(w.message)
+        ]
+        assert len(mismatch_warnings) == 1
+
+    def test_no_warning_when_dimensions_match(self) -> None:
+        import warnings as warnings_mod
+
+        from memorable.retrieval.embeddings import FastembedEmbeddingProvider
+
+        # Default 384 matches BAAI/bge-small-en-v1.5's native dimension.
+        provider = FastembedEmbeddingProvider()
+
+        with warnings_mod.catch_warnings(record=True) as recorded:
+            warnings_mod.simplefilter("always")
+            provider.embed("matching dims should not warn")
+
+        mismatch_warnings = [
+            w
+            for w in recorded
+            if issubclass(w.category, UserWarning)
+            and "FastembedEmbeddingProvider" in str(w.message)
+        ]
+        assert mismatch_warnings == []
