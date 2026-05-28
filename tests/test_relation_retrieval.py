@@ -635,13 +635,15 @@ class TestSupersessionTraversalUnchanged:
 
 
 class TestApplicationContextRelationWiring:
-    """ApplicationContext passes relation_repo to HybridRetrievalService."""
+    """Standalone factory passes relation_repo to HybridRetrievalService."""
 
     def test_build_retrieval_service_wires_relation_repo(self) -> None:
         from memorable.core.context import ApplicationContext
+        from memorable.retrieval.embeddings import FakeEmbeddingProvider
+        from memorable.retrieval.service import build_retrieval_service
 
         ctx = ApplicationContext()
-        service = ctx.build_retrieval_service()
+        service = build_retrieval_service(ctx, FakeEmbeddingProvider(dimensions=32))
 
         assert service._relation_repo is ctx.relation_repo
 

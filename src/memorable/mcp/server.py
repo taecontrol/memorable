@@ -5,6 +5,7 @@ from typing import Literal
 
 from mcp.server.fastmcp import FastMCP
 
+from memorable.config import load_runtime_config
 from memorable.core.application import (
     CompleteTaskService,
     CorrectService,
@@ -711,7 +712,17 @@ def search_memory_tool(
         mode: "current" for Current Truth, "as-of" for Point-In-Time Truth
         as_of: ISO timestamp, required when mode is "as-of"
     """
-    service = _context.build_retrieval_service()
+    from memorable.retrieval.embeddings import build_embedding_provider
+    from memorable.retrieval.service import build_retrieval_service
+
+    config = load_runtime_config()
+    try:
+        provider = build_embedding_provider(
+            config.embeddings, api_key=config.embeddings.api_key
+        )
+    except (RuntimeError, ValueError) as e:
+        return {"error": str(e)}
+    service = build_retrieval_service(_context, provider)
 
     as_of_dt = None
     if as_of is not None:

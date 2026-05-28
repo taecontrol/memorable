@@ -7,11 +7,16 @@ from __future__ import annotations
 
 import hashlib
 import math
-import os
 import struct
-from typing import Protocol, runtime_checkable
+import warnings
+from typing import TYPE_CHECKING, Protocol, runtime_checkable
 
 from openai import OpenAI
+
+from memorable.config import EmbeddingSettings
+
+if TYPE_CHECKING:
+    from fastembed import TextEmbedding
 
 
 @runtime_checkable
@@ -71,6 +76,75 @@ class FakeEmbeddingProvider:
         return raw_floats
 
 
+class FastembedEmbeddingProvider:
+    """Local embedding provider backed by fastembed (ONNX Runtime).
+
+    Works after ``pip install memorable`` with zero configuration and no API key.
+    Wraps ``fastembed.TextEmbedding`` internally, handles numpy-to-list conversion
+    and L2 normalization.
+    """
+
+    def __init__(
+        self,
+        model: str = "BAAI/bge-small-en-v1.5",
+        dimensions: int = 384,
+    ) -> None:
+        self._model = model
+        self._dimensions = dimensions
+        # Lazy init: defer heavy model load until first embed() call
+        self._engine: TextEmbedding | None = None
+        # Warn at most once per instance when the model's native dimension
+        # differs from the configured ``dimensions``. We can only detect this
+        # after the first embed() call (lazy load), so track it on self.
+        self._dimension_mismatch_warned = False
+
+    def _get_engine(self) -> TextEmbedding:
+        if self._engine is None:
+            from fastembed import TextEmbedding
+
+            self._engine = TextEmbedding(model_name=self._model)
+        return self._engine
+
+    @property
+    def provider_name(self) -> str:
+        return "fastembed"
+
+    @property
+    def model_name(self) -> str:
+        return self._model
+
+    def embed(self, text: str) -> list[float]:
+        engine = self._get_engine()
+        # fastembed returns a generator of numpy arrays; take the first
+        embeddings = list(engine.embed([text]))
+        raw = embeddings[0].tolist()
+
+        # Surface configuration mistakes: if the model emits a different
+        # number of dimensions than the runtime config declares, the
+        # truncation below silently drops information. Warn once per
+        # instance so a developer sees the mismatch without spamming logs.
+        if len(raw) != self._dimensions and not self._dimension_mismatch_warned:
+            warnings.warn(
+                f"FastembedEmbeddingProvider: model {self._model!r} emits "
+                f"{len(raw)}-dimensional vectors but configured dimensions is "
+                f"{self._dimensions}. Vectors will be truncated to "
+                f"{self._dimensions}. Adjust embeddings.dimensions in "
+                f"runtime.yaml or choose a model whose native size matches.",
+                UserWarning,
+                stacklevel=2,
+            )
+            self._dimension_mismatch_warned = True
+
+        # Truncate or validate dimensions
+        raw = raw[: self._dimensions]
+
+        # L2-normalize
+        magnitude = math.sqrt(sum(v * v for v in raw))
+        if magnitude > 0:
+            return [v / magnitude for v in raw]
+        return raw
+
+
 class OpenRouterEmbeddingProvider:
     """Embedding provider backed by OpenRouter's OpenAI-compatible API."""
 
@@ -112,33 +186,46 @@ class OpenRouterEmbeddingProvider:
             return [v / magnitude for v in raw]
         return raw
 
-    @classmethod
-    def from_env(cls) -> OpenRouterEmbeddingProvider:
-        api_key = os.environ.get("MEMORABLE_OPENROUTER_API_KEY")
+
+def build_embedding_provider(
+    settings: EmbeddingSettings,
+    api_key: str | None = None,
+) -> EmbeddingProvider:
+    """Build an embedding provider from explicit settings.
+
+    Parameters
+    ----------
+    settings:
+        Which provider, model, and dimensions to use.
+    api_key:
+        API key for remote providers (e.g. OpenRouter).  Must be supplied
+        when ``settings.provider`` is ``"openrouter"``.
+    """
+    if settings.provider == "fake":
+        return FakeEmbeddingProvider(dimensions=settings.dimensions)
+
+    if settings.provider == "fastembed":
+        return FastembedEmbeddingProvider(
+            model=settings.model, dimensions=settings.dimensions
+        )
+
+    if settings.provider == "openrouter":
         if not api_key:
             msg = (
-                "MEMORABLE_OPENROUTER_API_KEY environment variable is required "
-                "for the OpenRouter embedding provider. "
-                "Set it to your OpenRouter API key."
+                "api_key is required when settings.provider is 'openrouter'. "
+                "Set MEMORABLE_OPENROUTER_API_KEY in .memorable/.env "
+                "or pass api_key explicitly."
             )
             raise RuntimeError(msg)
-
-        model = os.environ.get(
-            "MEMORABLE_EMBEDDING_MODEL",
-            "google/gemini-embedding-2-preview",
+        return OpenRouterEmbeddingProvider(
+            api_key=api_key,
+            model=settings.model,
+            dimensions=settings.dimensions,
         )
-        dimensions = int(os.environ.get("MEMORABLE_EMBEDDING_DIMENSIONS", "768"))
-        return cls(api_key=api_key, model=model, dimensions=dimensions)
 
-
-def build_embedding_provider() -> EmbeddingProvider:
-    """Build an embedding provider from environment configuration."""
-    provider_name = os.environ.get("MEMORABLE_EMBEDDING_PROVIDER", "")
-    if provider_name == "fake":
-        return FakeEmbeddingProvider()
-
-    api_key = os.environ.get("MEMORABLE_OPENROUTER_API_KEY")
-    if api_key:
-        return OpenRouterEmbeddingProvider.from_env()
-
-    return FakeEmbeddingProvider()
+    valid = ("fastembed", "openrouter", "fake")
+    msg = (
+        f"Unknown embedding provider {settings.provider!r}. "
+        f"Valid providers: {', '.join(valid)}"
+    )
+    raise ValueError(msg)

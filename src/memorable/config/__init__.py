@@ -33,8 +33,10 @@ class DockerSettings:
 
 @dataclass(frozen=True)
 class EmbeddingSettings:
-    provider: str = "openrouter"
-    model: str = "text-embedding-3-small"
+    provider: str = "fastembed"
+    model: str = "BAAI/bge-small-en-v1.5"
+    dimensions: int = 384
+    api_key: str | None = None
 
 
 @dataclass(frozen=True)
@@ -96,6 +98,7 @@ _ENV_MAPPING: dict[str, str] = {
     "MEMORABLE_NEO4J_URI": "neo4j.uri",
     "MEMORABLE_NEO4J_USER": "neo4j.user",
     "MEMORABLE_NEO4J_PASSWORD": "neo4j.password",
+    "MEMORABLE_OPENROUTER_API_KEY": "embeddings.api_key",
 }
 
 
@@ -174,6 +177,8 @@ def load_runtime_config(base_path: Path | None = None) -> RuntimeConfig:
     embeddings = EmbeddingSettings(
         provider=embeddings_raw.get("provider", EmbeddingSettings.provider),
         model=embeddings_raw.get("model", EmbeddingSettings.model),
+        dimensions=embeddings_raw.get("dimensions", EmbeddingSettings.dimensions),
+        api_key=embeddings_raw.get("api_key", EmbeddingSettings.api_key),
     )
 
     # Fill in "built-in" for any field not already tracked
@@ -186,6 +191,8 @@ def load_runtime_config(base_path: Path | None = None) -> RuntimeConfig:
         "docker.bolt_port",
         "embeddings.provider",
         "embeddings.model",
+        "embeddings.dimensions",
+        "embeddings.api_key",
     ]
     for fp in all_fields:
         if fp not in sources:

@@ -7,7 +7,7 @@ and provenance-aware explanation into ranked retrieval results.
 from __future__ import annotations
 
 from datetime import datetime
-from typing import Literal
+from typing import TYPE_CHECKING, Literal
 
 from memorable.core.application import InspectTaskService, PointInTimeTruthService
 from memorable.core.models import Decision, Entity, Observation, Relation, Task
@@ -28,6 +28,9 @@ from memorable.retrieval.indexable_text import (
     indexable_text_for_task,
 )
 from memorable.retrieval.models import EmbeddingRecord, RetrievalResult
+
+if TYPE_CHECKING:
+    from memorable.core.context import ApplicationContext
 
 
 class HybridRetrievalService:
@@ -775,3 +778,22 @@ class HybridRetrievalService:
             explanation=explanation,
             provenance_summary=prov_summary,
         )
+
+
+def build_retrieval_service(
+    context: ApplicationContext,
+    embedding_provider: EmbeddingProvider,
+) -> HybridRetrievalService:
+    """Build a HybridRetrievalService wired to the given context's repos.
+
+    Callers choose which EmbeddingProvider to inject — this keeps
+    ApplicationContext free of embedding concerns.
+    """
+    return HybridRetrievalService(
+        entity_repo=context.entity_repo,
+        decision_repo=context.decision_repo,
+        task_repo=context.task_repo,
+        embedding_provider=embedding_provider,
+        observation_repo=context.observation_repo,
+        relation_repo=context.relation_repo,
+    )

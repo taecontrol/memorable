@@ -1689,14 +1689,16 @@ class TestObservationRepoRequired:
 
 
 class TestObservationApplicationContext:
-    """ApplicationContext wires observation_repo into HybridRetrievalService."""
+    """Standalone factory wires observation_repo into HybridRetrievalService."""
 
     def test_build_retrieval_service_wires_observation_repo(self) -> None:
         """build_retrieval_service passes observation_repo to HybridRetrievalService."""
         from memorable.core.context import ApplicationContext
+        from memorable.retrieval.embeddings import FakeEmbeddingProvider
+        from memorable.retrieval.service import build_retrieval_service
 
         ctx = ApplicationContext()
-        service = ctx.build_retrieval_service()
+        service = build_retrieval_service(ctx, FakeEmbeddingProvider(dimensions=32))
 
         # The service should have an observation_repo attribute
         assert service._observation_repo is ctx.observation_repo

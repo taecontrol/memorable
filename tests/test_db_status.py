@@ -71,3 +71,51 @@ class TestDbStatusOutput:
         captured = capsys.readouterr()
         output = json.loads(captured.out)
         assert output["neo4j"]["uri"]["source"] == "built-in"
+
+    def test_embeddings_shows_provider_model_and_dimensions(
+        self, tmp_path: Path, capsys
+    ) -> None:
+        main(["db", "status", "--path", str(tmp_path)])
+
+        captured = capsys.readouterr()
+        output = json.loads(captured.out)
+        embeddings = output["embeddings"]
+
+        assert embeddings["provider"] == {
+            "value": "fastembed",
+            "source": "built-in",
+        }
+        assert embeddings["model"] == {
+            "value": "BAAI/bge-small-en-v1.5",
+            "source": "built-in",
+        }
+        assert embeddings["dimensions"] == {
+            "value": "384",
+            "source": "built-in",
+        }
+
+    def test_embeddings_reflects_yaml_config(self, tmp_path: Path, capsys) -> None:
+        config_dir = tmp_path / ".memorable"
+        config_dir.mkdir()
+        (config_dir / "runtime.yaml").write_text(
+            "embeddings:\n  provider: fake\n  model: test-model\n  dimensions: 128\n"
+        )
+
+        main(["db", "status", "--path", str(tmp_path)])
+
+        captured = capsys.readouterr()
+        output = json.loads(captured.out)
+        embeddings = output["embeddings"]
+
+        assert embeddings["provider"] == {
+            "value": "fake",
+            "source": "runtime.yaml",
+        }
+        assert embeddings["model"] == {
+            "value": "test-model",
+            "source": "runtime.yaml",
+        }
+        assert embeddings["dimensions"] == {
+            "value": "128",
+            "source": "runtime.yaml",
+        }

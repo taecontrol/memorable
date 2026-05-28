@@ -44,8 +44,10 @@ class TestDefaultsOnly:
 
         config = load_runtime_config(base_path=tmp_path)
 
-        assert config.embeddings.provider == "openrouter"
-        assert config.embeddings.model == "text-embedding-3-small"
+        assert config.embeddings.provider == "fastembed"
+        assert config.embeddings.model == "BAAI/bge-small-en-v1.5"
+        assert config.embeddings.dimensions == 384
+        assert config.embeddings.api_key is None
 
     def test_all_sources_are_builtin(self, tmp_path: Path) -> None:
         from memorable.config import load_runtime_config
@@ -57,6 +59,7 @@ class TestDefaultsOnly:
         assert config.sources["neo4j.password"] == "built-in"
         assert config.sources["docker.neo4j_version"] == "built-in"
         assert config.sources["embeddings.provider"] == "built-in"
+        assert config.sources["embeddings.dimensions"] == "built-in"
 
     def test_runtime_config_is_frozen(self, tmp_path: Path) -> None:
         from memorable.config import load_runtime_config
@@ -110,6 +113,42 @@ class TestRuntimeYaml:
         assert config.docker.neo4j_version == "5.30"
         assert config.docker.http_port == 8474
         assert config.docker.bolt_port == 7687  # default preserved
+
+    def test_reads_embedding_settings_from_yaml(self, tmp_path: Path) -> None:
+        from memorable.config import load_runtime_config
+
+        config_dir = tmp_path / ".memorable"
+        config_dir.mkdir()
+        (config_dir / "runtime.yaml").write_text(
+            "embeddings:\n"
+            "  provider: openrouter\n"
+            "  model: text-embedding-3-small\n"
+            "  dimensions: 1536\n"
+        )
+
+        config = load_runtime_config(base_path=tmp_path)
+
+        assert config.embeddings.provider == "openrouter"
+        assert config.embeddings.model == "text-embedding-3-small"
+        assert config.embeddings.dimensions == 1536
+        assert config.sources["embeddings.provider"] == "runtime.yaml"
+        assert config.sources["embeddings.model"] == "runtime.yaml"
+        assert config.sources["embeddings.dimensions"] == "runtime.yaml"
+
+    def test_dimensions_override_preserves_other_defaults(self, tmp_path: Path) -> None:
+        from memorable.config import load_runtime_config
+
+        config_dir = tmp_path / ".memorable"
+        config_dir.mkdir()
+        (config_dir / "runtime.yaml").write_text("embeddings:\n  dimensions: 768\n")
+
+        config = load_runtime_config(base_path=tmp_path)
+
+        assert config.embeddings.dimensions == 768
+        assert config.embeddings.provider == "fastembed"  # default preserved
+        assert config.embeddings.model == "BAAI/bge-small-en-v1.5"  # default preserved
+        assert config.sources["embeddings.dimensions"] == "runtime.yaml"
+        assert config.sources["embeddings.provider"] == "built-in"
 
 
 class TestLocalOverrideMerging:
@@ -240,6 +279,48 @@ class TestDotEnvSecrets:
         assert config.sources["neo4j.uri"] == ".env"
         assert config.sources["neo4j.user"] == ".env"
         assert config.sources["neo4j.password"] == ".env"
+
+
+class TestOpenRouterApiKeyFromDotEnv:
+    """MEMORABLE_OPENROUTER_API_KEY loads into embeddings.api_key."""
+
+    def test_api_key_loaded_from_dotenv(self, tmp_path: Path) -> None:
+        from memorable.config import load_runtime_config
+
+        config_dir = tmp_path / ".memorable"
+        config_dir.mkdir()
+        (config_dir / ".env").write_text("MEMORABLE_OPENROUTER_API_KEY=sk-or-test\n")
+
+        config = load_runtime_config(base_path=tmp_path)
+
+        assert config.embeddings.api_key == "sk-or-test"
+        assert config.sources["embeddings.api_key"] == ".env"
+
+    def test_api_key_from_environ_fallback(
+        self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        from memorable.config import load_runtime_config
+
+        monkeypatch.setenv("MEMORABLE_OPENROUTER_API_KEY", "sk-or-env")
+
+        config = load_runtime_config(base_path=tmp_path)
+
+        assert config.embeddings.api_key == "sk-or-env"
+        assert config.sources["embeddings.api_key"] == "environment"
+
+    def test_api_key_none_when_not_set(self, tmp_path: Path) -> None:
+        from memorable.config import load_runtime_config
+
+        config = load_runtime_config(base_path=tmp_path)
+
+        assert config.embeddings.api_key is None
+
+    def test_api_key_source_is_builtin_when_not_set(self, tmp_path: Path) -> None:
+        from memorable.config import load_runtime_config
+
+        config = load_runtime_config(base_path=tmp_path)
+
+        assert config.sources["embeddings.api_key"] == "built-in"
 
 
 class TestEnvironmentFallback:

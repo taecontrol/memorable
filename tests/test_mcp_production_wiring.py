@@ -8,8 +8,8 @@ from __future__ import annotations
 
 from unittest.mock import MagicMock, patch
 
-from memorable.config import RuntimeConfig
-from memorable.core.context import ApplicationContext
+from memorable.config import EmbeddingSettings, RuntimeConfig
+from memorable.core.context import ApplicationContext, default_context
 
 
 def _make_mock_driver() -> MagicMock:
@@ -128,6 +128,154 @@ class TestMCPToolsUseContext:
             assert stored is not None
         finally:
             # Reset to default to avoid polluting other tests
-            from memorable.core.context import default_context
+            set_mcp_context(default_context)
 
+
+class TestMCPSearchUsesRuntimeConfig:
+    """MCP search builds embedding provider from runtime config."""
+
+    def test_search_builds_provider_from_runtime_config(self) -> None:
+        """search_memory_tool uses build_embedding_provider with config.embeddings."""
+        from memorable.mcp.server import search_memory_tool, set_mcp_context
+        from memorable.retrieval.embeddings import FakeEmbeddingProvider
+
+        ctx = ApplicationContext()
+        set_mcp_context(ctx)
+
+        config = RuntimeConfig(
+            embeddings=EmbeddingSettings(provider="fake", dimensions=32),
+        )
+
+        try:
+            with (
+                patch(
+                    "memorable.mcp.server.load_runtime_config",
+                    return_value=config,
+                ),
+                patch(
+                    "memorable.retrieval.embeddings.build_embedding_provider",
+                ) as mock_build_provider,
+            ):
+                mock_build_provider.return_value = FakeEmbeddingProvider(dimensions=32)
+
+                result = search_memory_tool(space="memorable", query="test query")
+
+            assert "error" not in result
+            mock_build_provider.assert_called_once_with(
+                config.embeddings,
+                api_key=config.embeddings.api_key,
+            )
+        finally:
+            set_mcp_context(default_context)
+
+    def test_search_openrouter_with_api_key_builds_provider(self) -> None:
+        """openrouter + api_key builds OpenRouter provider successfully."""
+        from memorable.mcp.server import search_memory_tool, set_mcp_context
+        from memorable.retrieval.embeddings import FakeEmbeddingProvider
+
+        ctx = ApplicationContext()
+        set_mcp_context(ctx)
+
+        config = RuntimeConfig(
+            embeddings=EmbeddingSettings(
+                provider="openrouter",
+                api_key="sk-or-test-key",
+            ),
+        )
+
+        try:
+            with (
+                patch(
+                    "memorable.mcp.server.load_runtime_config",
+                    return_value=config,
+                ),
+                patch(
+                    "memorable.retrieval.embeddings.build_embedding_provider",
+                ) as mock_build_provider,
+            ):
+                mock_build_provider.return_value = FakeEmbeddingProvider(dimensions=32)
+
+                result = search_memory_tool(space="memorable", query="test")
+
+            assert "error" not in result
+            mock_build_provider.assert_called_once_with(
+                config.embeddings,
+                api_key="sk-or-test-key",
+            )
+        finally:
+            set_mcp_context(default_context)
+
+    def test_search_unknown_provider_returns_error(self) -> None:
+        """Unknown provider returns error dict, not a traceback."""
+        from memorable.mcp.server import search_memory_tool, set_mcp_context
+
+        ctx = ApplicationContext()
+        set_mcp_context(ctx)
+
+        config = RuntimeConfig(
+            embeddings=EmbeddingSettings(provider="nonexistent"),
+        )
+
+        try:
+            with patch(
+                "memorable.mcp.server.load_runtime_config",
+                return_value=config,
+            ):
+                result = search_memory_tool(space="memorable", query="test")
+
+            assert "error" in result
+            assert "nonexistent" in result["error"]
+        finally:
+            set_mcp_context(default_context)
+
+    def test_search_openrouter_without_api_key_returns_error(self) -> None:
+        """openrouter without API key returns error dict with actionable message."""
+        from memorable.mcp.server import search_memory_tool, set_mcp_context
+
+        ctx = ApplicationContext()
+        set_mcp_context(ctx)
+
+        config = RuntimeConfig(
+            embeddings=EmbeddingSettings(provider="openrouter"),
+        )
+
+        try:
+            with patch(
+                "memorable.mcp.server.load_runtime_config",
+                return_value=config,
+            ):
+                result = search_memory_tool(space="memorable", query="test")
+
+            assert "error" in result
+            assert "MEMORABLE_OPENROUTER_API_KEY" in result["error"]
+        finally:
+            set_mcp_context(default_context)
+
+    def test_search_default_config_uses_fastembed(self) -> None:
+        """Default config (no runtime.yaml, no .env) passes fastembed settings."""
+        from memorable.mcp.server import search_memory_tool, set_mcp_context
+        from memorable.retrieval.embeddings import FakeEmbeddingProvider
+
+        ctx = ApplicationContext()
+        set_mcp_context(ctx)
+
+        try:
+            with (
+                patch(
+                    "memorable.mcp.server.load_runtime_config",
+                    return_value=RuntimeConfig(),
+                ),
+                patch(
+                    "memorable.retrieval.embeddings.build_embedding_provider",
+                ) as mock_build_provider,
+            ):
+                mock_build_provider.return_value = FakeEmbeddingProvider(dimensions=32)
+
+                result = search_memory_tool(space="memorable", query="anything")
+
+            assert "error" not in result
+            called_settings = mock_build_provider.call_args[0][0]
+            assert called_settings.provider == "fastembed"
+            assert called_settings.api_key is None
+        finally:
             set_mcp_context(default_context)
