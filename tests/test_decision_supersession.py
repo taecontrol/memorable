@@ -36,10 +36,6 @@ VALID_PROFILE_YAML = textwrap.dedent("""\
       name: memorable
       description: Agent memory system design
 
-    write_policy:
-      default: auto
-      sensitive: suggest
-
     entities:
       - name: Project
       - name: Component

@@ -448,6 +448,8 @@ class TestProfileShowRelationTypes:
         output = json.loads(capsys.readouterr().out)
         assert "relations" in output
         assert output["relations"] == ["depends-on", "owns"]
+        assert "write_policy_default" not in output
+        assert "write_policy_sensitive" not in output
 
     def test_cli_profile_show_with_path_flag(self, tmp_path: Path, capsys) -> None:
         """CLI profile show --path reads from specified directory."""
