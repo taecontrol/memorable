@@ -22,6 +22,7 @@ from memorable.core.models import (
 from memorable.storage.neo4j.schema import (
     EXPECTED_UNIQUENESS_CONSTRAINTS,
     create_uniqueness_constraint_cypher,
+    create_vector_index_cypher,
 )
 
 
@@ -1145,11 +1146,16 @@ class Neo4jRelationRepository:
 # --- Schema bootstrap ---
 
 
-def ensure_all_constraints(driver: Neo4jDriver) -> None:
-    """Create expected Neo4j uniqueness constraints.
+def ensure_all_constraints(
+    driver: Neo4jDriver,
+    *,
+    vector_dimensions: int = 384,
+) -> None:
+    """Create expected Neo4j uniqueness constraints and vector index.
 
     Idempotent — uses IF NOT EXISTS so repeated calls are safe.
     """
     with driver.session() as session:
         for constraint in EXPECTED_UNIQUENESS_CONSTRAINTS:
             session.run(create_uniqueness_constraint_cypher(constraint))
+        session.run(create_vector_index_cypher(dimensions=vector_dimensions))

@@ -198,7 +198,9 @@ def test_cli_init_bootstraps_constraints_with_production_context(
         assert output["status"] == "initialized"
 
         # Constraints should have been bootstrapped
-        mock_constraints.assert_called_once_with(mock_driver)
+        mock_constraints.assert_called_once_with(
+            mock_driver, vector_dimensions=RuntimeConfig().embeddings.dimensions
+        )
 
         # Driver should be closed after init completes
         mock_driver.close.assert_called_once()

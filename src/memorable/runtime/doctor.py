@@ -6,7 +6,10 @@ from typing import NotRequired, TypedDict
 from neo4j import GraphDatabase
 
 from memorable.config import RuntimeConfig
-from memorable.storage.neo4j.schema import expected_constraint_shapes
+from memorable.storage.neo4j.schema import (
+    expected_constraint_shapes,
+    expected_vector_index_shape,
+)
 
 
 class DiagnosticResult(TypedDict):
@@ -21,10 +24,18 @@ class SchemaConstraint(TypedDict):
     labelsOrTypes: NotRequired[list[str]]
     properties: list[str]
 
+
+class VectorIndex(TypedDict):
+    name: str
+    type: str
+    labelsOrTypes: NotRequired[list[str]]
+    properties: list[str]
+
 NEO4J_CONNECTIVITY_HINT = (
     "Start Neo4j with 'memorable db start' or check .memorable/runtime.yaml."
 )
 SCHEMA_CONSTRAINTS_HINT = "Run 'memorable init' to bootstrap schema constraints."
+VECTOR_INDEX_HINT = "Run 'memorable init' to bootstrap the vector index."
 
 
 def ping_neo4j(config: RuntimeConfig) -> None:
@@ -82,6 +93,45 @@ def schema_constraints_present(constraints: list[SchemaConstraint]) -> bool:
     return expected_constraint_shapes().issubset(present_shapes)
 
 
+def list_vector_indexes(config: RuntimeConfig) -> list[VectorIndex]:
+    """Return live Neo4j vector index descriptors."""
+    driver = GraphDatabase.driver(
+        config.neo4j.uri,
+        auth=(config.neo4j.user, config.neo4j.password),
+    )
+    try:
+        with driver.session() as session:
+            result = session.run(
+                "SHOW INDEXES "
+                "YIELD name, type, labelsOrTypes, properties "
+                "WHERE type = 'VECTOR' "
+                "RETURN collect({"
+                "name: name, "
+                "type: type, "
+                "labelsOrTypes: labelsOrTypes, "
+                "properties: properties"
+                "}) AS indexes"
+            )
+            record = result.single()
+            if record is None:
+                return []
+            return list(record["indexes"])
+    finally:
+        driver.close()
+
+
+def vector_index_present(indexes: list[VectorIndex]) -> bool:
+    """Return whether the expected Memorable vector index exists."""
+    expected_name, expected_label, expected_properties = expected_vector_index_shape()
+    return any(
+        index["name"] == expected_name
+        and index["type"] == "VECTOR"
+        and index.get("labelsOrTypes") == [expected_label]
+        and tuple(index["properties"]) == expected_properties
+        for index in indexes
+    )
+
+
 def run_diagnostics(
     config: RuntimeConfig,
     *,
@@ -89,6 +139,9 @@ def run_diagnostics(
     list_schema_constraints: Callable[
         [RuntimeConfig], list[SchemaConstraint]
     ] = list_schema_constraints,
+    list_vector_indexes: Callable[
+        [RuntimeConfig], list[VectorIndex]
+    ] = list_vector_indexes,
 ) -> list[DiagnosticResult]:
     """Run runtime diagnostics and return presentation-independent results."""
     results: list[DiagnosticResult] = []
@@ -115,6 +168,19 @@ def run_diagnostics(
             "check": "schema_constraints",
             "ok": schema_ok,
             "hint": "" if schema_ok else SCHEMA_CONSTRAINTS_HINT,
+        }
+    )
+
+    try:
+        present_vector_indexes = list_vector_indexes(config)
+    except Exception:
+        present_vector_indexes = []
+    vector_ok = vector_index_present(present_vector_indexes)
+    results.append(
+        {
+            "check": "vector_index",
+            "ok": vector_ok,
+            "hint": "" if vector_ok else VECTOR_INDEX_HINT,
         }
     )
 

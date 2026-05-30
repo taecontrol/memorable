@@ -207,7 +207,7 @@ def _cmd_init(args: argparse.Namespace) -> int:
         return 1
 
     try:
-        ensure_all_constraints(driver)
+        ensure_all_constraints(driver, vector_dimensions=config.embeddings.dimensions)
 
         service = InitService(repository=ctx.memory_space_repo)
 

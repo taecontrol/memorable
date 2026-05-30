@@ -42,6 +42,14 @@ EXPECTED_SCHEMA_CONSTRAINTS = [
         "properties": ["space", "id"],
     },
 ]
+EXPECTED_VECTOR_INDEXES = [
+    {
+        "name": "memorable_embeddings_vector",
+        "type": "VECTOR",
+        "labelsOrTypes": ["Embedding"],
+        "properties": ["vector"],
+    }
+]
 
 
 def test_doctor_reports_neo4j_connectivity_pass() -> None:
@@ -51,6 +59,7 @@ def test_doctor_reports_neo4j_connectivity_pass() -> None:
         RuntimeConfig(),
         ping_neo4j=lambda _config: None,
         list_schema_constraints=lambda _config: [],
+        list_vector_indexes=lambda _config: EXPECTED_VECTOR_INDEXES,
     )
 
     assert {result["check"]: result for result in results}[
@@ -65,6 +74,7 @@ def test_doctor_reports_schema_constraints_pass() -> None:
         RuntimeConfig(),
         ping_neo4j=lambda _config: None,
         list_schema_constraints=lambda _config: EXPECTED_SCHEMA_CONSTRAINTS,
+        list_vector_indexes=lambda _config: EXPECTED_VECTOR_INDEXES,
     )
 
     assert {result["check"]: result for result in results}[
@@ -84,6 +94,7 @@ def test_doctor_reports_schema_constraints_pass_with_generated_names() -> None:
         RuntimeConfig(),
         ping_neo4j=lambda _config: None,
         list_schema_constraints=lambda _config: generated_name_constraints,
+        list_vector_indexes=lambda _config: EXPECTED_VECTOR_INDEXES,
     )
 
     assert {result["check"]: result for result in results}[
@@ -102,6 +113,7 @@ def test_doctor_reports_schema_constraints_failure_with_hint() -> None:
             for constraint in EXPECTED_SCHEMA_CONSTRAINTS
             if constraint["name"] != "task_space_id_unique"
         ],
+        list_vector_indexes=lambda _config: EXPECTED_VECTOR_INDEXES,
     )
 
     assert {result["check"]: result for result in results}[
@@ -127,6 +139,7 @@ def test_doctor_reports_schema_constraints_failure_when_name_has_wrong_shape() -
         RuntimeConfig(),
         ping_neo4j=lambda _config: None,
         list_schema_constraints=lambda _config: malformed_constraints,
+        list_vector_indexes=lambda _config: EXPECTED_VECTOR_INDEXES,
     )
 
     assert {result["check"]: result for result in results}[
@@ -149,7 +162,10 @@ def test_doctor_reports_neo4j_connectivity_failure_with_hint() -> None:
         raise ConnectionError("unreachable")
 
     results = run_diagnostics(
-        RuntimeConfig(), ping_neo4j=fail, list_schema_constraints=lambda _config: []
+        RuntimeConfig(),
+        ping_neo4j=fail,
+        list_schema_constraints=lambda _config: [],
+        list_vector_indexes=lambda _config: EXPECTED_VECTOR_INDEXES,
     )
 
     assert {result["check"]: result for result in results}[
@@ -158,6 +174,62 @@ def test_doctor_reports_neo4j_connectivity_failure_with_hint() -> None:
         "check": "neo4j_connectivity",
         "ok": False,
         "hint": expected_hint,
+    }
+
+
+def test_doctor_reports_vector_index_pass() -> None:
+    from memorable.runtime.doctor import run_diagnostics
+
+    results = run_diagnostics(
+        RuntimeConfig(),
+        ping_neo4j=lambda _config: None,
+        list_schema_constraints=lambda _config: EXPECTED_SCHEMA_CONSTRAINTS,
+        list_vector_indexes=lambda _config: EXPECTED_VECTOR_INDEXES,
+    )
+
+    assert {result["check"]: result for result in results}[
+        "vector_index"
+    ] == {"check": "vector_index", "ok": True, "hint": ""}
+
+
+def test_doctor_reports_vector_index_failure_with_hint() -> None:
+    from memorable.runtime.doctor import run_diagnostics
+
+    results = run_diagnostics(
+        RuntimeConfig(),
+        ping_neo4j=lambda _config: None,
+        list_schema_constraints=lambda _config: EXPECTED_SCHEMA_CONSTRAINTS,
+        list_vector_indexes=lambda _config: [],
+    )
+
+    assert {result["check"]: result for result in results}["vector_index"] == {
+        "check": "vector_index",
+        "ok": False,
+        "hint": "Run 'memorable init' to bootstrap the vector index.",
+    }
+
+
+def test_doctor_reports_vector_index_failure_for_unrelated_vector_index() -> None:
+    from memorable.runtime.doctor import run_diagnostics
+
+    results = run_diagnostics(
+        RuntimeConfig(),
+        ping_neo4j=lambda _config: None,
+        list_schema_constraints=lambda _config: EXPECTED_SCHEMA_CONSTRAINTS,
+        list_vector_indexes=lambda _config: [
+            {
+                "name": "other_vector_index",
+                "type": "VECTOR",
+                "labelsOrTypes": ["Other"],
+                "properties": ["embedding"],
+            }
+        ],
+    )
+
+    assert {result["check"]: result for result in results}["vector_index"] == {
+        "check": "vector_index",
+        "ok": False,
+        "hint": "Run 'memorable init' to bootstrap the vector index.",
     }
 
 
