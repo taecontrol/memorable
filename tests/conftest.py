@@ -2,12 +2,83 @@
 
 from __future__ import annotations
 
+from collections.abc import Iterator
+from dataclasses import dataclass
+from typing import Any
 from unittest.mock import MagicMock, patch
 
 import pytest
 
 from memorable.config import RuntimeConfig
 from memorable.core.context import ApplicationContext
+
+
+@dataclass(frozen=True)
+class DecisionProjectionInMemoryHarness:
+    repository: Any
+
+    def remove_provenance(self, *, space: str, record_id: str) -> None:
+        self.repository._provenance.pop((space, record_id))
+
+
+@dataclass(frozen=True)
+class DecisionProjectionNeo4jHarness:
+    repository: Any
+    driver: Any
+
+    def remove_provenance(self, *, space: str, record_id: str) -> None:
+        with self.driver.session() as session:
+            session.run(
+                "MATCH (p:Provenance)-[r:PROVENANCE_OF]->"
+                "(d:Decision {space: $space, id: $id}) DELETE r, p",
+                space=space,
+                id=record_id,
+            )
+
+
+def _neo4j_available() -> bool:
+    try:
+        from neo4j import GraphDatabase
+
+        from memorable.storage.neo4j.config import Neo4jConfig
+
+        config = Neo4jConfig.from_env()
+        driver = GraphDatabase.driver(config.uri, auth=(config.user, config.password))
+        driver.verify_connectivity()
+        driver.close()
+    except Exception:
+        return False
+    return True
+
+
+@pytest.fixture()
+def decision_projection_inmemory_harness() -> DecisionProjectionInMemoryHarness:
+    from memorable.core.repositories import InMemoryDecisionRepository
+
+    return DecisionProjectionInMemoryHarness(InMemoryDecisionRepository())
+
+
+@pytest.fixture()
+def decision_projection_neo4j_harness() -> Iterator[DecisionProjectionNeo4jHarness]:
+    if not _neo4j_available():
+        pytest.skip("Neo4j is not available")
+
+    from neo4j import GraphDatabase
+
+    from memorable.storage.neo4j.config import Neo4jConfig
+    from memorable.storage.neo4j.repository import Neo4jDecisionRepository
+
+    config = Neo4jConfig.from_env()
+    driver = GraphDatabase.driver(config.uri, auth=(config.user, config.password))
+    repo = Neo4jDecisionRepository(driver)
+    yield DecisionProjectionNeo4jHarness(repo, driver)
+    with driver.session() as session:
+        session.run(
+            "MATCH (p:Provenance)-[r:PROVENANCE_OF]->(d:Decision) "
+            "WHERE d.space STARTS WITH 'test-' DELETE r, p, d"
+        )
+        session.run("MATCH (d:Decision) WHERE d.space STARTS WITH 'test-' DELETE d")
+    driver.close()
 
 
 @pytest.fixture()

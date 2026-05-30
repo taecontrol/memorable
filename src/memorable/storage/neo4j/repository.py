@@ -16,6 +16,8 @@ from memorable.core.models import (
     MemorySpace,
     Observation,
     Provenance,
+    ProvenanceIntegrityError,
+    RecordProjection,
     Relation,
     Task,
 )
@@ -373,6 +375,71 @@ class Neo4jDecisionRepository:
                 )
                 for record in result
             ]
+
+    def list_projections_by_space(
+        self,
+        *,
+        space: str,
+        state: str | None,
+        since: datetime | None,
+        until: datetime | None,
+        limit: int,
+    ) -> list[RecordProjection]:
+        """Return Decision projections filtered and ordered by Creation Time."""
+        with self._driver.session() as session:
+            result = session.run(
+                "MATCH (d:Decision {space: $space}) "
+                "WHERE ($state IS NULL OR d.lifecycle_state = $state) "
+                "OPTIONAL MATCH (p:Provenance)-[:PROVENANCE_OF]->(d) "
+                "WITH collect({"
+                "  id: d.id, label: d.statement, "
+                "  lifecycle_state: d.lifecycle_state, "
+                "  creation_time: p.creation_time, "
+                "  has_provenance: p IS NOT NULL"
+                "}) AS rows "
+                "WITH [row IN rows WHERE NOT row.has_provenance | row.id] "
+                "       AS missing_ids, "
+                "     [row IN rows WHERE row.has_provenance "
+                "       AND ($since IS NULL OR row.creation_time >= $since) "
+                "       AND ($until IS NULL OR row.creation_time < $until)] "
+                "       AS filtered_rows "
+                "CALL { "
+                "  WITH filtered_rows "
+                "  UNWIND filtered_rows AS row "
+                "  WITH row "
+                "  ORDER BY row.creation_time ASC, row.id ASC "
+                "  LIMIT $limit "
+                "  RETURN collect(row) AS projections "
+                "} "
+                "RETURN missing_ids, projections",
+                space=space,
+                state=state,
+                since=_to_iso(since),
+                until=_to_iso(until),
+                limit=limit,
+            )
+            query_record = result.single()
+            if query_record is None:
+                return []
+            missing_ids = query_record["missing_ids"]
+            if missing_ids:
+                raise ProvenanceIntegrityError(
+                    f"Provenance missing for decision '{missing_ids[0]}' "
+                    f"in MemorySpace '{space}'."
+                )
+            projections: list[RecordProjection] = []
+            for record in query_record["projections"]:
+                creation_time = _from_iso(record["creation_time"])
+                projections.append(
+                    RecordProjection(
+                        id=record["id"],
+                        type="decision",
+                        label=record["label"],
+                        lifecycle_state=record["lifecycle_state"],
+                        creation_time=creation_time,
+                    )
+                )
+            return projections
 
     def mark_superseded(
         self,

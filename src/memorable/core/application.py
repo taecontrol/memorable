@@ -10,6 +10,8 @@ from memorable.core.models import (
     MemorySpace,
     Observation,
     Provenance,
+    ProvenanceIntegrityError,
+    RecordProjection,
     Relation,
     Task,
 )
@@ -834,35 +836,6 @@ class CompleteTaskService:
 
         completed = self._repository.get(space=space, task_id=task_id)
         return CompleteTaskResult(task=completed, event_id=event_id, completion_time=at)
-
-
-class ProvenanceIntegrityError(Exception):
-    """Raised when a MemoryRecord exists but its Provenance join is missing.
-
-    This signals a store invariant violation, not a caller error: every
-    MemoryRecord must join to a Provenance that carries its Creation Time. A
-    record returned by ``list_by_space`` whose ``get_provenance`` yields ``None``
-    means the join was lost (e.g. a graph node that outlived or preceded its
-    Provenance relationship). It is distinct from ``ValueError``, which is
-    reserved for bad caller input such as an unlistable ``type``.
-    """
-
-
-@dataclass(frozen=True)
-class RecordProjection:
-    """A compact, type-agnostic view of a MemoryRecord for Memory Review.
-
-    Memory Review lists MemoryRecords as projections so an Agent can summarize
-    state without a second round of lookups. ``label`` is the human-meaningful
-    line for the record (a Decision/Observation/Relation statement, or a Task
-    title); ``creation_time`` is sourced from the record's Provenance.
-    """
-
-    id: str
-    type: str
-    label: str
-    lifecycle_state: str
-    creation_time: datetime
 
 
 class ListRecordsService:

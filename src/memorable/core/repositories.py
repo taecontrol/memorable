@@ -14,6 +14,8 @@ from memorable.core.models import (
     MemorySpace,
     Observation,
     Provenance,
+    ProvenanceIntegrityError,
+    RecordProjection,
     Relation,
     Task,
 )
@@ -167,6 +169,43 @@ class InMemoryDecisionRepository(InMemoryTemporalRepository[Decision]):
 
     def save(self, decision: Decision, provenance: Provenance) -> None:
         self.save_record(decision, provenance)
+
+    def list_projections_by_space(
+        self,
+        *,
+        space: str,
+        state: str | None,
+        since: datetime | None,
+        until: datetime | None,
+        limit: int,
+    ) -> list[RecordProjection]:
+        projections: list[RecordProjection] = []
+        for (record_space, _), decision in self._records.items():
+            if record_space != space:
+                continue
+            if state is not None and decision.lifecycle_state != state:
+                continue
+            provenance = self._provenance.get((space, decision.id))
+            if provenance is None:
+                raise ProvenanceIntegrityError(
+                    f"Provenance missing for decision '{decision.id}' "
+                    f"in MemorySpace '{space}'."
+                )
+            if since is not None and provenance.creation_time < since:
+                continue
+            if until is not None and provenance.creation_time >= until:
+                continue
+            projections.append(
+                RecordProjection(
+                    id=decision.id,
+                    type="decision",
+                    label=decision.statement,
+                    lifecycle_state=decision.lifecycle_state,
+                    creation_time=provenance.creation_time,
+                )
+            )
+        projections.sort(key=lambda p: (p.creation_time, p.id))
+        return projections[:limit]
 
 
 class InMemoryObservationRepository(InMemoryTemporalRepository[Observation]):

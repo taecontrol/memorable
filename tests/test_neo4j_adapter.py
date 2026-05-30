@@ -697,6 +697,7 @@ class TestNeo4jDecisionRepository:
         assert hasattr(Neo4jDecisionRepository, "get")
         assert hasattr(Neo4jDecisionRepository, "get_provenance")
         assert hasattr(Neo4jDecisionRepository, "list_by_space")
+        assert hasattr(Neo4jDecisionRepository, "list_projections_by_space")
         assert hasattr(Neo4jDecisionRepository, "mark_superseded")
 
     def test_save_and_get_roundtrip(self) -> None:

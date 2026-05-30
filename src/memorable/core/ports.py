@@ -15,6 +15,7 @@ from memorable.core.models import (
     MemorySpace,
     Observation,
     Provenance,
+    RecordProjection,
     Relation,
     Task,
 )
@@ -156,6 +157,18 @@ class DecisionRepository(Protocol):
 
     def list_by_space(self, space: str) -> list[Decision]:
         """Return all decisions in the given space."""
+        ...
+
+    def list_projections_by_space(
+        self,
+        *,
+        space: str,
+        state: str | None,
+        since: datetime | None,
+        until: datetime | None,
+        limit: int,
+    ) -> list[RecordProjection]:
+        """Return Decision projections filtered and ordered by Creation Time."""
         ...
 
     def mark_superseded(

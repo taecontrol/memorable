@@ -25,7 +25,14 @@ def test_make_memory_space_repository_is_not_importable() -> None:
 def test_decision_repository_protocol_methods() -> None:
     from memorable.core.ports import DecisionRepository
 
-    expected = {"save", "get", "get_provenance", "list_by_space", "mark_superseded"}
+    expected = {
+        "save",
+        "get",
+        "get_provenance",
+        "list_by_space",
+        "list_projections_by_space",
+        "mark_superseded",
+    }
     assert _public_methods(DecisionRepository) == expected
 
 

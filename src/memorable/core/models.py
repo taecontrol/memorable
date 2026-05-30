@@ -86,6 +86,21 @@ class Provenance:
     validity_time: datetime
 
 
+class ProvenanceIntegrityError(Exception):
+    """Raised when a MemoryRecord exists but its Provenance join is missing."""
+
+
+@dataclass(frozen=True)
+class RecordProjection:
+    """A compact, type-agnostic view of a MemoryRecord for Memory Review."""
+
+    id: str
+    type: str
+    label: str
+    lifecycle_state: str
+    creation_time: datetime
+
+
 @dataclass(frozen=True)
 class Decision:
     """A remembered choice with temporal validity and supersession links.
