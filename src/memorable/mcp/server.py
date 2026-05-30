@@ -29,6 +29,7 @@ from memorable.core.context import ApplicationContext, default_context
 from memorable.core.ports import TemporalRecordRepository
 from memorable.core.profile import ProfileValidationError, load_profile_from_yaml
 from memorable.core.temporal import parse_iso_timestamp
+from memorable.runtime.doctor import DiagnosticResult, run_diagnostics
 
 mcp_server = FastMCP("memorable")
 
@@ -77,6 +78,19 @@ def _resolve_repository(
 )
 def status_tool() -> dict[str, object]:
     return build_status_payload()
+
+
+@mcp_server.tool(
+    name="memorable_doctor",
+    description=(
+        "Run Memorable runtime health diagnostics for the current MemorySpace. "
+        "status reports current runtime state; doctor diagnoses problems and "
+        "returns remediation hints."
+    ),
+)
+def doctor_tool() -> list[DiagnosticResult]:
+    config = load_runtime_config(include_environment_overrides=True)
+    return run_diagnostics(config)
 
 
 @mcp_server.tool(
