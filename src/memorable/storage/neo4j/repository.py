@@ -7,7 +7,7 @@ only domain language from Memorable Core.
 
 from __future__ import annotations
 
-from datetime import datetime
+from datetime import UTC, datetime
 from typing import Any, Protocol, runtime_checkable
 
 from memorable.core.models import (
@@ -37,10 +37,12 @@ class Neo4jDriver(Protocol):
 
 
 def _to_iso(dt: datetime | None) -> str | None:
-    """Convert a datetime to ISO 8601 string for storage, or None."""
+    """Convert a datetime to canonical UTC ISO 8601 string for storage, or None."""
     if dt is None:
         return None
-    return dt.isoformat()
+    if dt.tzinfo is None or dt.utcoffset() is None:
+        raise ValueError("stored datetimes must be timezone-aware")
+    return dt.astimezone(UTC).isoformat(timespec="microseconds")
 
 
 def _from_iso(value: str | None) -> datetime | None:

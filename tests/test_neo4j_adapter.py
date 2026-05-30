@@ -6,7 +6,7 @@ Integration tests (marked with @pytest.mark.integration) need a running Neo4j.
 
 from __future__ import annotations
 
-from datetime import UTC, datetime
+from datetime import UTC, datetime, timedelta, timezone
 
 import pytest
 
@@ -396,6 +396,37 @@ def _make_provenance(
         creation_time=ts,
         validity_time=ts,
     )
+
+
+# --- Datetime serialization tests ---
+
+
+def test_datetime_serialization_is_utc_fixed_width_and_sortable() -> None:
+    """Stored datetimes sort as strings the same way they sort as instants."""
+    from memorable.storage.neo4j.repository import _from_iso, _to_iso
+
+    timestamps = [
+        datetime(2025, 1, 1, 0, 0, 0, tzinfo=UTC),
+        datetime(2025, 1, 1, 0, 0, 0, 1, tzinfo=UTC),
+        datetime(2025, 1, 1, 1, 0, 0, 250000, tzinfo=timezone(timedelta(hours=1))),
+        datetime(2024, 12, 31, 19, 0, 0, 500000, tzinfo=timezone(timedelta(hours=-5))),
+        datetime(2025, 1, 1, 0, 0, 1, tzinfo=UTC),
+    ]
+
+    serialized = [_to_iso(timestamp) for timestamp in timestamps]
+
+    assert serialized == [
+        "2025-01-01T00:00:00.000000+00:00",
+        "2025-01-01T00:00:00.000001+00:00",
+        "2025-01-01T00:00:00.250000+00:00",
+        "2025-01-01T00:00:00.500000+00:00",
+        "2025-01-01T00:00:01.000000+00:00",
+    ]
+    assert sorted(serialized) == [
+        _to_iso(timestamp) for timestamp in sorted(timestamps)
+    ]
+    for timestamp in timestamps:
+        assert _from_iso(_to_iso(timestamp)) == timestamp
 
 
 # --- MemorySpace adapter tests ---
