@@ -811,6 +811,7 @@ async function implementSlice(args: {
     });
     assertAgentDidNotCommit(implementResult, `implementer for #${slice.number}`);
 
+    await includeUntrackedFilesInReviewDiff(sandbox.worktreePath);
     const beforeReviewStatus = await gitStatus(sandbox.worktreePath);
     const reviewRunName = `review-${slice.number}-${attempt}`;
     const reviewResult = await sandbox.run({
@@ -946,6 +947,8 @@ ${issueBody(slice)}
 
 - Review only. Do not modify files. Do not commit. Do not use gh.
 - Review the current diff against origin/main, focused on slice #${slice.number}.
+- Untracked files are part of the slice: the orchestrator runs git add -A before committing, and marks untracked files intent-to-add before review so they appear in diffs.
+- Do not report a file as blocking solely because it is untracked; review its contents instead.
 - Apply Memorable review rules from .claude/skills/project-code-review/RULES.md.
 - Treat missing behavior tests, domain-language leaks, boundary duplication, or failing verification risks as blocking when they can break the slice.
 - Use uv run --extra dev ... for ruff and pytest commands because dev tools live in the dev extra.
@@ -1328,6 +1331,10 @@ async function commitSlice(worktreePath: string, slice: Issue) {
 
 async function gitStatus(cwd: string) {
   return (await runCommand("git", ["status", "--porcelain"], { cwd })).stdout;
+}
+
+async function includeUntrackedFilesInReviewDiff(cwd: string) {
+  await runCommand("git", ["add", "-N", "--", "."], { cwd });
 }
 
 function assertAgentDidNotCommit(result: SandboxRunResult, role: string) {
