@@ -919,7 +919,8 @@ ${feedback || "None"}
 - For this AFK PRD factory, skip RED/GREEN commit discipline because you must not commit.
 - If you touch Memorable product model or domain language, read docs/product.md, docs/ubiquitous-language.md, and relevant ADRs first.
 - Neo4j is available at MEMORABLE_NEO4J_URI with MEMORABLE_NEO4J_USER and MEMORABLE_NEO4J_PASSWORD.
-- Run narrow tests while working. The orchestrator will run ruff and pytest before committing.
+- Run narrow tests while working. Use uv run --extra dev ... for ruff and pytest commands because dev tools live in the dev extra.
+- The orchestrator will run ruff and pytest before committing.
 
 ## Progress Output
 
@@ -947,6 +948,7 @@ ${issueBody(slice)}
 - Review the current diff against origin/main, focused on slice #${slice.number}.
 - Apply Memorable review rules from .claude/skills/project-code-review/RULES.md.
 - Treat missing behavior tests, domain-language leaks, boundary duplication, or failing verification risks as blocking when they can break the slice.
+- Use uv run --extra dev ... for ruff and pytest commands because dev tools live in the dev extra.
 - Keep the terminal informative using the progress output rules below.
 - Return structured JSON inside <review_json> tags, then print ${COMPLETION_SIGNAL}.
 
@@ -970,10 +972,10 @@ async function runPerSliceVerification(
   neo4j: Neo4jRuntime,
 ) {
   return runChecks(worktreePath, [
-    { command: "uv", args: ["run", "ruff", "check", "."] },
+    { command: "uv", args: ["run", "--extra", "dev", "ruff", "check", "."] },
     {
       command: "uv",
-      args: ["run", "pytest", "tests/", "-v", "--tb=short"],
+      args: ["run", "--extra", "dev", "pytest", "tests/", "-v", "--tb=short"],
       env: hostNeo4jEnv(neo4j),
     },
   ]);
@@ -982,15 +984,18 @@ async function runPerSliceVerification(
 async function runFinalVerification(worktreePath: string, neo4j: Neo4jRuntime) {
   console.log("Running final verification");
   return runChecks(worktreePath, [
-    { command: "uv", args: ["run", "ruff", "check", "."] },
-    { command: "uv", args: ["run", "ruff", "format", "--check", "."] },
+    { command: "uv", args: ["run", "--extra", "dev", "ruff", "check", "."] },
     {
       command: "uv",
-      args: ["run", "pytest", "-x", "-q", "-m", "not integration"],
+      args: ["run", "--extra", "dev", "ruff", "format", "--check", "."],
     },
     {
       command: "uv",
-      args: ["run", "pytest", "-x", "-q", "-m", "integration"],
+      args: ["run", "--extra", "dev", "pytest", "-x", "-q", "-m", "not integration"],
+    },
+    {
+      command: "uv",
+      args: ["run", "--extra", "dev", "pytest", "-x", "-q", "-m", "integration"],
       env: hostNeo4jEnv(neo4j),
     },
   ]);
@@ -1079,6 +1084,7 @@ ${formatVerificationFailure(failure)}
 - Do not add new product scope.
 - Do not commit. The host orchestrator owns commits.
 - Do not use gh or mutate GitHub.
+- Use uv run --extra dev ... for ruff and pytest commands because dev tools live in the dev extra.
 
 ## Progress Output
 
@@ -1181,6 +1187,7 @@ ${formatVerificationSummary(args.finalVerification)}
 - Review the whole branch diff against origin/main.
 - Focus on architecture, product semantics, temporal semantics, domain language, tests, and maintainability.
 - Do not auto-fix anything.
+- Use uv run --extra dev ... for ruff and pytest commands because dev tools live in the dev extra.
 - Keep the terminal informative using the progress output rules below.
 - Return structured JSON inside <architect_review_json> tags, then print ${COMPLETION_SIGNAL}.
 
