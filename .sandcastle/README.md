@@ -31,6 +31,13 @@ pnpm sandcastle:build-image
 
 The runner also builds the image automatically if it is missing.
 
+## Live Progress
+
+- Agent text and tool-use events are mirrored to the terminal as `[run-name] ...`.
+- Full Sandcastle logs are still written under `.sandcastle/logs/`.
+- If a run is already active, use the printed `tail -f .sandcastle/logs/<file>.log`
+  command to inspect that run; live terminal mirroring applies to future runs.
+
 ## Issue Conventions
 
 - Pass an explicit PRD issue number or URL.

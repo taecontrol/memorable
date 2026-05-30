@@ -1,6 +1,8 @@
 import {
   createSandbox,
   opencode,
+  type AgentStreamEvent,
+  type LoggingOption,
   type Sandbox,
   type SandboxRunResult,
 } from "@ai-hero/sandcastle";
@@ -20,6 +22,9 @@ const IMAGE_NAME = "memorable-sandcastle-opencode:latest";
 const COMPLETION_SIGNAL = "<promise>COMPLETE</promise>";
 const NEO4J_USER = "neo4j";
 const NEO4J_PASSWORD = "memorable";
+const AGENT_PROGRESS_INSTRUCTIONS = `- Print a short progress line before each major phase, before running tests, and after test results.
+- Start progress lines with "progress:".
+- Keep each progress line under 160 characters and never print secrets or full command output.`;
 
 type IssueState = "OPEN" | "CLOSED" | string;
 
@@ -209,6 +214,8 @@ async function main() {
     for (const slice of plan.ordered) {
       const completedSlice = await implementSlice({
         sandbox,
+        repoRoot,
+        branch,
         prd,
         slice,
         blockers: plan.blockersBySlice.get(slice.number) ?? [],
@@ -222,6 +229,8 @@ async function main() {
     if (!finalVerification.passed) {
       finalVerification = await stabilizeFinalVerification({
         sandbox,
+        repoRoot,
+        branch,
         prd,
         completed,
         initialFailure: finalVerification,
@@ -232,6 +241,7 @@ async function main() {
     const architectReview = await runArchitectReview({
       sandbox,
       repoRoot,
+      branch,
       prd,
       completed,
       skipped: plan.skipped,
@@ -769,18 +779,21 @@ async function cleanupNeo4j(neo4j: Neo4jRuntime, cwd: string) {
 
 async function implementSlice(args: {
   sandbox: Sandbox;
+  repoRoot: string;
+  branch: string;
   prd: Issue;
   slice: Issue;
   blockers: number[];
   priorCompleted: CompletedSlice[];
   neo4j: Neo4jRuntime;
 }): Promise<CompletedSlice> {
-  const { sandbox, prd, slice, blockers, priorCompleted, neo4j } = args;
+  const { sandbox, repoRoot, branch, prd, slice, blockers, priorCompleted, neo4j } = args;
   let feedback = "";
   let lastReview: ReviewResult | undefined;
 
   for (let attempt = 1; attempt <= 3; attempt += 1) {
     console.log(`Implementing #${slice.number} attempt ${attempt}/3`);
+    const implementRunName = `implement-${slice.number}-${attempt}`;
     const implementResult = await sandbox.run({
       agent: opencode(MODEL, { variant: IMPLEMENTER_VARIANT }),
       prompt: buildImplementerPrompt({
@@ -790,7 +803,8 @@ async function implementSlice(args: {
         priorCompleted,
         feedback,
       }),
-      name: `implement-${slice.number}-${attempt}`,
+      name: implementRunName,
+      logging: agentLogging(repoRoot, branch, implementRunName),
       completionSignal: COMPLETION_SIGNAL,
       idleTimeoutSeconds: 1_200,
       completionTimeoutSeconds: 90,
@@ -798,10 +812,12 @@ async function implementSlice(args: {
     assertAgentDidNotCommit(implementResult, `implementer for #${slice.number}`);
 
     const beforeReviewStatus = await gitStatus(sandbox.worktreePath);
+    const reviewRunName = `review-${slice.number}-${attempt}`;
     const reviewResult = await sandbox.run({
       agent: opencode(MODEL, { variant: REVIEWER_VARIANT }),
       prompt: buildSliceReviewPrompt(prd, slice),
-      name: `review-${slice.number}-${attempt}`,
+      name: reviewRunName,
+      logging: agentLogging(repoRoot, branch, reviewRunName),
       completionSignal: COMPLETION_SIGNAL,
       idleTimeoutSeconds: 900,
       completionTimeoutSeconds: 90,
@@ -905,6 +921,10 @@ ${feedback || "None"}
 - Neo4j is available at MEMORABLE_NEO4J_URI with MEMORABLE_NEO4J_USER and MEMORABLE_NEO4J_PASSWORD.
 - Run narrow tests while working. The orchestrator will run ruff and pytest before committing.
 
+## Progress Output
+
+${AGENT_PROGRESS_INSTRUCTIONS}
+
 When finished, summarize changed behavior and print ${COMPLETION_SIGNAL}.`;
 }
 
@@ -927,7 +947,12 @@ ${issueBody(slice)}
 - Review the current diff against origin/main, focused on slice #${slice.number}.
 - Apply Memorable review rules from .claude/skills/project-code-review/RULES.md.
 - Treat missing behavior tests, domain-language leaks, boundary duplication, or failing verification risks as blocking when they can break the slice.
+- Keep the terminal informative using the progress output rules below.
 - Return structured JSON inside <review_json> tags, then print ${COMPLETION_SIGNAL}.
+
+## Progress Output
+
+${AGENT_PROGRESS_INSTRUCTIONS}
 
 Schema:
 <review_json>
@@ -973,20 +998,24 @@ async function runFinalVerification(worktreePath: string, neo4j: Neo4jRuntime) {
 
 async function stabilizeFinalVerification(args: {
   sandbox: Sandbox;
+  repoRoot: string;
+  branch: string;
   prd: Issue;
   completed: CompletedSlice[];
   initialFailure: VerificationSummary;
   neo4j: Neo4jRuntime;
 }) {
-  const { sandbox, prd, completed, neo4j } = args;
+  const { sandbox, repoRoot, branch, prd, completed, neo4j } = args;
   let failure = args.initialFailure;
 
   for (let attempt = 1; attempt <= 2; attempt += 1) {
     console.log(`Final stabilization attempt ${attempt}/2`);
+    const runName = `stabilize-${attempt}`;
     const result = await sandbox.run({
       agent: opencode(MODEL, { variant: IMPLEMENTER_VARIANT }),
       prompt: buildStabilizationPrompt(prd, completed, failure),
-      name: `stabilize-${attempt}`,
+      name: runName,
+      logging: agentLogging(repoRoot, branch, runName),
       completionSignal: COMPLETION_SIGNAL,
       idleTimeoutSeconds: 1_200,
       completionTimeoutSeconds: 90,
@@ -1051,12 +1080,17 @@ ${formatVerificationFailure(failure)}
 - Do not commit. The host orchestrator owns commits.
 - Do not use gh or mutate GitHub.
 
+## Progress Output
+
+${AGENT_PROGRESS_INSTRUCTIONS}
+
 When finished, summarize changed behavior and print ${COMPLETION_SIGNAL}.`;
 }
 
 async function runArchitectReview(args: {
   sandbox: Sandbox;
   repoRoot: string;
+  branch: string;
   prd: Issue;
   completed: CompletedSlice[];
   skipped: SkippedSlice[];
@@ -1068,10 +1102,12 @@ async function runArchitectReview(args: {
     "utf8",
   );
   const beforeReviewStatus = await gitStatus(args.sandbox.worktreePath);
+  const runName = "architect-review";
   const result = await args.sandbox.run({
     agent: opencode(MODEL, { variant: REVIEWER_VARIANT }),
     prompt: buildArchitectPrompt({ ...args, architectGuide }),
-    name: "architect-review",
+    name: runName,
+    logging: agentLogging(args.repoRoot, args.branch, runName),
     completionSignal: COMPLETION_SIGNAL,
     idleTimeoutSeconds: 900,
     completionTimeoutSeconds: 90,
@@ -1145,7 +1181,12 @@ ${formatVerificationSummary(args.finalVerification)}
 - Review the whole branch diff against origin/main.
 - Focus on architecture, product semantics, temporal semantics, domain language, tests, and maintainability.
 - Do not auto-fix anything.
+- Keep the terminal informative using the progress output rules below.
 - Return structured JSON inside <architect_review_json> tags, then print ${COMPLETION_SIGNAL}.
+
+## Progress Output
+
+${AGENT_PROGRESS_INSTRUCTIONS}
 
 Schema:
 <architect_review_json>
@@ -1156,6 +1197,61 @@ Schema:
   ]
 }
 </architect_review_json>`;
+}
+
+function agentLogging(
+  repoRoot: string,
+  branch: string,
+  name: string,
+): LoggingOption {
+  return {
+    type: "file",
+    path: join(
+      repoRoot,
+      ".sandcastle",
+      "logs",
+      `${sanitizeLogBranch(branch)}-${sanitizeLogName(name)}.log`,
+    ),
+    onAgentStreamEvent: createAgentProgressPrinter(name),
+  };
+}
+
+function createAgentProgressPrinter(name: string) {
+  return (event: AgentStreamEvent) => {
+    if (event.type === "toolCall") {
+      console.log(
+        `[${name}] ${event.name}: ${shorten(oneLine(event.formattedArgs), 220)}`,
+      );
+      return;
+    }
+
+    for (const line of agentTextLines(event.message)) {
+      console.log(`[${name}] ${shorten(line, 500)}`);
+    }
+  };
+}
+
+function agentTextLines(message: string) {
+  return message
+    .replaceAll(COMPLETION_SIGNAL, "")
+    .split(/\r?\n/)
+    .map(oneLine)
+    .filter((line) => line.length > 0);
+}
+
+function sanitizeLogBranch(value: string) {
+  return value.replace(/[/\\:*?"<>|]/g, "-");
+}
+
+function sanitizeLogName(value: string) {
+  return value.toLowerCase().replace(/[^a-z0-9_.-]/g, "-");
+}
+
+function shorten(value: string, maxLength: number) {
+  if (value.length <= maxLength) {
+    return value;
+  }
+  return `${value.slice(0, Math.max(0, maxLength - 3))}...`;
 }
 
 async function runChecks(
