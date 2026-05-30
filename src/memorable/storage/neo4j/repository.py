@@ -19,6 +19,11 @@ from memorable.core.models import (
     Relation,
     Task,
 )
+from memorable.storage.neo4j.schema import (
+    EXPECTED_UNIQUENESS_CONSTRAINTS,
+    create_uniqueness_constraint_cypher,
+    create_vector_index_cypher,
+)
 
 
 @runtime_checkable
@@ -1141,41 +1146,16 @@ class Neo4jRelationRepository:
 # --- Schema bootstrap ---
 
 
-def ensure_all_constraints(driver: Neo4jDriver) -> None:
-    """Create composite uniqueness constraints for all record types.
+def ensure_all_constraints(
+    driver: Neo4jDriver,
+    *,
+    vector_dimensions: int = 384,
+) -> None:
+    """Create expected Neo4j uniqueness constraints and vector index.
 
     Idempotent — uses IF NOT EXISTS so repeated calls are safe.
-    Creates constraints on (space, id) for Entity, Decision, and Task,
-    plus the existing MemorySpace name uniqueness constraint.
     """
     with driver.session() as session:
-        session.run(
-            "CREATE CONSTRAINT memory_space_name_unique "
-            "IF NOT EXISTS FOR (s:MemorySpace) "
-            "REQUIRE s.name IS UNIQUE"
-        )
-        session.run(
-            "CREATE CONSTRAINT entity_space_id_unique "
-            "IF NOT EXISTS FOR (e:Entity) "
-            "REQUIRE (e.space, e.id) IS UNIQUE"
-        )
-        session.run(
-            "CREATE CONSTRAINT decision_space_id_unique "
-            "IF NOT EXISTS FOR (d:Decision) "
-            "REQUIRE (d.space, d.id) IS UNIQUE"
-        )
-        session.run(
-            "CREATE CONSTRAINT task_space_id_unique "
-            "IF NOT EXISTS FOR (t:Task) "
-            "REQUIRE (t.space, t.id) IS UNIQUE"
-        )
-        session.run(
-            "CREATE CONSTRAINT observation_space_id_unique "
-            "IF NOT EXISTS FOR (o:Observation) "
-            "REQUIRE (o.space, o.id) IS UNIQUE"
-        )
-        session.run(
-            "CREATE CONSTRAINT relation_space_id_unique "
-            "IF NOT EXISTS FOR (r:Relation) "
-            "REQUIRE (r.space, r.id) IS UNIQUE"
-        )
+        for constraint in EXPECTED_UNIQUENESS_CONSTRAINTS:
+            session.run(create_uniqueness_constraint_cypher(constraint))
+        session.run(create_vector_index_cypher(dimensions=vector_dimensions))

@@ -544,6 +544,125 @@ class TestCLISearchUsesRuntimeConfig:
         mock_load.assert_called_once()
 
 
+class TestLiveCommandConfigResolutionIsUniform:
+    """Every live command resolves config with environment overrides ON.
+
+    doctor and the MCP server already honoured non-secret MEMORABLE_* process
+    overrides; init, the db commands, and production-context commands must
+    resolve config the same way so doctor never diagnoses a different runtime
+    than init repairs. ``db status`` is exempt: it only prints a static,
+    source-annotated payload.
+    """
+
+    def test_production_context_command_passes_environment_overrides(
+        self, tmp_path: Path, monkeypatch
+    ) -> None:
+        from memorable.cli import main
+
+        _setup_workspace(tmp_path)
+        shared_ctx = ApplicationContext()
+        mock_driver = _make_mock_driver()
+
+        monkeypatch.chdir(tmp_path)
+        with (
+            patch("memorable.cli.build_production_context") as mock_build,
+            patch(
+                "memorable.cli.load_runtime_config",
+                return_value=RuntimeConfig(),
+            ) as mock_load,
+        ):
+            mock_build.return_value = (shared_ctx, mock_driver)
+
+            main(
+                [
+                    "remember",
+                    "entity",
+                    "--id",
+                    "entity:test",
+                    "--type",
+                    "Project",
+                    "--name",
+                    "Test",
+                    "--source",
+                    "source:test",
+                    "--at",
+                    "2026-05-23T10:10:00Z",
+                ]
+            )
+
+        assert mock_load.call_args.kwargs.get("include_environment_overrides") is True
+
+    def test_init_passes_environment_overrides(
+        self, tmp_path: Path, monkeypatch
+    ) -> None:
+        from memorable.cli import main
+
+        _setup_workspace(tmp_path)
+        shared_ctx = ApplicationContext()
+        mock_driver = _make_mock_driver()
+
+        with (
+            patch("memorable.cli.build_production_context") as mock_build,
+            patch(
+                "memorable.cli.load_runtime_config",
+                return_value=RuntimeConfig(),
+            ) as mock_load,
+            patch("memorable.cli.ensure_all_constraints"),
+        ):
+            mock_build.return_value = (shared_ctx, mock_driver)
+
+            main(["init", "--path", str(tmp_path)])
+
+        assert mock_load.call_args.kwargs.get("include_environment_overrides") is True
+
+    def test_db_start_passes_environment_overrides(
+        self, tmp_path: Path, monkeypatch
+    ) -> None:
+        from memorable.cli import main
+
+        with (
+            patch(
+                "memorable.cli.load_runtime_config",
+                return_value=RuntimeConfig(),
+            ) as mock_load,
+            patch("memorable.cli.is_remote_uri", return_value=True),
+        ):
+            main(["db", "start", "--path", str(tmp_path)])
+
+        assert mock_load.call_args.kwargs.get("include_environment_overrides") is True
+
+    def test_db_stop_passes_environment_overrides(
+        self, tmp_path: Path, monkeypatch
+    ) -> None:
+        from memorable.cli import main
+
+        with (
+            patch(
+                "memorable.cli.load_runtime_config",
+                return_value=RuntimeConfig(),
+            ) as mock_load,
+            patch("memorable.cli.is_remote_uri", return_value=True),
+        ):
+            main(["db", "stop", "--path", str(tmp_path)])
+
+        assert mock_load.call_args.kwargs.get("include_environment_overrides") is True
+
+    def test_db_status_does_not_enable_environment_overrides(
+        self, tmp_path: Path
+    ) -> None:
+        from memorable.cli import main
+
+        with patch(
+            "memorable.cli.load_runtime_config",
+            return_value=RuntimeConfig(),
+        ) as mock_load:
+            main(["db", "status", "--path", str(tmp_path)])
+
+        assert (
+            mock_load.call_args.kwargs.get("include_environment_overrides") is not True
+        )
+
+
 class TestCLICommandsNotNeedingContext:
     """Commands that don't need a context should still work without one."""
 

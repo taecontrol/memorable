@@ -2,7 +2,7 @@
 
 Verifies:
 - FastMCP server instance is created with name "memorable"
-- All 16 handler functions are registered as MCP tools
+- All handler functions are registered as MCP tools
 - Each tool name uses the memorable_ prefix
 - Tool descriptions use Memorable Core language
 - Tools are callable through call_tool() and return expected shapes
@@ -50,6 +50,7 @@ class TestFastMCPServerInstance:
 
 EXPECTED_TOOL_NAMES = {
     "memorable_status",
+    "memorable_doctor",
     "memorable_init_space",
     "memorable_inspect_space",
     "memorable_remember_entity",
@@ -71,9 +72,9 @@ EXPECTED_TOOL_NAMES = {
 
 
 class TestToolRegistration:
-    def test_all_18_tools_registered(self) -> None:
+    def test_all_19_tools_registered(self) -> None:
         tool_names = _list_tool_names()
-        assert len(tool_names) == 18
+        assert len(tool_names) == 19
 
     def test_all_expected_tool_names_present(self) -> None:
         tool_names = _list_tool_names()
@@ -131,6 +132,13 @@ class TestToolDescriptions:
         leaked = {term for term in AVOIDED_STORAGE_TERMS if term in all_descriptions}
         assert not leaked, f"Tool descriptions leak storage vocabulary: {leaked}"
 
+    def test_doctor_description_distinguishes_status_boundary(self) -> None:
+        tools = {tool.name: tool for tool in _list_tools()}
+        description = tools["memorable_doctor"].description
+        assert "status reports current runtime state" in description
+        assert "doctor diagnoses problems" in description
+        assert "remediation hints" in description
+
 
 def _call_tool(name: str, arguments: dict) -> object:
     """Call a tool on the FastMCP server and return the result (sync helper)."""
@@ -156,6 +164,26 @@ class TestCallToolSuccessPath:
         text = json.dumps(structured).lower()
         assert "node" not in text
         assert "edge" not in text
+
+    def test_doctor_tool_returns_structured_diagnostics(self, monkeypatch) -> None:
+        from memorable.config import RuntimeConfig
+
+        expected = [
+            {"check": "neo4j_connectivity", "ok": False, "hint": "start runtime"}
+        ]
+
+        monkeypatch.setattr(
+            "memorable.mcp.server.load_runtime_config",
+            lambda **_kwargs: RuntimeConfig(),
+        )
+        monkeypatch.setattr(
+            "memorable.mcp.server.run_diagnostics", lambda _config: expected
+        )
+
+        result = _call_tool("memorable_doctor", {})
+
+        _, structured = result
+        assert structured["result"] == expected
 
 
 class TestCallToolErrorPath:
@@ -207,12 +235,13 @@ class TestEntryPointWiring:
             patch(
                 "memorable.mcp.__main__.load_runtime_config",
                 return_value=RuntimeConfig(),
-            ),
+            ) as mock_load,
             patch("memorable.mcp.__main__.set_mcp_context"),
         ):
             from memorable.mcp.__main__ import main
 
             main()
+            mock_load.assert_called_once_with(include_environment_overrides=True)
             mock_run.assert_called_once_with(transport="stdio")
 
     def test_main_does_not_raise_system_exit(self) -> None:

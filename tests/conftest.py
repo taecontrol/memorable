@@ -11,6 +11,18 @@ from memorable.core.context import ApplicationContext
 
 
 @pytest.fixture()
+def clean_memorable_environment(monkeypatch: pytest.MonkeyPatch) -> None:
+    """Keep host/sandbox runtime variables from changing unit-test defaults."""
+    for key in (
+        "MEMORABLE_NEO4J_URI",
+        "MEMORABLE_NEO4J_USER",
+        "MEMORABLE_NEO4J_PASSWORD",
+        "MEMORABLE_OPENROUTER_API_KEY",
+    ):
+        monkeypatch.delenv(key, raising=False)
+
+
+@pytest.fixture()
 def cli_in_memory_context():
     """Patch CLI production wiring to use an in-memory ApplicationContext.
 

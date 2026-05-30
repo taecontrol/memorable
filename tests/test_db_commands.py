@@ -12,7 +12,11 @@ from __future__ import annotations
 from pathlib import Path
 from unittest.mock import patch
 
+import pytest
+
 from memorable.cli import main
+
+pytestmark = pytest.mark.usefixtures("clean_memorable_environment")
 
 
 class TestDbStart:

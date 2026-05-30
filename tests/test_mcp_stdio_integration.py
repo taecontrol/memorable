@@ -23,14 +23,20 @@ async def _connect_and_run(callback):
     """Spawn the MCP server subprocess and run *callback(session)*.
 
     Uses the MCP SDK's stdio_client + ClientSession to establish a
-    real stdio transport connection to ``python -m memorable.mcp``.
+    real stdio transport connection to a subprocess. The subprocess runs the
+    FastMCP server with the default in-memory context so these protocol tests
+    do not depend on live Neo4j.
     """
     from mcp import ClientSession, StdioServerParameters
     from mcp.client.stdio import stdio_client
 
     server_params = StdioServerParameters(
         command=sys.executable,
-        args=["-m", "memorable.mcp"],
+        args=[
+            "-c",
+            "from memorable.mcp.server import mcp_server; "
+            "mcp_server.run(transport='stdio')",
+        ],
     )
 
     async with stdio_client(server_params) as (read_stream, write_stream):
@@ -67,6 +73,7 @@ class TestListToolsOverStdio:
 
         expected = {
             "memorable_status",
+            "memorable_doctor",
             "memorable_init_space",
             "memorable_inspect_space",
             "memorable_remember_entity",
@@ -88,13 +95,13 @@ class TestListToolsOverStdio:
         assert tool_names == expected
 
     @pytest.mark.anyio
-    async def test_list_tools_returns_18_tools(self) -> None:
+    async def test_list_tools_returns_19_tools(self) -> None:
         async def _check(session):
             result = await session.list_tools()
             return len(result.tools)
 
         count = await _connect_and_run(_check)
-        assert count == 18
+        assert count == 19
 
 
 class TestCallToolOverStdio:
