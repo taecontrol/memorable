@@ -10,6 +10,7 @@ Verifies:
 
 from __future__ import annotations
 
+import re
 import tomllib
 from pathlib import Path
 
@@ -50,7 +51,11 @@ class TestPyprojectPackageMetadata:
     def test_publishable_version(self) -> None:
         data = _load_pyproject()
 
-        assert data["project"]["version"] == "0.0.1"
+        version = data["project"]["version"]
+        assert isinstance(version, str)
+        # A publishable release version: dotted numeric segments (e.g. 0.0.2),
+        # not a literal pin that breaks CI on every bump.
+        assert re.fullmatch(r"\d+\.\d+\.\d+", version), version
 
     def test_pypi_description_names_memorable(self) -> None:
         data = _load_pyproject()

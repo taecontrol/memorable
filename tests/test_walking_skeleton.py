@@ -30,9 +30,11 @@ def assert_core_language(payload: dict[str, object]) -> None:
 
 
 def test_package_import_exposes_version() -> None:
+    import re
+
     import memorable
 
-    assert memorable.__version__ == "0.0.1"
+    assert re.fullmatch(r"\d+\.\d+\.\d+", memorable.__version__)
 
 
 def test_cli_status_smoke_uses_core_language() -> None:
