@@ -962,6 +962,7 @@ class TestNeo4jTaskRepository:
         assert hasattr(Neo4jTaskRepository, "get")
         assert hasattr(Neo4jTaskRepository, "get_provenance")
         assert hasattr(Neo4jTaskRepository, "list_by_space")
+        assert hasattr(Neo4jTaskRepository, "list_projections_by_space")
         assert hasattr(Neo4jTaskRepository, "complete")
 
     def test_save_and_get_roundtrip(self) -> None:
@@ -1132,6 +1133,7 @@ class TestNeo4jRelationRepository:
         assert hasattr(Neo4jRelationRepository, "get")
         assert hasattr(Neo4jRelationRepository, "get_provenance")
         assert hasattr(Neo4jRelationRepository, "list_by_space")
+        assert hasattr(Neo4jRelationRepository, "list_projections_by_space")
         assert hasattr(Neo4jRelationRepository, "mark_superseded")
         assert hasattr(Neo4jRelationRepository, "list_by_entity")
         assert hasattr(Neo4jRelationRepository, "invalidate")

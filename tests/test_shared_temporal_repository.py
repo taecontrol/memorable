@@ -251,6 +251,7 @@ class TestConcreteReposDelegateToShared:
             "get",
             "get_provenance",
             "list_by_space",
+            "list_projections_by_space",
             "mark_superseded",
         )
         for method in required:

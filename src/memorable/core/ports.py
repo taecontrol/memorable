@@ -205,6 +205,18 @@ class ObservationRepository(Protocol):
         """Return all observations in the given space."""
         ...
 
+    def list_projections_by_space(
+        self,
+        *,
+        space: str,
+        state: str | None,
+        since: datetime | None,
+        until: datetime | None,
+        limit: int,
+    ) -> list[RecordProjection]:
+        """Return Observation projections filtered and ordered by Creation Time."""
+        ...
+
     def mark_superseded(
         self,
         space: str,
@@ -237,6 +249,18 @@ class RelationRepository(Protocol):
 
     def list_by_space(self, space: str) -> list[Relation]:
         """Return all relations in the given space."""
+        ...
+
+    def list_projections_by_space(
+        self,
+        *,
+        space: str,
+        state: str | None,
+        since: datetime | None,
+        until: datetime | None,
+        limit: int,
+    ) -> list[RecordProjection]:
+        """Return Relation projections filtered and ordered by Creation Time."""
         ...
 
     def mark_superseded(
@@ -282,4 +306,16 @@ class TaskRepository(Protocol):
 
     def list_by_space(self, space: str) -> list[Task]:
         """Return all tasks in the given space."""
+        ...
+
+    def list_projections_by_space(
+        self,
+        *,
+        space: str,
+        state: str | None,
+        since: datetime | None,
+        until: datetime | None,
+        limit: int,
+    ) -> list[RecordProjection]:
+        """Return Task projections filtered and ordered by Creation Time."""
         ...

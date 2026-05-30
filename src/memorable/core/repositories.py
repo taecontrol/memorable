@@ -5,6 +5,7 @@ These are used as placeholders until the real storage adapters are wired.
 
 from __future__ import annotations
 
+from collections.abc import Callable
 from dataclasses import replace
 from datetime import datetime
 
@@ -56,6 +57,45 @@ class InMemoryTemporalRepository[T: TemporalRecord]:
     def list_by_space(self, space: str) -> list[T]:
         """Return all records in the given space."""
         return [record for (s, _), record in self._records.items() if s == space]
+
+    def _list_record_projections_by_space(
+        self,
+        *,
+        space: str,
+        state: str | None,
+        since: datetime | None,
+        until: datetime | None,
+        limit: int,
+        record_type: str,
+        label: Callable[[T], str],
+    ) -> list[RecordProjection]:
+        projections: list[RecordProjection] = []
+        for (record_space, _), record in self._records.items():
+            if record_space != space:
+                continue
+            if state is not None and record.lifecycle_state != state:
+                continue
+            provenance = self._provenance.get((space, record.id))
+            if provenance is None:
+                raise ProvenanceIntegrityError(
+                    f"Provenance missing for {record_type} '{record.id}' "
+                    f"in MemorySpace '{space}'."
+                )
+            if since is not None and provenance.creation_time < since:
+                continue
+            if until is not None and provenance.creation_time >= until:
+                continue
+            projections.append(
+                RecordProjection(
+                    id=record.id,
+                    type=record_type,
+                    label=label(record),
+                    lifecycle_state=record.lifecycle_state,
+                    creation_time=provenance.creation_time,
+                )
+            )
+        projections.sort(key=lambda p: (p.creation_time, p.id))
+        return projections[:limit]
 
     def mark_superseded(
         self,
@@ -179,33 +219,15 @@ class InMemoryDecisionRepository(InMemoryTemporalRepository[Decision]):
         until: datetime | None,
         limit: int,
     ) -> list[RecordProjection]:
-        projections: list[RecordProjection] = []
-        for (record_space, _), decision in self._records.items():
-            if record_space != space:
-                continue
-            if state is not None and decision.lifecycle_state != state:
-                continue
-            provenance = self._provenance.get((space, decision.id))
-            if provenance is None:
-                raise ProvenanceIntegrityError(
-                    f"Provenance missing for decision '{decision.id}' "
-                    f"in MemorySpace '{space}'."
-                )
-            if since is not None and provenance.creation_time < since:
-                continue
-            if until is not None and provenance.creation_time >= until:
-                continue
-            projections.append(
-                RecordProjection(
-                    id=decision.id,
-                    type="decision",
-                    label=decision.statement,
-                    lifecycle_state=decision.lifecycle_state,
-                    creation_time=provenance.creation_time,
-                )
-            )
-        projections.sort(key=lambda p: (p.creation_time, p.id))
-        return projections[:limit]
+        return self._list_record_projections_by_space(
+            space=space,
+            state=state,
+            since=since,
+            until=until,
+            limit=limit,
+            record_type="decision",
+            label=lambda decision: decision.statement,
+        )
 
 
 class InMemoryObservationRepository(InMemoryTemporalRepository[Observation]):
@@ -218,6 +240,25 @@ class InMemoryObservationRepository(InMemoryTemporalRepository[Observation]):
     def save(self, observation: Observation, provenance: Provenance) -> None:
         self.save_record(observation, provenance)
 
+    def list_projections_by_space(
+        self,
+        *,
+        space: str,
+        state: str | None,
+        since: datetime | None,
+        until: datetime | None,
+        limit: int,
+    ) -> list[RecordProjection]:
+        return self._list_record_projections_by_space(
+            space=space,
+            state=state,
+            since=since,
+            until=until,
+            limit=limit,
+            record_type="observation",
+            label=lambda observation: observation.statement,
+        )
+
 
 class InMemoryRelationRepository(InMemoryTemporalRepository[Relation]):
     """In-memory implementation of RelationRepository.
@@ -229,6 +270,25 @@ class InMemoryRelationRepository(InMemoryTemporalRepository[Relation]):
 
     def save(self, relation: Relation, provenance: Provenance) -> None:
         self.save_record(relation, provenance)
+
+    def list_projections_by_space(
+        self,
+        *,
+        space: str,
+        state: str | None,
+        since: datetime | None,
+        until: datetime | None,
+        limit: int,
+    ) -> list[RecordProjection]:
+        return self._list_record_projections_by_space(
+            space=space,
+            state=state,
+            since=since,
+            until=until,
+            limit=limit,
+            record_type="relation",
+            label=lambda relation: relation.statement,
+        )
 
     def list_by_entity(self, space: str, entity_id: str) -> list[Relation]:
         """Return all Relations where entity_id is source or target in the space."""
@@ -258,6 +318,43 @@ class InMemoryTaskRepository:
     def list_by_space(self, space: str) -> list[Task]:
         """Return all tasks in the given space."""
         return [task for (s, _), task in self._tasks.items() if s == space]
+
+    def list_projections_by_space(
+        self,
+        *,
+        space: str,
+        state: str | None,
+        since: datetime | None,
+        until: datetime | None,
+        limit: int,
+    ) -> list[RecordProjection]:
+        projections: list[RecordProjection] = []
+        for (record_space, _), task in self._tasks.items():
+            if record_space != space:
+                continue
+            if state is not None and task.lifecycle_state != state:
+                continue
+            provenance = self._provenance.get((space, task.id))
+            if provenance is None:
+                raise ProvenanceIntegrityError(
+                    f"Provenance missing for task '{task.id}' "
+                    f"in MemorySpace '{space}'."
+                )
+            if since is not None and provenance.creation_time < since:
+                continue
+            if until is not None and provenance.creation_time >= until:
+                continue
+            projections.append(
+                RecordProjection(
+                    id=task.id,
+                    type="task",
+                    label=task.title,
+                    lifecycle_state=task.lifecycle_state,
+                    creation_time=provenance.creation_time,
+                )
+            )
+        projections.sort(key=lambda p: (p.creation_time, p.id))
+        return projections[:limit]
 
     def get(self, *, space: str, task_id: str) -> Task | None:
         return self._tasks.get((space, task_id))

@@ -54,6 +54,77 @@ def _from_iso(value: str | None) -> datetime | None:
     return datetime.fromisoformat(value)
 
 
+def _list_projections_by_space(
+    driver: Neo4jDriver,
+    *,
+    storage_label: str,
+    label_property: str,
+    record_type: str,
+    space: str,
+    state: str | None,
+    since: datetime | None,
+    until: datetime | None,
+    limit: int,
+) -> list[RecordProjection]:
+    """Return one record type's projections filtered and ordered by Creation Time."""
+    query = (
+        f"MATCH (record:{storage_label} {{space: $space}}) "
+        "WHERE ($state IS NULL OR record.lifecycle_state = $state) "
+        "OPTIONAL MATCH (p:Provenance)-[:PROVENANCE_OF]->(record) "
+        "WITH collect({"
+        f"  id: record.id, label: record.{label_property}, "
+        "  lifecycle_state: record.lifecycle_state, "
+        "  creation_time: p.creation_time, "
+        "  has_provenance: p IS NOT NULL"
+        "}) AS rows "
+        "WITH [row IN rows WHERE NOT row.has_provenance | row.id] "
+        "       AS missing_ids, "
+        "     [row IN rows WHERE row.has_provenance "
+        "       AND ($since IS NULL OR row.creation_time >= $since) "
+        "       AND ($until IS NULL OR row.creation_time < $until)] "
+        "       AS filtered_rows "
+        "CALL { "
+        "  WITH filtered_rows "
+        "  UNWIND filtered_rows AS row "
+        "  WITH row "
+        "  ORDER BY row.creation_time ASC, row.id ASC "
+        "  LIMIT $limit "
+        "  RETURN collect(row) AS projections "
+        "} "
+        "RETURN missing_ids, projections"
+    )
+    with driver.session() as session:
+        result = session.run(
+            query,
+            space=space,
+            state=state,
+            since=_to_iso(since),
+            until=_to_iso(until),
+            limit=limit,
+        )
+        query_record = result.single()
+        if query_record is None:
+            return []
+        missing_ids = query_record["missing_ids"]
+        if missing_ids:
+            raise ProvenanceIntegrityError(
+                f"Provenance missing for {record_type} '{missing_ids[0]}' "
+                f"in MemorySpace '{space}'."
+            )
+        projections: list[RecordProjection] = []
+        for record in query_record["projections"]:
+            projections.append(
+                RecordProjection(
+                    id=record["id"],
+                    type=record_type,
+                    label=record["label"],
+                    lifecycle_state=record["lifecycle_state"],
+                    creation_time=_from_iso(record["creation_time"]),
+                )
+            )
+        return projections
+
+
 # --- MemorySpace adapter ---
 
 
@@ -386,60 +457,17 @@ class Neo4jDecisionRepository:
         limit: int,
     ) -> list[RecordProjection]:
         """Return Decision projections filtered and ordered by Creation Time."""
-        with self._driver.session() as session:
-            result = session.run(
-                "MATCH (d:Decision {space: $space}) "
-                "WHERE ($state IS NULL OR d.lifecycle_state = $state) "
-                "OPTIONAL MATCH (p:Provenance)-[:PROVENANCE_OF]->(d) "
-                "WITH collect({"
-                "  id: d.id, label: d.statement, "
-                "  lifecycle_state: d.lifecycle_state, "
-                "  creation_time: p.creation_time, "
-                "  has_provenance: p IS NOT NULL"
-                "}) AS rows "
-                "WITH [row IN rows WHERE NOT row.has_provenance | row.id] "
-                "       AS missing_ids, "
-                "     [row IN rows WHERE row.has_provenance "
-                "       AND ($since IS NULL OR row.creation_time >= $since) "
-                "       AND ($until IS NULL OR row.creation_time < $until)] "
-                "       AS filtered_rows "
-                "CALL { "
-                "  WITH filtered_rows "
-                "  UNWIND filtered_rows AS row "
-                "  WITH row "
-                "  ORDER BY row.creation_time ASC, row.id ASC "
-                "  LIMIT $limit "
-                "  RETURN collect(row) AS projections "
-                "} "
-                "RETURN missing_ids, projections",
-                space=space,
-                state=state,
-                since=_to_iso(since),
-                until=_to_iso(until),
-                limit=limit,
-            )
-            query_record = result.single()
-            if query_record is None:
-                return []
-            missing_ids = query_record["missing_ids"]
-            if missing_ids:
-                raise ProvenanceIntegrityError(
-                    f"Provenance missing for decision '{missing_ids[0]}' "
-                    f"in MemorySpace '{space}'."
-                )
-            projections: list[RecordProjection] = []
-            for record in query_record["projections"]:
-                creation_time = _from_iso(record["creation_time"])
-                projections.append(
-                    RecordProjection(
-                        id=record["id"],
-                        type="decision",
-                        label=record["label"],
-                        lifecycle_state=record["lifecycle_state"],
-                        creation_time=creation_time,
-                    )
-                )
-            return projections
+        return _list_projections_by_space(
+            self._driver,
+            storage_label="Decision",
+            label_property="statement",
+            record_type="decision",
+            space=space,
+            state=state,
+            since=since,
+            until=until,
+            limit=limit,
+        )
 
     def mark_superseded(
         self,
@@ -668,6 +696,28 @@ class Neo4jObservationRepository:
                 )
                 for record in result
             ]
+
+    def list_projections_by_space(
+        self,
+        *,
+        space: str,
+        state: str | None,
+        since: datetime | None,
+        until: datetime | None,
+        limit: int,
+    ) -> list[RecordProjection]:
+        """Return Observation projections filtered and ordered by Creation Time."""
+        return _list_projections_by_space(
+            self._driver,
+            storage_label="Observation",
+            label_property="statement",
+            record_type="observation",
+            space=space,
+            state=state,
+            since=since,
+            until=until,
+            limit=limit,
+        )
 
     def mark_superseded(
         self,
@@ -913,6 +963,28 @@ class Neo4jTaskRepository:
                 for record in result
             ]
 
+    def list_projections_by_space(
+        self,
+        *,
+        space: str,
+        state: str | None,
+        since: datetime | None,
+        until: datetime | None,
+        limit: int,
+    ) -> list[RecordProjection]:
+        """Return Task projections filtered and ordered by Creation Time."""
+        return _list_projections_by_space(
+            self._driver,
+            storage_label="Task",
+            label_property="title",
+            record_type="task",
+            space=space,
+            state=state,
+            since=since,
+            until=until,
+            limit=limit,
+        )
+
 
 # --- Relation adapter ---
 
@@ -1083,6 +1155,28 @@ class Neo4jRelationRepository:
                 )
                 for record in result
             ]
+
+    def list_projections_by_space(
+        self,
+        *,
+        space: str,
+        state: str | None,
+        since: datetime | None,
+        until: datetime | None,
+        limit: int,
+    ) -> list[RecordProjection]:
+        """Return Relation projections filtered and ordered by Creation Time."""
+        return _list_projections_by_space(
+            self._driver,
+            storage_label="Relation",
+            label_property="statement",
+            record_type="relation",
+            space=space,
+            state=state,
+            since=since,
+            until=until,
+            limit=limit,
+        )
 
     def mark_superseded(
         self,
