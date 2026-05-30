@@ -107,7 +107,7 @@ jobs:
     if: github.event_name == 'push' && startsWith(github.ref, 'refs/tags/v')
     environment:
       name: pypi
-      url: https://pypi.org/p/memorable
+      url: https://pypi.org/p/memorable-kg
     permissions:
       contents: read
       id-token: write
@@ -162,5 +162,5 @@ jobs:
           MEMORABLE_NEO4J_PASSWORD: memorable
         run: >-
           uv run --extra dev python scripts/v1_acceptance.py
-          --memorable-cmd "uvx memorable@${{ needs.build.outputs.version }}"
-          --mcp-cmd "uvx --from memorable@${{ needs.build.outputs.version }} memorable-mcp"
+          --memorable-cmd "uvx --from memorable-kg@${{ needs.build.outputs.version }} memorable"
+          --mcp-cmd "uvx --from memorable-kg@${{ needs.build.outputs.version }} memorable-mcp"

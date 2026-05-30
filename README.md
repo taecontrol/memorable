@@ -10,17 +10,18 @@ It stores structured project memory in Neo4j and retrieves it through the
 Use Memorable as a one-shot tool with `uvx`:
 
 ```bash
-uvx memorable --help
+uvx --from memorable-kg memorable --help
 ```
 
 For regular use, install it once:
 
 ```bash
-uv tool install memorable
+uv tool install memorable-kg
 ```
 
 The commands below assume the persistent install. If you prefer `uvx`, prefix
-each command with `uvx`.
+each command with `uvx --from memorable-kg` (the published distribution is
+`memorable-kg`; the installed command is `memorable`).
 
 Start in the project directory whose memory you want to manage:
 

@@ -15,8 +15,8 @@ def test_pypi_readme_guides_install_to_first_decision() -> None:
     assert pyproject["project"]["readme"] == "README.md"
 
     required_fragments = [
-        "uvx memorable",
-        "uv tool install memorable",
+        "uvx --from memorable-kg memorable",
+        "uv tool install memorable-kg",
         "memorable db start",
         "memorable init",
         "memorable doctor",
