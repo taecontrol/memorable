@@ -6,6 +6,7 @@ from typing import NotRequired, TypedDict
 from neo4j import GraphDatabase
 
 from memorable.config import RuntimeConfig
+from memorable.retrieval.embeddings import build_embedding_provider
 from memorable.storage.neo4j.schema import (
     expected_constraint_shapes,
     expected_vector_index_shape,
@@ -36,6 +37,7 @@ NEO4J_CONNECTIVITY_HINT = (
 )
 SCHEMA_CONSTRAINTS_HINT = "Run 'memorable init' to bootstrap schema constraints."
 VECTOR_INDEX_HINT = "Run 'memorable init' to bootstrap the vector index."
+EMBEDDING_PROVIDER_HINT = "Check embeddings.provider, model, dimensions, and API key."
 
 
 def ping_neo4j(config: RuntimeConfig) -> None:
@@ -142,6 +144,7 @@ def run_diagnostics(
     list_vector_indexes: Callable[
         [RuntimeConfig], list[VectorIndex]
     ] = list_vector_indexes,
+    build_embedding_provider: Callable[..., object] = build_embedding_provider,
 ) -> list[DiagnosticResult]:
     """Run runtime diagnostics and return presentation-independent results."""
     results: list[DiagnosticResult] = []
@@ -183,6 +186,21 @@ def run_diagnostics(
             "hint": "" if vector_ok else VECTOR_INDEX_HINT,
         }
     )
+
+    try:
+        build_embedding_provider(config.embeddings, api_key=config.embeddings.api_key)
+    except Exception:
+        results.append(
+            {
+                "check": "embedding_provider_builds",
+                "ok": False,
+                "hint": EMBEDDING_PROVIDER_HINT,
+            }
+        )
+    else:
+        results.append(
+            {"check": "embedding_provider_builds", "ok": True, "hint": ""}
+        )
 
     return results
 

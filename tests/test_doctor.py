@@ -233,6 +233,45 @@ def test_doctor_reports_vector_index_failure_for_unrelated_vector_index() -> Non
     }
 
 
+def test_doctor_reports_embedding_provider_build_pass() -> None:
+    from memorable.runtime.doctor import run_diagnostics
+
+    results = run_diagnostics(
+        RuntimeConfig(),
+        ping_neo4j=lambda _config: None,
+        list_schema_constraints=lambda _config: EXPECTED_SCHEMA_CONSTRAINTS,
+        list_vector_indexes=lambda _config: EXPECTED_VECTOR_INDEXES,
+        build_embedding_provider=lambda _settings, api_key=None: object(),
+    )
+
+    assert {result["check"]: result for result in results}[
+        "embedding_provider_builds"
+    ] == {"check": "embedding_provider_builds", "ok": True, "hint": ""}
+
+
+def test_doctor_reports_embedding_provider_build_failure_with_hint() -> None:
+    from memorable.runtime.doctor import run_diagnostics
+
+    def fail(_settings: object, api_key: str | None = None) -> object:
+        raise RuntimeError("bad embedding settings")
+
+    results = run_diagnostics(
+        RuntimeConfig(),
+        ping_neo4j=lambda _config: None,
+        list_schema_constraints=lambda _config: EXPECTED_SCHEMA_CONSTRAINTS,
+        list_vector_indexes=lambda _config: EXPECTED_VECTOR_INDEXES,
+        build_embedding_provider=fail,
+    )
+
+    assert {result["check"]: result for result in results}[
+        "embedding_provider_builds"
+    ] == {
+        "check": "embedding_provider_builds",
+        "ok": False,
+        "hint": "Check embeddings.provider, model, dimensions, and API key.",
+    }
+
+
 def test_doctor_aggregate_all_pass_logic() -> None:
     from memorable.runtime.doctor import all_checks_passed
 
