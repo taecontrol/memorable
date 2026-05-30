@@ -761,6 +761,111 @@ class TestMCPListRecords:
 
         default_context.reset()
 
+    def test_list_records_tool_contract_shape_and_order_are_stable(self) -> None:
+        import asyncio
+
+        from memorable.mcp.server import (
+            mcp_server,
+            remember_decision_tool,
+            remember_entity_tool,
+            remember_observation_tool,
+            remember_relation_tool,
+            remember_task_tool,
+        )
+
+        remember_entity_tool(
+            space=SPACE,
+            entity_id="entity:contract-source",
+            entity_type="Project",
+            name="Contract Source",
+            source=SOURCE_ID,
+            at="2026-05-23T09:00:00Z",
+        )
+        remember_entity_tool(
+            space=SPACE,
+            entity_id="entity:contract-target",
+            entity_type="Project",
+            name="Contract Target",
+            source=SOURCE_ID,
+            at="2026-05-23T09:01:00Z",
+        )
+        remember_decision_tool(
+            space=SPACE,
+            decision_id="decision:contract",
+            statement="Keep the MCP listing contract stable.",
+            source=SOURCE_ID,
+            at="2026-05-23T10:00:00Z",
+        )
+        remember_observation_tool(
+            space=SPACE,
+            observation_id="observation:contract",
+            statement="Agents depend on this projection shape.",
+            source=SOURCE_ID,
+            at="2026-05-23T11:00:00Z",
+        )
+        remember_relation_tool(
+            space=SPACE,
+            relation_id="relation:contract",
+            source_entity_id="entity:contract-source",
+            target_entity_id="entity:contract-target",
+            relation_type="depends-on",
+            statement="Contract source depends on contract target.",
+            source=SOURCE_ID,
+            at="2026-05-23T12:00:00Z",
+        )
+        remember_task_tool(
+            space=SPACE,
+            task_id="task:contract",
+            title="Verify the MCP contract.",
+            source=SOURCE_ID,
+            at="2026-05-23T13:00:00Z",
+        )
+
+        _, result = asyncio.run(
+            mcp_server.call_tool(
+                "memorable_list_records", {"space": SPACE, "limit": 10}
+            )
+        )
+
+        assert "error" not in result
+        records = result["records"]
+        assert [set(record) for record in records] == [
+            {"id", "type", "label", "lifecycle_state", "creation_time"},
+            {"id", "type", "label", "lifecycle_state", "creation_time"},
+            {"id", "type", "label", "lifecycle_state", "creation_time"},
+            {"id", "type", "label", "lifecycle_state", "creation_time"},
+        ]
+        assert records == [
+            {
+                "id": "decision:contract",
+                "type": "decision",
+                "label": "Keep the MCP listing contract stable.",
+                "lifecycle_state": "current",
+                "creation_time": "2026-05-23T10:00:00+00:00",
+            },
+            {
+                "id": "observation:contract",
+                "type": "observation",
+                "label": "Agents depend on this projection shape.",
+                "lifecycle_state": "current",
+                "creation_time": "2026-05-23T11:00:00+00:00",
+            },
+            {
+                "id": "relation:contract",
+                "type": "relation",
+                "label": "Contract source depends on contract target.",
+                "lifecycle_state": "current",
+                "creation_time": "2026-05-23T12:00:00+00:00",
+            },
+            {
+                "id": "task:contract",
+                "type": "task",
+                "label": "Verify the MCP contract.",
+                "lifecycle_state": "open",
+                "creation_time": "2026-05-23T13:00:00+00:00",
+            },
+        ]
+
     def test_list_records_tool_returns_projections(self) -> None:
         from memorable.mcp.server import (
             list_records_tool,
