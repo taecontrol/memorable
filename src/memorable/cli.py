@@ -129,7 +129,9 @@ def _cmd_doctor(args: argparse.Namespace) -> int:
 def _cmd_db_start(args: argparse.Namespace) -> int:
     """Start the local Neo4j container."""
     base_path = Path(args.path) if args.path else None
-    config = load_runtime_config(base_path=base_path)
+    config = load_runtime_config(
+        base_path=base_path, include_environment_overrides=True
+    )
 
     if is_remote_uri(config.neo4j.uri):
         print(
@@ -149,7 +151,9 @@ def _cmd_db_start(args: argparse.Namespace) -> int:
 def _cmd_db_stop(args: argparse.Namespace) -> int:
     """Stop the local Neo4j container."""
     base_path = Path(args.path) if args.path else None
-    config = load_runtime_config(base_path=base_path)
+    config = load_runtime_config(
+        base_path=base_path, include_environment_overrides=True
+    )
 
     if is_remote_uri(config.neo4j.uri):
         print(
@@ -198,7 +202,9 @@ def _cmd_init(args: argparse.Namespace) -> int:
 
     yaml_text = profile_path.read_text(encoding="utf-8")
 
-    config = load_runtime_config(base_path=base_path)
+    config = load_runtime_config(
+        base_path=base_path, include_environment_overrides=True
+    )
 
     try:
         ctx, driver = build_production_context(config)
@@ -1258,7 +1264,7 @@ def main(argv: list[str] | None = None) -> int:
 
     # ----- Commands that USE a production context -----
     if _needs_production_context(args):
-        config = load_runtime_config()
+        config = load_runtime_config(include_environment_overrides=True)
         try:
             ctx, driver = build_production_context(config)
         except ConnectionError as e:

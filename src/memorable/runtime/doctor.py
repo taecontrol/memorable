@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 from collections.abc import Callable
+from dataclasses import dataclass
 from pathlib import Path
 from typing import NotRequired, TypedDict
 
@@ -138,63 +139,120 @@ def vector_index_present(indexes: list[VectorIndex]) -> bool:
     )
 
 
+@dataclass(frozen=True)
+class DiagnosticProbes:
+    """Collaborators that touch the live runtime, bundled behind one seam.
+
+    Production callers use the default factory, which wires the real Neo4j,
+    embedding, and profile probes. Tests substitute a probe set to drive each
+    check deterministically without a database.
+    """
+
+    ping_neo4j: Callable[[RuntimeConfig], None] = ping_neo4j
+    list_schema_constraints: Callable[[RuntimeConfig], list[SchemaConstraint]] = (
+        list_schema_constraints
+    )
+    list_vector_indexes: Callable[[RuntimeConfig], list[VectorIndex]] = (
+        list_vector_indexes
+    )
+    build_embedding_provider: Callable[..., object] = build_embedding_provider
+    profile_path: Path | None = None
+    load_profile_from_yaml: Callable[[str], object] = load_profile_from_yaml
+
+    def resolved_profile_path(self) -> Path:
+        """Return the MemoryProfile path, defaulting to the cwd workspace."""
+        if self.profile_path is not None:
+            return self.profile_path
+        return Path.cwd() / ".memorable" / "memory.yaml"
+
+
+def _connectivity_dependent_result(
+    check: str,
+    list_descriptors: Callable[[RuntimeConfig], list],
+    is_present: Callable[[list], bool],
+    config: RuntimeConfig,
+    absent_hint: str,
+) -> DiagnosticResult:
+    """Evaluate a check that requires a live SHOW query against Neo4j.
+
+    The caller guarantees connectivity already passed. If the SHOW query itself
+    raises, that is a query/connectivity error — report it with the connectivity
+    hint rather than misdiagnosing the schema as absent. Only when the query
+    succeeds and proves the descriptor genuinely absent do we emit *absent_hint*
+    (the 'run memorable init' remediation).
+    """
+    try:
+        descriptors = list_descriptors(config)
+    except Exception:
+        return {"check": check, "ok": False, "hint": NEO4J_CONNECTIVITY_HINT}
+    ok = is_present(descriptors)
+    return {"check": check, "ok": ok, "hint": "" if ok else absent_hint}
+
+
 def run_diagnostics(
     config: RuntimeConfig,
     *,
-    ping_neo4j: Callable[[RuntimeConfig], None] = ping_neo4j,
-    list_schema_constraints: Callable[
-        [RuntimeConfig], list[SchemaConstraint]
-    ] = list_schema_constraints,
-    list_vector_indexes: Callable[
-        [RuntimeConfig], list[VectorIndex]
-    ] = list_vector_indexes,
-    build_embedding_provider: Callable[..., object] = build_embedding_provider,
-    profile_path: Path | None = None,
-    load_profile_from_yaml: Callable[[str], object] = load_profile_from_yaml,
+    probes: DiagnosticProbes | None = None,
 ) -> list[DiagnosticResult]:
     """Run runtime diagnostics and return presentation-independent results."""
+    if probes is None:
+        probes = DiagnosticProbes()
+
     results: list[DiagnosticResult] = []
+
     try:
-        ping_neo4j(config)
+        probes.ping_neo4j(config)
     except Exception:
+        connectivity_ok = False
+    else:
+        connectivity_ok = True
+
+    results.append(
+        {
+            "check": "neo4j_connectivity",
+            "ok": connectivity_ok,
+            "hint": "" if connectivity_ok else NEO4J_CONNECTIVITY_HINT,
+        }
+    )
+
+    if not connectivity_ok:
+        # Neo4j is unreachable, so the schema/vector SHOW queries cannot be
+        # performed. Report both as failed with the connectivity hint rather
+        # than misdiagnosing the schema as absent.
         results.append(
             {
-                "check": "neo4j_connectivity",
+                "check": "schema_constraints",
                 "ok": False,
                 "hint": NEO4J_CONNECTIVITY_HINT,
             }
         )
+        results.append(
+            {"check": "vector_index", "ok": False, "hint": NEO4J_CONNECTIVITY_HINT}
+        )
     else:
-        results.append({"check": "neo4j_connectivity", "ok": True, "hint": ""})
+        results.append(
+            _connectivity_dependent_result(
+                "schema_constraints",
+                probes.list_schema_constraints,
+                schema_constraints_present,
+                config,
+                SCHEMA_CONSTRAINTS_HINT,
+            )
+        )
+        results.append(
+            _connectivity_dependent_result(
+                "vector_index",
+                probes.list_vector_indexes,
+                vector_index_present,
+                config,
+                VECTOR_INDEX_HINT,
+            )
+        )
 
     try:
-        present_constraints = list_schema_constraints(config)
-    except Exception:
-        present_constraints = []
-    schema_ok = schema_constraints_present(present_constraints)
-    results.append(
-        {
-            "check": "schema_constraints",
-            "ok": schema_ok,
-            "hint": "" if schema_ok else SCHEMA_CONSTRAINTS_HINT,
-        }
-    )
-
-    try:
-        present_vector_indexes = list_vector_indexes(config)
-    except Exception:
-        present_vector_indexes = []
-    vector_ok = vector_index_present(present_vector_indexes)
-    results.append(
-        {
-            "check": "vector_index",
-            "ok": vector_ok,
-            "hint": "" if vector_ok else VECTOR_INDEX_HINT,
-        }
-    )
-
-    try:
-        build_embedding_provider(config.embeddings, api_key=config.embeddings.api_key)
+        probes.build_embedding_provider(
+            config.embeddings, api_key=config.embeddings.api_key
+        )
     except Exception:
         results.append(
             {
@@ -206,12 +264,10 @@ def run_diagnostics(
     else:
         results.append({"check": "embedding_provider_builds", "ok": True, "hint": ""})
 
-    if profile_path is None:
-        profile_path = Path.cwd() / ".memorable" / "memory.yaml"
-
+    profile_path = probes.resolved_profile_path()
     if profile_path.exists():
         try:
-            load_profile_from_yaml(profile_path.read_text(encoding="utf-8"))
+            probes.load_profile_from_yaml(profile_path.read_text(encoding="utf-8"))
         except Exception:
             results.append(
                 {

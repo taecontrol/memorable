@@ -731,7 +731,7 @@ def search_memory_tool(
     from memorable.retrieval.embeddings import build_embedding_provider
     from memorable.retrieval.service import build_retrieval_service
 
-    config = load_runtime_config()
+    config = load_runtime_config(include_environment_overrides=True)
     try:
         provider = build_embedding_provider(
             config.embeddings, api_key=config.embeddings.api_key
