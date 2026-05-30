@@ -834,6 +834,169 @@ class CompleteTaskService:
         return CompleteTaskResult(task=completed, event_id=event_id, completion_time=at)
 
 
+class ProvenanceIntegrityError(Exception):
+    """Raised when a MemoryRecord exists but its Provenance join is missing.
+
+    This signals a store invariant violation, not a caller error: every
+    MemoryRecord must join to a Provenance that carries its Creation Time. A
+    record returned by ``list_by_space`` whose ``get_provenance`` yields ``None``
+    means the join was lost (e.g. a graph node that outlived or preceded its
+    Provenance relationship). It is distinct from ``ValueError``, which is
+    reserved for bad caller input such as an unlistable ``type``.
+    """
+
+
+@dataclass(frozen=True)
+class RecordProjection:
+    """A compact, type-agnostic view of a MemoryRecord for Memory Review.
+
+    Memory Review lists MemoryRecords as projections so an Agent can summarize
+    state without a second round of lookups. ``label`` is the human-meaningful
+    line for the record (a Decision/Observation/Relation statement, or a Task
+    title); ``creation_time`` is sourced from the record's Provenance.
+    """
+
+    id: str
+    type: str
+    label: str
+    lifecycle_state: str
+    creation_time: datetime
+
+
+class ListRecordsService:
+    """Deep query service that lists MemoryRecords in a MemorySpace.
+
+    Memory Review's listing primitive. Fans across every MemoryRecord type
+    (Decision, Observation, Relation, Task), joins each record with its
+    Provenance to obtain Creation Time, and projects every row to the unified
+    RecordProjection shape. Results are ordered by Creation Time and capped by
+    ``limit``.
+
+    Entities are excluded by construction: an Entity is not a MemoryRecord, has
+    no Lifecycle State, and cannot satisfy the projection. ``entity`` is
+    therefore not a valid ``type`` filter.
+    """
+
+    # The MemoryRecord types Memory Review can list. Entity is deliberately
+    # absent: it is not a MemoryRecord and has no Lifecycle State.
+    RECORD_TYPES = ("decision", "observation", "relation", "task")
+
+    def __init__(
+        self,
+        *,
+        decision_repo: DecisionRepository,
+        observation_repo: ObservationRepository,
+        relation_repo: RelationRepository,
+        task_repo: TaskRepository,
+    ) -> None:
+        self._decision_repo = decision_repo
+        self._observation_repo = observation_repo
+        self._relation_repo = relation_repo
+        self._task_repo = task_repo
+
+    def list_records(
+        self,
+        *,
+        space: str,
+        type: str | None = None,
+        state: str | None = None,
+        since: datetime | None = None,
+        until: datetime | None = None,
+        limit: int = 50,
+    ) -> list[RecordProjection]:
+        """List MemoryRecords in the space as projections, ordered by Creation Time.
+
+        When ``type`` is given, only records of that MemoryRecord type are
+        listed; when ``None``, every MemoryRecord type is listed. When ``state``
+        is given, only records whose Lifecycle State matches are listed (e.g.
+        ``open``, ``current``, ``completed``, ``superseded``, ``invalidated``);
+        when ``None``, records in any state are listed.
+
+        ``since`` and ``until`` bound Provenance Creation Time as a half-open
+        window ``[since, until)``: ``since`` is an inclusive lower bound and
+        ``until`` an exclusive upper bound. Either bound may be omitted;
+        omitting both lists records of any Creation Time.
+
+        All filters (``type``, ``state``, ``since``, ``until``) combine with
+        AND. Returns at most ``limit`` projections (default 50).
+
+        Raises:
+            ValueError: if ``type`` is not a listable MemoryRecord type (e.g.
+                ``entity`` or an unknown value) — a bad-caller-input error.
+            ProvenanceIntegrityError: if a listed record's Provenance join is
+                missing — a store invariant violation, not a caller error.
+        """
+        if type is not None and type not in self.RECORD_TYPES:
+            raise ValueError(
+                f"Record type '{type}' cannot be listed by Memory Review. "
+                f"Valid types: {list(self.RECORD_TYPES)} (or omit for all). "
+                f"Entities are not MemoryRecords and are excluded."
+            )
+
+        projections: list[RecordProjection] = []
+
+        # Decision, Observation, and Relation share the statement-as-label shape
+        # and a positional get_provenance(space, record_id) signature.
+        statement_repos = (
+            ("decision", self._decision_repo),
+            ("observation", self._observation_repo),
+            ("relation", self._relation_repo),
+        )
+        for record_type, repo in statement_repos:
+            if type is not None and record_type != type:
+                continue
+            for record in repo.list_by_space(space):
+                provenance = repo.get_provenance(space, record.id)
+                if provenance is None:
+                    raise ProvenanceIntegrityError(
+                        f"Provenance missing for {record_type} '{record.id}' "
+                        f"in MemorySpace '{space}'."
+                    )
+                projections.append(
+                    RecordProjection(
+                        id=record.id,
+                        type=record_type,
+                        label=record.statement,
+                        lifecycle_state=record.lifecycle_state,
+                        creation_time=provenance.creation_time,
+                    )
+                )
+
+        # Task uses a title as its label and a keyword-only get_provenance.
+        if type is None or type == "task":
+            for task in self._task_repo.list_by_space(space):
+                provenance = self._task_repo.get_provenance(
+                    space=space, task_id=task.id
+                )
+                if provenance is None:
+                    raise ProvenanceIntegrityError(
+                        f"Provenance missing for task '{task.id}' "
+                        f"in MemorySpace '{space}'."
+                    )
+                projections.append(
+                    RecordProjection(
+                        id=task.id,
+                        type="task",
+                        label=task.title,
+                        lifecycle_state=task.lifecycle_state,
+                        creation_time=provenance.creation_time,
+                    )
+                )
+
+        if state is not None:
+            projections = [p for p in projections if p.lifecycle_state == state]
+
+        if since is not None:
+            projections = [p for p in projections if p.creation_time >= since]
+        if until is not None:
+            projections = [p for p in projections if p.creation_time < until]
+
+        # Tie-break on id so records sharing a Creation Time order
+        # deterministically regardless of list_by_space order across backends.
+        projections.sort(key=lambda p: (p.creation_time, p.id))
+        return projections[:limit]
+
+
 class InspectTaskService:
     """Application service that inspects task lifecycle at current or as-of time."""
 

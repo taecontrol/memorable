@@ -15,7 +15,9 @@ from memorable.core.application import (
     InspectProvenanceService,
     InspectTaskService,
     InvalidateService,
+    ListRecordsService,
     PointInTimeTruthService,
+    ProvenanceIntegrityError,
     RememberDecisionService,
     RememberEntityService,
     RememberObservationService,
@@ -791,6 +793,87 @@ def inspect_task_tool(
             task.completion_time.isoformat() if task.completion_time else None
         ),
         "completion_event_id": task.completion_event_id,
+    }
+
+
+@mcp_server.tool(
+    name="memorable_list_records",
+    description=(
+        "Memory Review: deterministically list MemoryRecords in a MemorySpace. "
+        "Fans across Decision, Observation, Relation, and Task records "
+        "(Entities are excluded) and returns a compact projection "
+        "{id, type, label, lifecycle_state, creation_time} ordered by "
+        "Creation Time, capped by limit (default 50). Pass type to restrict to "
+        "a single record type ('decision', 'observation', 'relation', 'task'); "
+        "omit it to list every type. 'entity' is not valid. Pass state to "
+        "restrict to a single Lifecycle State ('open', 'current', 'completed', "
+        "'superseded', 'invalidated'); omit it to list any state. Pass since "
+        "and/or until (ISO timestamps) to bound Provenance Creation Time as a "
+        "half-open window [since, until): since is inclusive, until is "
+        "exclusive; either may be omitted. All filters combine with AND. Use "
+        "this to answer state questions like 'what is open?', 'what decisions "
+        "did we make today?', or 'what did we do this week?'."
+    ),
+)
+def list_records_tool(
+    space: str,
+    type: str | None = None,
+    state: str | None = None,
+    since: str | None = None,
+    until: str | None = None,
+    limit: int = 50,
+) -> dict[str, object]:
+    """List MemoryRecords in a MemorySpace as a Memory Review projection.
+
+    When ``type`` is given, only records of that MemoryRecord type are listed;
+    omit it to list every type. When ``state`` is given, only records whose
+    Lifecycle State matches are listed; omit it to list any state. ``since`` and
+    ``until`` (ISO timestamps) bound Provenance Creation Time as a half-open
+    window ``[since, until)`` — ``since`` inclusive, ``until`` exclusive; either
+    may be omitted. All filters combine with AND. Returns a dict with a
+    ``records`` list on success, or an error dict (e.g. an unknown ``type`` or
+    ``entity``).
+    """
+    service = ListRecordsService(
+        decision_repo=_context.decision_repo,
+        observation_repo=_context.observation_repo,
+        relation_repo=_context.relation_repo,
+        task_repo=_context.task_repo,
+    )
+
+    since_dt = parse_iso_timestamp(since) if since is not None else None
+    until_dt = parse_iso_timestamp(until) if until is not None else None
+
+    try:
+        projections = service.list_records(
+            space=space,
+            type=type,
+            state=state,
+            since=since_dt,
+            until=until_dt,
+            limit=limit,
+        )
+    except ValueError as e:
+        # Bad caller input, e.g. an unlistable type ('entity' or unknown).
+        return {"error": str(e)}
+    except ProvenanceIntegrityError as e:
+        # Store invariant violation: a listed record's Provenance join is
+        # missing. Surface as an error dict rather than letting it escape to
+        # the MCP caller, but keep it distinct from caller-input errors.
+        return {"error": str(e)}
+
+    return {
+        "space": space,
+        "records": [
+            {
+                "id": projection.id,
+                "type": projection.type,
+                "label": projection.label,
+                "lifecycle_state": projection.lifecycle_state,
+                "creation_time": projection.creation_time.isoformat(),
+            }
+            for projection in projections
+        ],
     }
 
 
