@@ -210,8 +210,25 @@ async function main() {
 
     console.log(`Sandcastle worktree: ${sandbox.worktreePath}`);
 
+    const committedBySlice = await committedSliceCommits(
+      sandbox.worktreePath,
+      plan.ordered,
+    );
     const completed: CompletedSlice[] = [];
     for (const slice of plan.ordered) {
+      const existingCommit = committedBySlice.get(slice.number);
+      if (existingCommit) {
+        console.log(
+          `Skipping #${slice.number}; already committed as ${existingCommit.slice(0, 12)}`,
+        );
+        completed.push({
+          issue: slice,
+          commitSha: existingCommit,
+          review: { status: "clean", findings: [] },
+        });
+        continue;
+      }
+
       const completedSlice = await implementSlice({
         sandbox,
         repoRoot,
@@ -1327,6 +1344,34 @@ async function commitSlice(worktreePath: string, slice: Issue) {
   );
   return (await runCommand("git", ["rev-parse", "HEAD"], { cwd: worktreePath }))
     .stdout.trim();
+}
+
+async function committedSliceCommits(
+  worktreePath: string,
+  slices: Issue[],
+) {
+  const result = await runCommand(
+    "git",
+    ["log", "--reverse", "--format=%H%x00%s%x00%b%x1e", "origin/main..HEAD"],
+    { cwd: worktreePath, allowFailure: true },
+  );
+  const commits = result.stdout
+    .split("\x1e")
+    .map((record) => record.trim())
+    .filter((record) => record.length > 0)
+    .map((record) => {
+      const [sha = "", subject = "", body = ""] = record.split("\x00");
+      return { sha, text: `${subject}\n${body}` };
+    });
+  const bySlice = new Map<number, string>();
+  for (const slice of slices) {
+    const issuePattern = new RegExp(`(^|\\D)#${slice.number}(\\D|$)`);
+    const commit = commits.find((item) => issuePattern.test(item.text));
+    if (commit?.sha) {
+      bySlice.set(slice.number, commit.sha);
+    }
+  }
+  return bySlice;
 }
 
 async function gitStatus(cwd: string) {
