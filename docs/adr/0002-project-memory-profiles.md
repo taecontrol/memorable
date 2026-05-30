@@ -146,6 +146,18 @@ Examples:
 
 Profile changes require human approval. Agents can suggest, explain, and draft changes, but should not silently mutate the project memory schema.
 
+## Amendment (2026-05-30): Minimal Scaffold and the Bootstrap/Evolve Boundary
+
+Implementing #79 made the first concrete profile representation real and forced a decision the original ADR left implicit: how a profile comes into existence, and who may create versus evolve it.
+
+- **Bootstrap is human, via `memorable init`.** Run in a directory without `.memorable/memory.yaml`, `init` writes a **Minimal** scaffold — empty `entities`, `relations`, and `records` arrays plus commented examples — derives the MemorySpace name from the directory basename, and bootstraps the runtime. `--space`, `--description`, and `--path` override the defaults. An existing profile is never overwritten.
+- **Minimal, not Seeded or Templated.** The scaffold ships no domain types. Seeding generic types or templating per project shape (software/work/training) would skew projects toward one mold and contradict the kernel-plus-profile premise that memory can start imperfectly. Empty arrays let kernel record writes (Decision, Observation, Task) work immediately while the Human declares Entity and Relation types as they emerge.
+- **No `write_policy` block.** Per ADR-0014, the scaffold omits write policy; it returns only as an enforced feature. (The provisional sketch above predates that decision — ADR-0014 governs.)
+- **Evolve is editing, by human or agent.** An existing profile evolves by editing the YAML directly with ordinary file tools. The file is human-reviewable, so "agents propose, humans approve" is preserved without a profile-mutation API. An undeclared Entity or Relation type fails with an actionable error that invites profile evolution.
+- **MCP does not scaffold.** `memorable_init_space` initializes an *existing* profile and never writes one. Scaffolding is a human setup step; agents do not invent a schema from scratch.
+
+This amends the ADR's representation decision: the first profile shape is the Minimal scaffold, and the bootstrap/evolve boundary above is the durable rule.
+
 ## Consequences
 
 Positive:

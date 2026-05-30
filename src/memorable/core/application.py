@@ -148,7 +148,8 @@ class RememberEntityService:
             raise ValueError(
                 f"Entity type '{entity_type}' is not declared in the "
                 f"MemoryProfile for space '{self._profile.space.name}'. "
-                f"Declared types: {sorted(declared_names)}."
+                f"Declared types: {sorted(declared_names)}. "
+                "Evolve the MemoryProfile before remembering this Entity type."
             )
 
         entity = Entity(
@@ -395,7 +396,8 @@ class RememberRelationService:
             raise ValueError(
                 f"Relation type '{relation_type}' is not declared in the "
                 f"MemoryProfile for space '{self._profile.space.name}'. "
-                f"Declared types: {sorted(declared_names)}."
+                f"Declared types: {sorted(declared_names)}. "
+                "Evolve the MemoryProfile before remembering this Relation type."
             )
 
         # Validate self-relation

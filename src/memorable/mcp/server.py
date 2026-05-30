@@ -110,7 +110,9 @@ def init_space_tool(base_path: str) -> dict[str, object]:
     if not profile_path.exists():
         return {
             "error": f"No memory.yaml found at {profile_path}. "
-            "Create a .memorable/memory.yaml to define your MemoryProfile."
+            "Create a .memorable/memory.yaml with `memorable init` as the "
+            "Human Owner, or edit .memorable/memory.yaml to evolve an "
+            "existing MemoryProfile."
         }
 
     yaml_text = profile_path.read_text(encoding="utf-8")
