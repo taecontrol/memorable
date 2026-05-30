@@ -802,17 +802,22 @@ def inspect_task_tool(
         "Fans across Decision, Observation, Relation, and Task records "
         "(Entities are excluded) and returns a compact projection "
         "{id, type, label, lifecycle_state, creation_time} ordered by "
-        "Creation Time, capped by limit (default 50). Use this to answer state "
-        "questions like 'what is open?' or 'what did we do recently?'."
+        "Creation Time, capped by limit (default 50). Pass type to restrict to "
+        "a single record type ('decision', 'observation', 'relation', 'task'); "
+        "omit it to list every type. 'entity' is not valid. Use this to answer "
+        "state questions like 'what is open?' or 'what did we do recently?'."
     ),
 )
 def list_records_tool(
     space: str,
+    type: str | None = None,
     limit: int = 50,
 ) -> dict[str, object]:
     """List MemoryRecords in a MemorySpace as a Memory Review projection.
 
-    Returns a dict with a ``records`` list on success, or an error dict.
+    When ``type`` is given, only records of that MemoryRecord type are listed;
+    omit it to list every type. Returns a dict with a ``records`` list on
+    success, or an error dict (e.g. an unknown ``type`` or ``entity``).
     """
     service = ListRecordsService(
         decision_repo=_context.decision_repo,
@@ -822,7 +827,7 @@ def list_records_tool(
     )
 
     try:
-        projections = service.list_records(space=space, limit=limit)
+        projections = service.list_records(space=space, type=type, limit=limit)
     except ValueError as e:
         return {"error": str(e)}
 

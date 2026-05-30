@@ -274,6 +274,111 @@ class TestListRecordsService:
         ]
 
 
+class TestListRecordsServiceTypeFilter:
+    """ListRecordsService restricts listing to a single MemoryRecord type."""
+
+    def _make_service(self, ctx):
+        from memorable.core.application import ListRecordsService
+
+        return ListRecordsService(
+            decision_repo=ctx.decision_repo,
+            observation_repo=ctx.observation_repo,
+            relation_repo=ctx.relation_repo,
+            task_repo=ctx.task_repo,
+        )
+
+    def _seed_all_types(self, ctx) -> None:
+        _remember_decision(
+            ctx, decision_id="decision:1", statement="A decision.", at=T1
+        )
+        _remember_observation(
+            ctx, observation_id="observation:1", statement="An observation.", at=T2
+        )
+        _remember_entities(ctx, "entity:a", "entity:b", at=T1)
+        _remember_relation(
+            ctx,
+            relation_id="relation:1",
+            source_entity_id="entity:a",
+            target_entity_id="entity:b",
+            statement="A relates to B.",
+            at=T3,
+        )
+        _remember_task(ctx, task_id="task:1", title="A task.", at=T4)
+
+    def test_filters_to_decisions_only(self) -> None:
+        ctx = _make_context()
+        self._seed_all_types(ctx)
+        service = self._make_service(ctx)
+
+        projections = service.list_records(space=SPACE, type="decision")
+
+        assert [p.id for p in projections] == ["decision:1"]
+        assert all(p.type == "decision" for p in projections)
+
+    def test_filters_to_observations_only(self) -> None:
+        ctx = _make_context()
+        self._seed_all_types(ctx)
+        service = self._make_service(ctx)
+
+        projections = service.list_records(space=SPACE, type="observation")
+
+        assert [p.id for p in projections] == ["observation:1"]
+        assert all(p.type == "observation" for p in projections)
+
+    def test_filters_to_relations_only(self) -> None:
+        ctx = _make_context()
+        self._seed_all_types(ctx)
+        service = self._make_service(ctx)
+
+        projections = service.list_records(space=SPACE, type="relation")
+
+        assert [p.id for p in projections] == ["relation:1"]
+        assert all(p.type == "relation" for p in projections)
+
+    def test_filters_to_tasks_only(self) -> None:
+        ctx = _make_context()
+        self._seed_all_types(ctx)
+        service = self._make_service(ctx)
+
+        projections = service.list_records(space=SPACE, type="task")
+
+        assert [p.id for p in projections] == ["task:1"]
+        assert all(p.type == "task" for p in projections)
+
+    def test_type_none_lists_all_record_types(self) -> None:
+        ctx = _make_context()
+        self._seed_all_types(ctx)
+        service = self._make_service(ctx)
+
+        projections = service.list_records(space=SPACE, type=None)
+
+        assert {p.type for p in projections} == {
+            "decision",
+            "observation",
+            "relation",
+            "task",
+        }
+
+    def test_entity_type_is_rejected(self) -> None:
+        import pytest
+
+        ctx = _make_context()
+        self._seed_all_types(ctx)
+        service = self._make_service(ctx)
+
+        with pytest.raises(ValueError, match="entity"):
+            service.list_records(space=SPACE, type="entity")
+
+    def test_unknown_type_is_rejected(self) -> None:
+        import pytest
+
+        ctx = _make_context()
+        service = self._make_service(ctx)
+
+        with pytest.raises(ValueError, match="nonsense"):
+            service.list_records(space=SPACE, type="nonsense")
+
+
 class TestMCPListRecords:
     """MCP list_records_tool wraps ListRecordsService and returns projections."""
 
@@ -379,3 +484,48 @@ class TestMCPListRecords:
             set_mcp_context(default_context)
 
         assert "error" in result
+
+    def test_list_records_tool_filters_by_type(self) -> None:
+        from memorable.mcp.server import (
+            list_records_tool,
+            remember_decision_tool,
+            remember_task_tool,
+        )
+
+        remember_decision_tool(
+            space=SPACE,
+            decision_id="decision:1",
+            statement="Adopt Neo4j.",
+            source=SOURCE_ID,
+            at="2026-05-23T10:00:00Z",
+        )
+        remember_task_tool(
+            space=SPACE,
+            task_id="task:1",
+            title="Ship the primitive.",
+            source=SOURCE_ID,
+            at="2026-05-23T11:00:00Z",
+        )
+
+        result = list_records_tool(space=SPACE, type="decision")
+
+        assert "error" not in result
+        records = result["records"]
+        assert [r["id"] for r in records] == ["decision:1"]
+        assert all(r["type"] == "decision" for r in records)
+
+    def test_list_records_tool_rejects_entity_type(self) -> None:
+        from memorable.mcp.server import list_records_tool
+
+        result = list_records_tool(space=SPACE, type="entity")
+
+        assert "error" in result
+        assert "entity" in result["error"].lower()
+
+    def test_list_records_tool_rejects_unknown_type(self) -> None:
+        from memorable.mcp.server import list_records_tool
+
+        result = list_records_tool(space=SPACE, type="nonsense")
+
+        assert "error" in result
+        assert "nonsense" in result["error"]

@@ -861,8 +861,13 @@ class ListRecordsService:
     ``limit``.
 
     Entities are excluded by construction: an Entity is not a MemoryRecord, has
-    no Lifecycle State, and cannot satisfy the projection.
+    no Lifecycle State, and cannot satisfy the projection. ``entity`` is
+    therefore not a valid ``type`` filter.
     """
+
+    # The MemoryRecord types Memory Review can list. Entity is deliberately
+    # absent: it is not a MemoryRecord and has no Lifecycle State.
+    RECORD_TYPES = ("decision", "observation", "relation", "task")
 
     def __init__(
         self,
@@ -881,12 +886,25 @@ class ListRecordsService:
         self,
         *,
         space: str,
+        type: str | None = None,
         limit: int = 50,
     ) -> list[RecordProjection]:
         """List MemoryRecords in the space as projections, ordered by Creation Time.
 
-        Returns at most ``limit`` projections (default 50).
+        When ``type`` is given, only records of that MemoryRecord type are
+        listed; when ``None``, every MemoryRecord type is listed. Returns at
+        most ``limit`` projections (default 50).
+
+        Raises ValueError if ``type`` is not a listable MemoryRecord type
+        (e.g. ``entity`` or an unknown value).
         """
+        if type is not None and type not in self.RECORD_TYPES:
+            raise ValueError(
+                f"Record type '{type}' cannot be listed by Memory Review. "
+                f"Valid types: {list(self.RECORD_TYPES)} (or omit for all). "
+                f"Entities are not MemoryRecords and are excluded."
+            )
+
         projections: list[RecordProjection] = []
 
         # Decision, Observation, and Relation share the statement-as-label shape
@@ -897,6 +915,8 @@ class ListRecordsService:
             ("relation", self._relation_repo),
         )
         for record_type, repo in statement_repos:
+            if type is not None and record_type != type:
+                continue
             for record in repo.list_by_space(space):
                 provenance = repo.get_provenance(space, record.id)
                 if provenance is None:
@@ -915,21 +935,25 @@ class ListRecordsService:
                 )
 
         # Task uses a title as its label and a keyword-only get_provenance.
-        for task in self._task_repo.list_by_space(space):
-            provenance = self._task_repo.get_provenance(space=space, task_id=task.id)
-            if provenance is None:
-                raise ValueError(
-                    f"Provenance missing for task '{task.id}' in MemorySpace '{space}'."
+        if type is None or type == "task":
+            for task in self._task_repo.list_by_space(space):
+                provenance = self._task_repo.get_provenance(
+                    space=space, task_id=task.id
                 )
-            projections.append(
-                RecordProjection(
-                    id=task.id,
-                    type="task",
-                    label=task.title,
-                    lifecycle_state=task.lifecycle_state,
-                    creation_time=provenance.creation_time,
+                if provenance is None:
+                    raise ValueError(
+                        f"Provenance missing for task '{task.id}' "
+                        f"in MemorySpace '{space}'."
+                    )
+                projections.append(
+                    RecordProjection(
+                        id=task.id,
+                        type="task",
+                        label=task.title,
+                        lifecycle_state=task.lifecycle_state,
+                        creation_time=provenance.creation_time,
+                    )
                 )
-            )
 
         projections.sort(key=lambda projection: projection.creation_time)
         return projections[:limit]
