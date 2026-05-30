@@ -223,18 +223,123 @@ class TestCLIInit:
         captured = capsys.readouterr()
         assert "version" in captured.err.lower()
 
-    def test_init_command_fails_when_no_profile_exists(self, tmp_path, capsys) -> None:
-        """memorable init reports missing profile file.
+    def test_init_command_scaffolds_missing_profile_and_initializes(
+        self, tmp_path, capsys
+    ) -> None:
+        """memorable init creates a Minimal MemoryProfile when none exists."""
+        import json
+        from unittest.mock import MagicMock, patch
 
-        No production context is built because the profile file check
-        happens before the Neo4j connection attempt.
-        """
         from memorable.cli import main
+        from memorable.config import RuntimeConfig
+        from memorable.core.context import ApplicationContext
+        from memorable.core.profile import load_profile_from_yaml
 
-        exit_code = main(["init", "--path", str(tmp_path)])
-        assert exit_code == 1
+        project_dir = tmp_path / "training-log"
+        project_dir.mkdir()
+        profile_path = project_dir / ".memorable" / "memory.yaml"
+        ctx = ApplicationContext()
+        mock_driver = MagicMock()
+
+        with (
+            patch(
+                "memorable.cli.build_production_context",
+                return_value=(ctx, mock_driver),
+            ),
+            patch("memorable.cli.ensure_all_constraints"),
+            patch("memorable.cli.load_runtime_config", return_value=RuntimeConfig()),
+        ):
+            exit_code = main(["init", "--path", str(project_dir)])
+
+        assert exit_code == 0
+        profile = load_profile_from_yaml(profile_path.read_text(encoding="utf-8"))
+        assert profile.space.name == "training-log"
+        assert profile.entities == ()
+        assert profile.relations == ()
+        assert profile.records == ()
         captured = capsys.readouterr()
-        assert "memory.yaml" in captured.err
+        assert json.loads(captured.out)["space"] == "training-log"
+
+    def test_init_command_scaffold_flags_override_space_and_description(
+        self, tmp_path
+    ) -> None:
+        """Human setup flags control the scaffolded MemorySpace declaration."""
+        from unittest.mock import MagicMock, patch
+
+        from memorable.cli import main
+        from memorable.config import RuntimeConfig
+        from memorable.core.context import ApplicationContext
+        from memorable.core.profile import load_profile_from_yaml
+
+        target_dir = tmp_path / "derived-name"
+        target_dir.mkdir()
+        profile_path = target_dir / ".memorable" / "memory.yaml"
+        ctx = ApplicationContext()
+        mock_driver = MagicMock()
+
+        with (
+            patch(
+                "memorable.cli.build_production_context",
+                return_value=(ctx, mock_driver),
+            ),
+            patch("memorable.cli.ensure_all_constraints"),
+            patch("memorable.cli.load_runtime_config", return_value=RuntimeConfig()),
+        ):
+            exit_code = main(
+                [
+                    "init",
+                    "--path",
+                    str(target_dir),
+                    "--space",
+                    "custom-space",
+                    "--description",
+                    "Training notes",
+                ]
+            )
+
+        assert exit_code == 0
+        profile = load_profile_from_yaml(profile_path.read_text(encoding="utf-8"))
+        assert profile.space.name == "custom-space"
+        assert profile.space.description == "Training notes"
+
+    def test_init_command_existing_profile_is_not_overwritten(self, tmp_path) -> None:
+        """Re-running init preserves a hand-written MemoryProfile file."""
+        from unittest.mock import MagicMock, patch
+
+        from memorable.cli import main
+        from memorable.config import RuntimeConfig
+        from memorable.core.context import ApplicationContext
+
+        profile_dir = tmp_path / ".memorable"
+        profile_dir.mkdir()
+        profile_path = profile_dir / "memory.yaml"
+        profile_path.write_text(VALID_PROFILE_YAML, encoding="utf-8")
+        original_yaml = profile_path.read_text(encoding="utf-8")
+        ctx = ApplicationContext()
+        mock_driver = MagicMock()
+
+        with (
+            patch(
+                "memorable.cli.build_production_context",
+                return_value=(ctx, mock_driver),
+            ),
+            patch("memorable.cli.ensure_all_constraints"),
+            patch("memorable.cli.load_runtime_config", return_value=RuntimeConfig()),
+        ):
+            exit_code = main(
+                [
+                    "init",
+                    "--path",
+                    str(tmp_path),
+                    "--space",
+                    "ignored-for-existing-profile",
+                    "--description",
+                    "Ignored for existing profile",
+                ]
+            )
+
+        assert exit_code == 0
+        assert profile_path.read_text(encoding="utf-8") == original_yaml
 
 
 class TestMCPInit:

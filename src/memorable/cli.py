@@ -27,6 +27,7 @@ from memorable.core.application import (
 )
 from memorable.core.context import ApplicationContext, default_context
 from memorable.core.profile import ProfileValidationError, load_profile_from_yaml
+from memorable.core.profile_scaffold import render_minimal_profile_scaffold
 from memorable.core.temporal import parse_iso_timestamp
 from memorable.core.tracer import TracerService
 from memorable.runtime.docker import eject as docker_eject
@@ -193,14 +194,14 @@ def _cmd_init(args: argparse.Namespace) -> int:
     profile_path = base_path / ".memorable" / "memory.yaml"
 
     if not profile_path.exists():
-        print(
-            f"Error: No memory.yaml found at {profile_path}. "
-            "Create a .memorable/memory.yaml to define your MemoryProfile.",
-            file=sys.stderr,
+        profile_path.parent.mkdir(exist_ok=True)
+        space_name = args.space if args.space is not None else base_path.resolve().name
+        yaml_text = render_minimal_profile_scaffold(
+            space_name, description=args.description
         )
-        return 1
-
-    yaml_text = profile_path.read_text(encoding="utf-8")
+        profile_path.write_text(yaml_text, encoding="utf-8")
+    else:
+        yaml_text = profile_path.read_text(encoding="utf-8")
 
     config = load_runtime_config(
         base_path=base_path, include_environment_overrides=True
@@ -1050,6 +1051,16 @@ def main(argv: list[str] | None = None) -> int:
         "--path",
         default=None,
         help="Base directory containing .memorable/memory.yaml (default: cwd).",
+    )
+    init_parser.add_argument(
+        "--space",
+        default=None,
+        help="MemorySpace name for a newly scaffolded MemoryProfile.",
+    )
+    init_parser.add_argument(
+        "--description",
+        default=None,
+        help="MemorySpace description for a newly scaffolded MemoryProfile.",
     )
 
     # profile subcommand
