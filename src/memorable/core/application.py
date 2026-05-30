@@ -2,6 +2,7 @@ from __future__ import annotations
 
 from dataclasses import asdict, dataclass
 from datetime import datetime
+from heapq import heappop, heappush
 from typing import Protocol
 
 from memorable.core.models import (
@@ -10,7 +11,6 @@ from memorable.core.models import (
     MemorySpace,
     Observation,
     Provenance,
-    ProvenanceIntegrityError,
     RecordProjection,
     Relation,
     Task,
@@ -842,10 +842,9 @@ class ListRecordsService:
     """Deep query service that lists MemoryRecords in a MemorySpace.
 
     Memory Review's listing primitive. Fans across every MemoryRecord type
-    (Decision, Observation, Relation, Task), joins each record with its
-    Provenance to obtain Creation Time, and projects every row to the unified
-    RecordProjection shape. Results are ordered by Creation Time and capped by
-    ``limit``.
+    (Decision, Observation, Relation, Task), asking each repository for bounded
+    RecordProjection rows that already include Provenance Creation Time. Results
+    are merged by Creation Time and capped by ``limit``.
 
     Entities are excluded by construction: an Entity is not a MemoryRecord, has
     no Lifecycle State, and cannot satisfy the projection. ``entity`` is
@@ -908,68 +907,53 @@ class ListRecordsService:
                 f"Entities are not MemoryRecords and are excluded."
             )
 
-        projections: list[RecordProjection] = []
-
-        # Decision, Observation, and Relation share the statement-as-label shape
-        # and a positional get_provenance(space, record_id) signature.
-        statement_repos = (
+        repos = (
             ("decision", self._decision_repo),
             ("observation", self._observation_repo),
             ("relation", self._relation_repo),
+            ("task", self._task_repo),
         )
-        for record_type, repo in statement_repos:
+        streams: list[list[RecordProjection]] = []
+        heap: list[tuple[datetime, str, str, int, int]] = []
+
+        for record_type, repo in repos:
             if type is not None and record_type != type:
                 continue
-            for record in repo.list_by_space(space):
-                provenance = repo.get_provenance(space, record.id)
-                if provenance is None:
-                    raise ProvenanceIntegrityError(
-                        f"Provenance missing for {record_type} '{record.id}' "
-                        f"in MemorySpace '{space}'."
-                    )
-                projections.append(
-                    RecordProjection(
-                        id=record.id,
-                        type=record_type,
-                        label=record.statement,
-                        lifecycle_state=record.lifecycle_state,
-                        creation_time=provenance.creation_time,
-                    )
+            stream = repo.list_projections_by_space(
+                space=space,
+                state=state,
+                since=since,
+                until=until,
+                limit=limit,
+            )
+            if not stream:
+                continue
+            stream_index = len(streams)
+            streams.append(stream)
+            first = stream[0]
+            heappush(heap, (first.creation_time, first.id, first.type, stream_index, 0))
+
+        projections: list[RecordProjection] = []
+        while heap and len(projections) < limit:
+            _, _, _, stream_index, projection_index = heappop(heap)
+            projection = streams[stream_index][projection_index]
+            projections.append(projection)
+
+            next_index = projection_index + 1
+            if next_index < len(streams[stream_index]):
+                next_projection = streams[stream_index][next_index]
+                heappush(
+                    heap,
+                    (
+                        next_projection.creation_time,
+                        next_projection.id,
+                        next_projection.type,
+                        stream_index,
+                        next_index,
+                    ),
                 )
 
-        # Task uses a title as its label and a keyword-only get_provenance.
-        if type is None or type == "task":
-            for task in self._task_repo.list_by_space(space):
-                provenance = self._task_repo.get_provenance(
-                    space=space, task_id=task.id
-                )
-                if provenance is None:
-                    raise ProvenanceIntegrityError(
-                        f"Provenance missing for task '{task.id}' "
-                        f"in MemorySpace '{space}'."
-                    )
-                projections.append(
-                    RecordProjection(
-                        id=task.id,
-                        type="task",
-                        label=task.title,
-                        lifecycle_state=task.lifecycle_state,
-                        creation_time=provenance.creation_time,
-                    )
-                )
-
-        if state is not None:
-            projections = [p for p in projections if p.lifecycle_state == state]
-
-        if since is not None:
-            projections = [p for p in projections if p.creation_time >= since]
-        if until is not None:
-            projections = [p for p in projections if p.creation_time < until]
-
-        # Tie-break on id so records sharing a Creation Time order
-        # deterministically regardless of list_by_space order across backends.
-        projections.sort(key=lambda p: (p.creation_time, p.id))
-        return projections[:limit]
+        return projections
 
 
 class InspectTaskService:
