@@ -14,6 +14,10 @@ Memorable is a project-scoped memory system for agents. Before changing the prod
 - Preserve temporal semantics: current truth, point-in-time truth, provenance, lifecycle transitions, correction, supersession, and append-first history are core product concerns.
 - Add or update an ADR when a decision changes architecture, storage strategy, core temporal behavior, profile semantics, or agent-facing interfaces.
 
+## Communication rules
+
+- When reporting information to me, be extremly concise and sacrifice grammar for the sake of concision.
+
 ## Agent skills
 
 ### Issue tracker

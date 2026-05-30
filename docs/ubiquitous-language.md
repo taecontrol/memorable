@@ -335,6 +335,16 @@ Examples include Markdown summaries, weekly reviews, project briefs, architectur
 
 Generated Views are outputs or views of memory. They are not the canonical memory store unless their contents are intentionally ingested back into structured memory.
 
+### Memory Review
+
+Memory Review is the inspection workflow that lets a Human Owner answer "what is open?" and "what did we do recently?" inside a MemorySpace by asking an Agent, which calls a deterministic listing primitive on Memorable.
+
+Memory Review is a first-class product workflow, not a UI surface. The first version exposes one MCP primitive that the Agent composes through multiple calls with different filters (record type, lifecycle state, time window). Memory Review is not a family of question-specific tools.
+
+The Human Owner is not expected to browse Memorable directly. Memory Review is exposed primarily through the MCP interface so Agents can answer state questions reliably without falling back to semantic search. A CLI surface for Memory Review may exist later but is not required for the first version.
+
+Memory Review answers state questions (what is open, what changed recently). Use GraphRAG Retrieval for similarity questions and Current Truth for point-in-time questions. Memory Review in the first version does not surface lifecycle transitions (supersession, correction, invalidation, task completion as distinct events); promoting Event into a first-class record is the forcing case for closing that gap in a later version.
+
 ## Candidate Language
 
 ### Lifecycle Event
@@ -424,6 +434,22 @@ Avoid using Fact when the memory may be uncertain, superseded, contextual, or ti
 Preferred terms: MemoryRecord, Observation, Evidence, Relation, Current Truth, or Point-In-Time Truth.
 
 Reason: "Fact" can imply timeless certainty. Memorable needs provenance, uncertainty when useful, and temporal validity.
+
+### Review Surface
+
+Avoid using Review Surface as a product term.
+
+Preferred term: Memory Review.
+
+Reason: "Surface" is UI vocabulary that hides what the workflow actually does. Memory Review names the human-facing inspection workflow regardless of whether it is exposed through CLI, MCP, or a future UI.
+
+### Activity Feed
+
+Avoid using Activity Feed as a product term.
+
+Preferred terms: Memory Review, recent writes (as a Memory Review operation).
+
+Reason: "Activity Feed" implies a chronological stream of UI events. Memorable's recent-writes operation is a Memory Review query over MemoryRecords with Creation Time ordering, not a feed.
 
 ## Supporting Context Translation Notes
 
