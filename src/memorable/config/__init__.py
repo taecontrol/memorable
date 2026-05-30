@@ -101,8 +101,14 @@ _ENV_MAPPING: dict[str, str] = {
     "MEMORABLE_OPENROUTER_API_KEY": "embeddings.api_key",
 }
 
+_ENV_SECRET_FIELDS = {"neo4j.password", "embeddings.api_key"}
 
-def load_runtime_config(base_path: Path | None = None) -> RuntimeConfig:
+
+def load_runtime_config(
+    base_path: Path | None = None,
+    *,
+    include_environment_overrides: bool = False,
+) -> RuntimeConfig:
     """Load runtime configuration using three-layer strategy.
 
     Resolution order (later wins):
@@ -110,6 +116,9 @@ def load_runtime_config(base_path: Path | None = None) -> RuntimeConfig:
     2. .memorable/runtime.yaml
     3. .memorable/runtime.local.yaml
     4. .memorable/.env or os.environ for secret keys
+
+    Set include_environment_overrides when a live runtime command should accept
+    non-secret MEMORABLE_* process overrides supplied by automation.
     """
     if base_path is None:
         base_path = Path.cwd()
@@ -148,7 +157,9 @@ def load_runtime_config(base_path: Path | None = None) -> RuntimeConfig:
             if env_key in dotenv:
                 value = dotenv[env_key]
                 source = ".env"
-        elif env_key in os.environ:
+        elif env_key in os.environ and (
+            field_path in _ENV_SECRET_FIELDS or include_environment_overrides
+        ):
             value = os.environ[env_key]
             source = "environment"
 

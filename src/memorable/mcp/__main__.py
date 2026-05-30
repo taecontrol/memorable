@@ -9,7 +9,7 @@ from memorable.storage.production import build_production_context
 
 def main() -> None:
     """Start the MCP server on stdio with production context."""
-    config = load_runtime_config()
+    config = load_runtime_config(include_environment_overrides=True)
     ctx, driver = build_production_context(config)
     try:
         set_mcp_context(ctx)

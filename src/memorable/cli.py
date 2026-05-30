@@ -33,6 +33,7 @@ from memorable.runtime.docker import eject as docker_eject
 from memorable.runtime.docker import is_remote_uri
 from memorable.runtime.docker import start as docker_start
 from memorable.runtime.docker import stop as docker_stop
+from memorable.runtime.doctor import all_checks_passed, run_diagnostics
 from memorable.storage.neo4j.repository import ensure_all_constraints
 from memorable.storage.production import build_production_context
 
@@ -106,6 +107,23 @@ def _cmd_db_status(args: argparse.Namespace) -> int:
 
     print(json.dumps(output, indent=2))
     return 0
+
+
+def _cmd_doctor(args: argparse.Namespace) -> int:
+    """Run live runtime health diagnostics."""
+    config = load_runtime_config(include_environment_overrides=True)
+    results = run_diagnostics(config)
+
+    if args.json:
+        print(json.dumps(results, sort_keys=True))
+    else:
+        for result in results:
+            status = "PASS" if result["ok"] else "FAIL"
+            print(f"{status} {result['check']}")
+            if not result["ok"] and result["hint"]:
+                print(f"Hint: {result['hint']}")
+
+    return 0 if all_checks_passed(results) else 1
 
 
 def _cmd_db_start(args: argparse.Namespace) -> int:
@@ -976,6 +994,14 @@ def main(argv: list[str] | None = None) -> int:
     parser = argparse.ArgumentParser(prog="memorable")
     subparsers = parser.add_subparsers(dest="command", required=True)
     subparsers.add_parser("status", help="Show Memorable diagnostic status.")
+    doctor_parser = subparsers.add_parser(
+        "doctor", help="Run live runtime health diagnostics."
+    )
+    doctor_parser.add_argument(
+        "--json",
+        action="store_true",
+        help="Output structured diagnostic results as JSON.",
+    )
 
     # db subcommand
     db_parser = subparsers.add_parser("db", help="Database operations.")
@@ -1207,6 +1233,8 @@ def main(argv: list[str] | None = None) -> int:
     if args.command == "status":
         print(json.dumps(build_status_payload(), sort_keys=True))
         return 0
+    elif args.command == "doctor":
+        return _cmd_doctor(args)
     elif args.command == "db":
         if args.db_type == "status":
             return _cmd_db_status(args)

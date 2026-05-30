@@ -16,6 +16,8 @@ from pathlib import Path
 
 import pytest
 
+pytestmark = pytest.mark.usefixtures("clean_memorable_environment")
+
 
 class TestDefaultsOnly:
     """When no config files exist, load_runtime_config returns built-in defaults."""
@@ -325,6 +327,39 @@ class TestOpenRouterApiKeyFromDotEnv:
 
 class TestEnvironmentFallback:
     """When no .env file exists, secrets fall back to os.environ."""
+
+    def test_non_secret_environ_ignored_by_default(
+        self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        from memorable.config import load_runtime_config
+
+        monkeypatch.setenv("MEMORABLE_NEO4J_URI", "bolt://env:9999")
+        monkeypatch.setenv("MEMORABLE_NEO4J_USER", "env_user")
+
+        config = load_runtime_config(base_path=tmp_path)
+
+        assert config.neo4j.uri == "bolt://localhost:7687"
+        assert config.neo4j.user == "neo4j"
+        assert config.sources["neo4j.uri"] == "built-in"
+        assert config.sources["neo4j.user"] == "built-in"
+
+    def test_non_secret_environ_can_be_opted_in_for_live_commands(
+        self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        from memorable.config import load_runtime_config
+
+        monkeypatch.setenv("MEMORABLE_NEO4J_URI", "bolt://env:9999")
+        monkeypatch.setenv("MEMORABLE_NEO4J_USER", "env_user")
+
+        config = load_runtime_config(
+            base_path=tmp_path,
+            include_environment_overrides=True,
+        )
+
+        assert config.neo4j.uri == "bolt://env:9999"
+        assert config.neo4j.user == "env_user"
+        assert config.sources["neo4j.uri"] == "environment"
+        assert config.sources["neo4j.user"] == "environment"
 
     def test_reads_from_os_environ(
         self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch

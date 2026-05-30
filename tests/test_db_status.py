@@ -12,7 +12,11 @@ from __future__ import annotations
 import json
 from pathlib import Path
 
+import pytest
+
 from memorable.cli import main
+
+pytestmark = pytest.mark.usefixtures("clean_memorable_environment")
 
 
 class TestDbStatusOutput:

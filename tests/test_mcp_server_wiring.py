@@ -207,12 +207,13 @@ class TestEntryPointWiring:
             patch(
                 "memorable.mcp.__main__.load_runtime_config",
                 return_value=RuntimeConfig(),
-            ),
+            ) as mock_load,
             patch("memorable.mcp.__main__.set_mcp_context"),
         ):
             from memorable.mcp.__main__ import main
 
             main()
+            mock_load.assert_called_once_with(include_environment_overrides=True)
             mock_run.assert_called_once_with(transport="stdio")
 
     def test_main_does_not_raise_system_exit(self) -> None:
