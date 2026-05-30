@@ -32,7 +32,7 @@ def assert_core_language(payload: dict[str, object]) -> None:
 def test_package_import_exposes_version() -> None:
     import memorable
 
-    assert memorable.__version__
+    assert memorable.__version__ == "0.0.1"
 
 
 def test_cli_status_smoke_uses_core_language() -> None:

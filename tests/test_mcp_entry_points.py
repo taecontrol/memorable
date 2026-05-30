@@ -1,8 +1,9 @@
 """Tests for MCP entry points and dependency wiring (issue #24).
 
 Verifies:
+- package metadata is ready for PyPI publication
 - pyproject.toml declares mcp dependency, Python >=3.14, ruff py314
-- memorable-mcp console script is declared
+- memorable and memorable-mcp console scripts are declared
 - src/memorable/mcp/__main__.py is importable with a callable main()
 - mcp.server.fastmcp.FastMCP is importable in the test environment
 """
@@ -45,7 +46,54 @@ class TestPyprojectPythonVersion:
         assert data["tool"]["ruff"]["target-version"] == "py314"
 
 
+class TestPyprojectPackageMetadata:
+    def test_publishable_version(self) -> None:
+        data = _load_pyproject()
+
+        assert data["project"]["version"] == "0.0.1"
+
+    def test_pypi_description_names_memorable(self) -> None:
+        data = _load_pyproject()
+
+        assert (
+            data["project"]["description"]
+            == "Project-scoped GraphRAG memory for agents."
+        )
+
+    def test_project_urls_point_to_public_repo(self) -> None:
+        data = _load_pyproject()
+
+        assert data["project"]["urls"] == {
+            "Homepage": "https://github.com/taecontrol/memorable",
+            "Repository": "https://github.com/taecontrol/memorable",
+            "Issues": "https://github.com/taecontrol/memorable/issues",
+        }
+
+    def test_pypi_classifiers_describe_supported_package(self) -> None:
+        data = _load_pyproject()
+
+        assert set(data["project"]["classifiers"]) >= {
+            "Development Status :: 3 - Alpha",
+            "Intended Audience :: Developers",
+            "Programming Language :: Python :: 3 :: Only",
+            "Programming Language :: Python :: 3.14",
+            "Topic :: Software Development :: Libraries :: Python Modules",
+        }
+
+
 class TestConsoleScript:
+    def test_memorable_script_declared(self) -> None:
+        data = _load_pyproject()
+        scripts = data["project"]["scripts"]
+        assert "memorable" in scripts, (
+            "memorable console script should be in [project.scripts]"
+        )
+
+    def test_memorable_script_target(self) -> None:
+        data = _load_pyproject()
+        scripts = data["project"]["scripts"]
+        assert scripts["memorable"] == "memorable.cli:main"
+
     def test_memorable_mcp_script_declared(self) -> None:
         data = _load_pyproject()
         scripts = data["project"]["scripts"]

@@ -21,7 +21,7 @@ jobs:
         uses: astral-sh/setup-uv@v6
 
       - name: Set up Python
-        run: uv python install 3.9
+        run: uv python install 3.14
 
       - name: Install dependencies
         run: uv sync --extra dev
@@ -42,7 +42,7 @@ jobs:
         uses: astral-sh/setup-uv@v6
 
       - name: Set up Python
-        run: uv python install 3.9
+        run: uv python install 3.14
 
       - name: Install dependencies
         run: uv sync --extra dev
@@ -77,7 +77,7 @@ jobs:
         uses: astral-sh/setup-uv@v6
 
       - name: Set up Python
-        run: uv python install 3.9
+        run: uv python install 3.14
 
       - name: Install dependencies
         run: uv sync --extra dev
