@@ -312,36 +312,41 @@ class TestRememberTaskService:
         expected_episode = "episode:tracer-fixture:2026-05-23T10:25:00+00:00"
         assert result.provenance.episode_id == expected_episode
 
-    def test_rejects_profile_without_task_record(self) -> None:
-        """Profile must have a record that extends Task."""
+    def test_remembers_task_against_empty_profile(self) -> None:
+        """Task is a kernel record type: writable with no declaration.
+
+        An Agent can create a Task in an empty-profile MemorySpace so that
+        commitments are captured from the first session. A profile record
+        extending Task is optional specialization, never a precondition.
+        """
         from memorable.core.application import RememberTaskService
         from memorable.core.profile import load_profile_from_yaml
         from memorable.core.repositories import InMemoryTaskRepository
 
-        no_task_yaml = textwrap.dedent("""\
+        empty_records_yaml = textwrap.dedent("""\
             version: 1
             space:
               name: memorable
               description: test
             entities:
               - name: Project
-            records:
-              - name: ArchitectureDecision
-                extends: Decision
+            records: []
         """)
         repo = InMemoryTaskRepository()
-        profile = load_profile_from_yaml(no_task_yaml)
+        profile = load_profile_from_yaml(empty_records_yaml)
 
         service = RememberTaskService(repository=repo, profile=profile)
 
-        with pytest.raises(ValueError, match="Task"):
-            service.remember(
-                space="memorable",
-                task_id=TASK_ID,
-                title=TASK_TITLE,
-                source_id=SOURCE_ID,
-                at=FIXTURE_TIMESTAMP_REMEMBER,
-            )
+        result = service.remember(
+            space="memorable",
+            task_id=TASK_ID,
+            title=TASK_TITLE,
+            source_id=SOURCE_ID,
+            at=FIXTURE_TIMESTAMP_REMEMBER,
+        )
+
+        assert result.task.id == TASK_ID
+        assert repo.get(space="memorable", task_id=TASK_ID) is not None
 
     def test_remember_task_sets_writer(self) -> None:
         service, _repo = self._make_service()
@@ -925,23 +930,27 @@ class TestLanguageBoundary:
     """Outputs use domain language, not storage vocabulary."""
 
     def test_no_storage_vocabulary_in_error_messages(self) -> None:
-        """Error messages must not leak storage terms."""
-        from memorable.core.application import RememberTaskService
-        from memorable.core.profile import load_profile_from_yaml
-        from memorable.core.repositories import InMemoryTaskRepository
+        """Error messages must not leak storage terms.
 
-        no_task_yaml = textwrap.dedent("""\
+        Exercised through the Entity declaration gate, which still raises an
+        actionable error for undeclared project-specific types. (The kernel
+        Task write is ungated and no longer produces an error here.)
+        """
+        from memorable.core.application import RememberEntityService
+        from memorable.core.profile import load_profile_from_yaml
+        from memorable.core.repositories import InMemoryEntityRepository
+
+        no_entity_yaml = textwrap.dedent("""\
             version: 1
             space:
               name: memorable
               description: test
-            entities:
-              - name: Project
+            entities: []
             records: []
         """)
-        repo = InMemoryTaskRepository()
-        profile = load_profile_from_yaml(no_task_yaml)
-        service = RememberTaskService(repository=repo, profile=profile)
+        repo = InMemoryEntityRepository()
+        profile = load_profile_from_yaml(no_entity_yaml)
+        service = RememberEntityService(repository=repo, profile=profile)
 
         storage_terms = {
             "node",
@@ -956,8 +965,9 @@ class TestLanguageBoundary:
         with pytest.raises(ValueError) as exc_info:
             service.remember(
                 space="memorable",
-                task_id=TASK_ID,
-                title=TASK_TITLE,
+                entity_id="entity:x",
+                entity_type="Component",
+                name="X",
                 source_id=SOURCE_ID,
                 at=FIXTURE_TIMESTAMP_REMEMBER,
             )

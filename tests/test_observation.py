@@ -413,38 +413,44 @@ class TestRememberObservationService:
         assert v1.invalidation_time == FIXTURE_TIMESTAMP_V2
         assert v1.superseded_by == V2_ID
 
-    def test_rejects_profile_without_observation_record(self) -> None:
-        """Profile must have a record that extends Observation."""
+    def test_remembers_observation_against_empty_profile(self) -> None:
+        """Observation is a kernel record type: writable with no declaration.
+
+        An Agent can write an Observation against a freshly-initialized
+        MemorySpace whose ``records:`` is empty, without first proposing
+        profile changes. A profile record extending Observation is optional
+        specialization, never a precondition.
+        """
         import textwrap
 
         from memorable.core.application import RememberObservationService
         from memorable.core.profile import load_profile_from_yaml
         from memorable.core.repositories import InMemoryObservationRepository
 
-        no_obs_yaml = textwrap.dedent("""\
+        empty_records_yaml = textwrap.dedent("""\
             version: 1
             space:
               name: memorable
               description: test
             entities:
               - name: Project
-            records:
-              - name: ArchitectureDecision
-                extends: Decision
+            records: []
         """)
         repo = InMemoryObservationRepository()
-        profile = load_profile_from_yaml(no_obs_yaml)
+        profile = load_profile_from_yaml(empty_records_yaml)
 
         service = RememberObservationService(repository=repo, profile=profile)
 
-        with pytest.raises(ValueError, match="Observation"):
-            service.remember(
-                space="memorable",
-                observation_id="observation:x",
-                statement="X",
-                source_id="source:test",
-                at=FIXTURE_TIMESTAMP_V1,
-            )
+        result = service.remember(
+            space="memorable",
+            observation_id="observation:x",
+            statement="X",
+            source_id="source:test",
+            at=FIXTURE_TIMESTAMP_V1,
+        )
+
+        assert result.observation.id == "observation:x"
+        assert repo.get(space="memorable", record_id="observation:x") is not None
 
     def test_remember_observation_sets_writer(self) -> None:
         service, _repo = self._make_service()

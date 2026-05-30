@@ -391,8 +391,14 @@ class TestRememberDecisionService:
         assert v1.invalidation_time == FIXTURE_TIMESTAMP_V2
         assert v1.superseded_by == V2_ID
 
-    def test_rejects_profile_without_decision_record(self) -> None:
-        """Profile must have a record that extends Decision."""
+    def test_remembers_decision_against_empty_profile(self) -> None:
+        """Decision is a kernel record type: writable with no profile declaration.
+
+        Decision is part of the universal memory kernel, so a Human Owner can
+        record a Decision the moment a MemorySpace exists, against the Minimal
+        scaffold's empty ``records:``. No ``extends: Decision`` declaration is
+        required. (Contrast with Entity/Relation, which are project-specific.)
+        """
         from memorable.core.application import (
             RememberDecisionService,
         )
@@ -401,7 +407,7 @@ class TestRememberDecisionService:
             InMemoryDecisionRepository,
         )
 
-        no_decision_yaml = textwrap.dedent("""\
+        empty_records_yaml = textwrap.dedent("""\
             version: 1
             space:
               name: memorable
@@ -411,18 +417,63 @@ class TestRememberDecisionService:
             records: []
         """)
         repo = InMemoryDecisionRepository()
-        profile = load_profile_from_yaml(no_decision_yaml)
+        profile = load_profile_from_yaml(empty_records_yaml)
 
         service = RememberDecisionService(repository=repo, profile=profile)
 
-        with pytest.raises(ValueError, match="Decision"):
-            service.remember(
-                space="memorable",
-                decision_id="decision:x",
-                statement="X",
-                source_id="source:test",
-                at=FIXTURE_TIMESTAMP_V1,
-            )
+        result = service.remember(
+            space="memorable",
+            decision_id="decision:x",
+            statement="X",
+            source_id="source:test",
+            at=FIXTURE_TIMESTAMP_V1,
+        )
+
+        assert result.decision.id == "decision:x"
+        assert repo.get(space="memorable", record_id="decision:x") is not None
+
+    def test_remembers_decision_with_declared_specialization(self) -> None:
+        """Declaring a kernel specialization stays supported and never gates the write.
+
+        A profile MAY declare a specialization extending a kernel type (e.g.
+        ``ArchitectureDecision extends Decision``). This stays valid and does not
+        break the ungated kernel write: the specialization is optional, never a
+        precondition for recording a Decision.
+        """
+        from memorable.core.application import (
+            RememberDecisionService,
+        )
+        from memorable.core.profile import load_profile_from_yaml
+        from memorable.core.repositories import (
+            InMemoryDecisionRepository,
+        )
+
+        specialization_yaml = textwrap.dedent("""\
+            version: 1
+            space:
+              name: memorable
+              description: test
+            entities:
+              - name: Project
+            records:
+              - name: ArchitectureDecision
+                extends: Decision
+        """)
+        repo = InMemoryDecisionRepository()
+        profile = load_profile_from_yaml(specialization_yaml)
+
+        service = RememberDecisionService(repository=repo, profile=profile)
+
+        result = service.remember(
+            space="memorable",
+            decision_id="decision:x",
+            statement="X",
+            source_id="source:test",
+            at=FIXTURE_TIMESTAMP_V1,
+        )
+
+        assert result.decision.id == "decision:x"
+        assert repo.get(space="memorable", record_id="decision:x") is not None
 
     def test_remember_decision_sets_writer(self) -> None:
         service, _repo = self._make_service()
@@ -1617,27 +1668,31 @@ class TestLanguageBoundary:
     """Outputs use domain language, not storage vocabulary."""
 
     def test_no_storage_vocabulary_in_error_messages(self) -> None:
-        """Error messages must not leak storage terms."""
+        """Error messages must not leak storage terms.
+
+        Exercised through the Entity declaration gate, which still raises an
+        actionable error for undeclared project-specific types. (The kernel
+        Decision write is ungated and no longer produces an error here.)
+        """
         from memorable.core.application import (
-            RememberDecisionService,
+            RememberEntityService,
         )
         from memorable.core.profile import load_profile_from_yaml
         from memorable.core.repositories import (
-            InMemoryDecisionRepository,
+            InMemoryEntityRepository,
         )
 
-        no_decision_yaml = textwrap.dedent("""\
+        no_entity_yaml = textwrap.dedent("""\
             version: 1
             space:
               name: memorable
               description: test
-            entities:
-              - name: Project
+            entities: []
             records: []
         """)
-        repo = InMemoryDecisionRepository()
-        profile = load_profile_from_yaml(no_decision_yaml)
-        service = RememberDecisionService(repository=repo, profile=profile)
+        repo = InMemoryEntityRepository()
+        profile = load_profile_from_yaml(no_entity_yaml)
+        service = RememberEntityService(repository=repo, profile=profile)
 
         storage_terms = {
             "node",
@@ -1652,8 +1707,9 @@ class TestLanguageBoundary:
         with pytest.raises(ValueError) as exc_info:
             service.remember(
                 space="memorable",
-                decision_id="decision:x",
-                statement="X",
+                entity_id="entity:x",
+                entity_type="Component",
+                name="X",
                 source_id="source:test",
                 at=FIXTURE_TIMESTAMP_V1,
             )

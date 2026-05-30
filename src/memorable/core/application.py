@@ -185,9 +185,18 @@ class RememberDecisionResult:
 
 
 class RememberDecisionService:
-    """Application service that validates and persists a Decision with provenance.
+    """Application service that persists a Decision with provenance.
 
-    Validates that the MemoryProfile has at least one record that extends Decision.
+    Decision is a kernel record type: part of the universal memory kernel and
+    writable without any MemoryProfile declaration. A profile ``records:`` entry
+    extending Decision (e.g. ``ArchitectureDecision extends Decision``) is an
+    optional specialization that enriches the type label; it is never a
+    precondition for writing the base kernel type.
+
+    This is deliberately asymmetric with Entity and Relation, which are
+    project-specific by definition (there is no universal Entity or Relation
+    type) and therefore must be declared in the MemoryProfile.
+
     When supersedes is provided, marks the old decision as superseded.
     """
 
@@ -207,20 +216,10 @@ class RememberDecisionService:
         reason: str = "",
         supersedes: str | None = None,
     ) -> RememberDecisionResult:
-        """Validate record type against MemoryProfile, create provenance, persist.
+        """Create provenance and persist the Decision.
 
-        Raises ValueError if the profile has no record type extending Decision.
+        Decision is a kernel record type, so no profile declaration is required.
         """
-        has_decision_record = any(
-            r.extends == "Decision" for r in self._profile.records
-        )
-        if not has_decision_record:
-            raise ValueError(
-                f"No record type extending Decision is declared in the "
-                f"MemoryProfile for space '{self._profile.space.name}'. "
-                f"Add a record with 'extends: Decision' to your profile."
-            )
-
         decision = Decision(
             id=decision_id,
             statement=statement,
@@ -267,9 +266,16 @@ class RememberObservationResult:
 
 
 class RememberObservationService:
-    """Application service that validates and persists an Observation with provenance.
+    """Application service that persists an Observation with provenance.
 
-    Validates that the MemoryProfile has at least one record that extends Observation.
+    Observation is a kernel record type: part of the universal memory kernel and
+    writable without any MemoryProfile declaration. A profile ``records:`` entry
+    extending Observation is an optional specialization, never a precondition for
+    writing the base kernel type.
+
+    This is deliberately asymmetric with Entity and Relation, which are
+    project-specific by definition and must be declared in the MemoryProfile.
+
     When supersedes is provided, marks the old observation as superseded.
     """
 
@@ -293,20 +299,10 @@ class RememberObservationService:
         reason: str = "",
         supersedes: str | None = None,
     ) -> RememberObservationResult:
-        """Validate record type against MemoryProfile, create provenance, persist.
+        """Create provenance and persist the Observation.
 
-        Raises ValueError if the profile has no record type extending Observation.
+        Observation is a kernel record type, so no profile declaration is required.
         """
-        has_observation_record = any(
-            r.extends == "Observation" for r in self._profile.records
-        )
-        if not has_observation_record:
-            raise ValueError(
-                f"No record type extending Observation is declared in the "
-                f"MemoryProfile for space '{self._profile.space.name}'. "
-                f"Add a record with 'extends: Observation' to your profile."
-            )
-
         observation = Observation(
             id=observation_id,
             statement=statement,
@@ -728,9 +724,15 @@ class RememberTaskResult:
 
 
 class RememberTaskService:
-    """Application service that validates and persists a Task with provenance.
+    """Application service that persists a Task with provenance.
 
-    Validates that the MemoryProfile has at least one record that extends Task.
+    Task is a kernel record type: part of the universal memory kernel and
+    writable without any MemoryProfile declaration. A profile ``records:`` entry
+    extending Task is an optional specialization, never a precondition for
+    writing the base kernel type.
+
+    This is deliberately asymmetric with Entity and Relation, which are
+    project-specific by definition and must be declared in the MemoryProfile.
     """
 
     def __init__(self, repository: TaskRepository, profile: MemoryProfile) -> None:
@@ -748,18 +750,10 @@ class RememberTaskService:
         writer: str = "agent:memorable",
         reason: str = "",
     ) -> RememberTaskResult:
-        """Validate record type against MemoryProfile, create provenance, persist.
+        """Create provenance and persist the Task.
 
-        Raises ValueError if the profile has no record type extending Task.
+        Task is a kernel record type, so no profile declaration is required.
         """
-        has_task_record = any(r.extends == "Task" for r in self._profile.records)
-        if not has_task_record:
-            raise ValueError(
-                f"No record type extending Task is declared in the "
-                f"MemoryProfile for space '{self._profile.space.name}'. "
-                f"Add a record with 'extends: Task' to your profile."
-            )
-
         task = Task(
             id=task_id,
             title=title,
