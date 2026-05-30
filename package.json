@@ -1,0 +1,22 @@
+{
+  "name": "memorable",
+  "private": true,
+  "type": "module",
+  "packageManager": "pnpm@11.1.2",
+  "scripts": {
+    "implement-prd": "tsx .sandcastle/implement-prd.ts",
+    "sandcastle:build-image": "sandcastle docker build-image --image-name memorable-sandcastle-opencode:latest --dockerfile .sandcastle/Dockerfile",
+    "typecheck": "tsc --noEmit"
+  },
+  "devDependencies": {
+    "@ai-hero/sandcastle": "^0.6.6",
+    "@types/node": "^25.9.1",
+    "tsx": "^4.22.3",
+    "typescript": "^6.0.3"
+  },
+  "pnpm": {
+    "onlyBuiltDependencies": [
+      "esbuild"
+    ]
+  }
+}
