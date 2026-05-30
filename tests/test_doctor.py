@@ -4,13 +4,138 @@ import json
 
 from memorable.config import RuntimeConfig
 
+EXPECTED_SCHEMA_CONSTRAINTS = [
+    {
+        "name": "memory_space_name_unique",
+        "type": "UNIQUENESS",
+        "labelsOrTypes": ["MemorySpace"],
+        "properties": ["name"],
+    },
+    {
+        "name": "entity_space_id_unique",
+        "type": "UNIQUENESS",
+        "labelsOrTypes": ["Entity"],
+        "properties": ["space", "id"],
+    },
+    {
+        "name": "decision_space_id_unique",
+        "type": "UNIQUENESS",
+        "labelsOrTypes": ["Decision"],
+        "properties": ["space", "id"],
+    },
+    {
+        "name": "task_space_id_unique",
+        "type": "UNIQUENESS",
+        "labelsOrTypes": ["Task"],
+        "properties": ["space", "id"],
+    },
+    {
+        "name": "observation_space_id_unique",
+        "type": "UNIQUENESS",
+        "labelsOrTypes": ["Observation"],
+        "properties": ["space", "id"],
+    },
+    {
+        "name": "relation_space_id_unique",
+        "type": "UNIQUENESS",
+        "labelsOrTypes": ["Relation"],
+        "properties": ["space", "id"],
+    },
+]
+
 
 def test_doctor_reports_neo4j_connectivity_pass() -> None:
     from memorable.runtime.doctor import run_diagnostics
 
-    results = run_diagnostics(RuntimeConfig(), ping_neo4j=lambda _config: None)
+    results = run_diagnostics(
+        RuntimeConfig(),
+        ping_neo4j=lambda _config: None,
+        list_schema_constraints=lambda _config: [],
+    )
 
-    assert results == [{"check": "neo4j_connectivity", "ok": True, "hint": ""}]
+    assert {result["check"]: result for result in results}[
+        "neo4j_connectivity"
+    ] == {"check": "neo4j_connectivity", "ok": True, "hint": ""}
+
+
+def test_doctor_reports_schema_constraints_pass() -> None:
+    from memorable.runtime.doctor import run_diagnostics
+
+    results = run_diagnostics(
+        RuntimeConfig(),
+        ping_neo4j=lambda _config: None,
+        list_schema_constraints=lambda _config: EXPECTED_SCHEMA_CONSTRAINTS,
+    )
+
+    assert {result["check"]: result for result in results}[
+        "schema_constraints"
+    ] == {"check": "schema_constraints", "ok": True, "hint": ""}
+
+
+def test_doctor_reports_schema_constraints_pass_with_generated_names() -> None:
+    from memorable.runtime.doctor import run_diagnostics
+
+    generated_name_constraints = [
+        constraint | {"name": f"constraint_{index}"}
+        for index, constraint in enumerate(EXPECTED_SCHEMA_CONSTRAINTS)
+    ]
+
+    results = run_diagnostics(
+        RuntimeConfig(),
+        ping_neo4j=lambda _config: None,
+        list_schema_constraints=lambda _config: generated_name_constraints,
+    )
+
+    assert {result["check"]: result for result in results}[
+        "schema_constraints"
+    ] == {"check": "schema_constraints", "ok": True, "hint": ""}
+
+
+def test_doctor_reports_schema_constraints_failure_with_hint() -> None:
+    from memorable.runtime.doctor import run_diagnostics
+
+    results = run_diagnostics(
+        RuntimeConfig(),
+        ping_neo4j=lambda _config: None,
+        list_schema_constraints=lambda _config: [
+            constraint
+            for constraint in EXPECTED_SCHEMA_CONSTRAINTS
+            if constraint["name"] != "task_space_id_unique"
+        ],
+    )
+
+    assert {result["check"]: result for result in results}[
+        "schema_constraints"
+    ] == {
+        "check": "schema_constraints",
+        "ok": False,
+        "hint": "Run 'memorable init' to bootstrap schema constraints.",
+    }
+
+
+def test_doctor_reports_schema_constraints_failure_when_name_has_wrong_shape() -> None:
+    from memorable.runtime.doctor import run_diagnostics
+
+    malformed_constraints = [
+        constraint | {"properties": ["id"]}
+        if constraint["name"] == "entity_space_id_unique"
+        else constraint
+        for constraint in EXPECTED_SCHEMA_CONSTRAINTS
+    ]
+
+    results = run_diagnostics(
+        RuntimeConfig(),
+        ping_neo4j=lambda _config: None,
+        list_schema_constraints=lambda _config: malformed_constraints,
+    )
+
+    assert {result["check"]: result for result in results}[
+        "schema_constraints"
+    ] == {
+        "check": "schema_constraints",
+        "ok": False,
+        "hint": "Run 'memorable init' to bootstrap schema constraints.",
+    }
 
 
 def test_doctor_reports_neo4j_connectivity_failure_with_hint() -> None:
@@ -23,15 +148,17 @@ def test_doctor_reports_neo4j_connectivity_failure_with_hint() -> None:
     def fail(_config: RuntimeConfig) -> None:
         raise ConnectionError("unreachable")
 
-    results = run_diagnostics(RuntimeConfig(), ping_neo4j=fail)
+    results = run_diagnostics(
+        RuntimeConfig(), ping_neo4j=fail, list_schema_constraints=lambda _config: []
+    )
 
-    assert results == [
-        {
-            "check": "neo4j_connectivity",
-            "ok": False,
-            "hint": expected_hint,
-        }
-    ]
+    assert {result["check"]: result for result in results}[
+        "neo4j_connectivity"
+    ] == {
+        "check": "neo4j_connectivity",
+        "ok": False,
+        "hint": expected_hint,
+    }
 
 
 def test_doctor_aggregate_all_pass_logic() -> None:
