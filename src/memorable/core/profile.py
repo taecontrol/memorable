@@ -1,12 +1,12 @@
 """MemoryProfile loading and validation.
 
-A MemoryProfile is the project-specific schema and policy that specializes
-the universal memory kernel for one MemorySpace.
+A MemoryProfile is the project-specific schema that specializes the universal
+memory kernel for one MemorySpace.
 """
 
 from __future__ import annotations
 
-from dataclasses import dataclass, field
+from dataclasses import dataclass
 
 import yaml
 
@@ -47,14 +47,6 @@ class SpaceDeclaration:
 
 
 @dataclass(frozen=True)
-class WritePolicy:
-    """When agents may write automatically vs suggest vs require confirmation."""
-
-    default: str = "auto"
-    sensitive: str = "suggest"
-
-
-@dataclass(frozen=True)
 class EntityDeclaration:
     """A project-specific entity type declared in a MemoryProfile."""
 
@@ -78,15 +70,14 @@ class RecordDeclaration:
 
 @dataclass(frozen=True)
 class MemoryProfile:
-    """Project-specific schema and policy for one MemorySpace.
+    """Project-specific schema for one MemorySpace.
 
     Specializes the universal memory kernel with domain-specific entity types,
-    record types, write policies, and other project-level configuration.
+    record types, relation types, and other project-level configuration.
     """
 
     version: int
     space: SpaceDeclaration
-    write_policy: WritePolicy = field(default_factory=WritePolicy)
     entities: tuple[EntityDeclaration, ...] = ()
     relations: tuple[RelationDeclaration, ...] = ()
     records: tuple[RecordDeclaration, ...] = ()
@@ -116,12 +107,6 @@ def load_profile_from_yaml(yaml_text: str) -> MemoryProfile:
         description=space_data.get("description", ""),
     )
 
-    wp_data = data.get("write_policy", {})
-    write_policy = WritePolicy(
-        default=wp_data.get("default", "auto"),
-        sensitive=wp_data.get("sensitive", "suggest"),
-    )
-
     entities = tuple(
         EntityDeclaration(name=e["name"]) for e in data.get("entities", [])
     )
@@ -138,7 +123,6 @@ def load_profile_from_yaml(yaml_text: str) -> MemoryProfile:
     return MemoryProfile(
         version=data["version"],
         space=space,
-        write_policy=write_policy,
         entities=entities,
         relations=relations,
         records=records,

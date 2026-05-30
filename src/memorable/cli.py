@@ -267,8 +267,6 @@ def _cmd_profile_show(args: argparse.Namespace) -> int:
         "entity_count": len(profile.entities),
         "record_count": len(profile.records),
         "relation_count": len(profile.relations),
-        "write_policy_default": profile.write_policy.default,
-        "write_policy_sensitive": profile.write_policy.sensitive,
         "entities": [e.name for e in profile.entities],
         "relations": [r.name for r in profile.relations],
         "records": [{"name": r.name, "extends": r.extends} for r in profile.records],

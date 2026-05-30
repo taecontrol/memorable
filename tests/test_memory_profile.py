@@ -13,10 +13,6 @@ VALID_PROFILE_YAML = textwrap.dedent("""\
       name: memorable
       description: Agent memory system design
 
-    write_policy:
-      default: auto
-      sensitive: suggest
-
     entities:
       - name: Project
       - name: Component
@@ -26,6 +22,21 @@ VALID_PROFILE_YAML = textwrap.dedent("""\
         extends: Decision
       - name: OpenQuestion
         extends: MemoryRecord
+""")
+
+PROFILE_WITH_STRAY_WRITE_POLICY_YAML = textwrap.dedent("""\
+    version: 1
+
+    space:
+      name: memorable
+      description: Agent memory system design
+
+    write_policy:
+      default: auto
+      sensitive: suggest
+
+    entities:
+      - name: Project
 """)
 
 
@@ -38,13 +49,22 @@ def test_load_valid_profile_from_yaml() -> None:
     assert profile.version == 1
     assert profile.space.name == "memorable"
     assert profile.space.description == "Agent memory system design"
-    assert profile.write_policy.default == "auto"
-    assert profile.write_policy.sensitive == "suggest"
+    assert not hasattr(profile, "write_policy")
     assert len(profile.entities) == 2
     assert profile.entities[0].name == "Project"
     assert len(profile.records) == 2
     assert profile.records[0].name == "ArchitectureDecision"
     assert profile.records[0].extends == "Decision"
+
+
+def test_profile_with_stray_write_policy_loads_without_surface() -> None:
+    """A hand-written write_policy block is ignored as an unknown key."""
+    from memorable.core.profile import load_profile_from_yaml
+
+    profile = load_profile_from_yaml(PROFILE_WITH_STRAY_WRITE_POLICY_YAML)
+
+    assert profile.space.name == "memorable"
+    assert not hasattr(profile, "write_policy")
 
 
 def test_missing_version_raises_validation_error() -> None:
@@ -390,4 +410,5 @@ class TestMCPInit:
         assert result["space_name"] == "memorable"
         assert result["entity_count"] == 2
         assert result["record_count"] == 2
-        assert result["write_policy_default"] == "auto"
+        assert "write_policy_default" not in result
+        assert "write_policy_sensitive" not in result

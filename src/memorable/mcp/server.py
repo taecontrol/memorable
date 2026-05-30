@@ -135,7 +135,7 @@ def init_space_tool(base_path: str) -> dict[str, object]:
     name="memorable_inspect_space",
     description=(
         "Inspect a project's MemoryProfile without initializing the MemorySpace. "
-        "Returns Entity types, MemoryRecord types, and Write Policy."
+        "Returns Entity types, Relation types, and MemoryRecord types."
     ),
 )
 def inspect_space_tool(base_path: str) -> dict[str, object]:
@@ -164,8 +164,6 @@ def inspect_space_tool(base_path: str) -> dict[str, object]:
         "entity_count": len(profile.entities),
         "record_count": len(profile.records),
         "relation_count": len(profile.relations),
-        "write_policy_default": profile.write_policy.default,
-        "write_policy_sensitive": profile.write_policy.sensitive,
         "entities": [e.name for e in profile.entities],
         "relations": [r.name for r in profile.relations],
         "records": [{"name": r.name, "extends": r.extends} for r in profile.records],
