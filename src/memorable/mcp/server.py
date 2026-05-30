@@ -804,20 +804,26 @@ def inspect_task_tool(
         "{id, type, label, lifecycle_state, creation_time} ordered by "
         "Creation Time, capped by limit (default 50). Pass type to restrict to "
         "a single record type ('decision', 'observation', 'relation', 'task'); "
-        "omit it to list every type. 'entity' is not valid. Use this to answer "
-        "state questions like 'what is open?' or 'what did we do recently?'."
+        "omit it to list every type. 'entity' is not valid. Pass state to "
+        "restrict to a single Lifecycle State ('open', 'current', 'completed', "
+        "'superseded', 'invalidated'); omit it to list any state. Use this to "
+        "answer state questions like 'what is open?' or 'what did we do "
+        "recently?'."
     ),
 )
 def list_records_tool(
     space: str,
     type: str | None = None,
+    state: str | None = None,
     limit: int = 50,
 ) -> dict[str, object]:
     """List MemoryRecords in a MemorySpace as a Memory Review projection.
 
     When ``type`` is given, only records of that MemoryRecord type are listed;
-    omit it to list every type. Returns a dict with a ``records`` list on
-    success, or an error dict (e.g. an unknown ``type`` or ``entity``).
+    omit it to list every type. When ``state`` is given, only records whose
+    Lifecycle State matches are listed; omit it to list any state. Returns a
+    dict with a ``records`` list on success, or an error dict (e.g. an unknown
+    ``type`` or ``entity``).
     """
     service = ListRecordsService(
         decision_repo=_context.decision_repo,
@@ -827,7 +833,9 @@ def list_records_tool(
     )
 
     try:
-        projections = service.list_records(space=space, type=type, limit=limit)
+        projections = service.list_records(
+            space=space, type=type, state=state, limit=limit
+        )
     except ValueError as e:
         return {"error": str(e)}
 

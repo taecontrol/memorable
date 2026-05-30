@@ -117,6 +117,20 @@ def _remember_task(ctx, *, task_id: str, title: str, at: datetime):
     )
 
 
+def _complete_task(ctx, *, task_id: str, at: datetime):
+    from memorable.core.application import CompleteTaskService
+
+    service = CompleteTaskService(repository=ctx.task_repo)
+    service.complete(space=SPACE, task_id=task_id, at=at, source_id=SOURCE_ID)
+
+
+def _invalidate_record(ctx, repo, *, record_id: str, at: datetime):
+    from memorable.core.application import InvalidateService
+
+    service = InvalidateService(repository=repo)
+    service.invalidate(space=SPACE, record_id=record_id, at=at)
+
+
 class TestListRecordsService:
     """ListRecordsService deterministically lists MemoryRecords as projections."""
 
@@ -379,6 +393,149 @@ class TestListRecordsServiceTypeFilter:
             service.list_records(space=SPACE, type="nonsense")
 
 
+class TestListRecordsServiceStateFilter:
+    """ListRecordsService restricts listing to a single Lifecycle State."""
+
+    def _make_service(self, ctx):
+        from memorable.core.application import ListRecordsService
+
+        return ListRecordsService(
+            decision_repo=ctx.decision_repo,
+            observation_repo=ctx.observation_repo,
+            relation_repo=ctx.relation_repo,
+            task_repo=ctx.task_repo,
+        )
+
+    def test_filters_to_open_records(self) -> None:
+        ctx = _make_context()
+        _remember_decision(
+            ctx, decision_id="decision:1", statement="A current decision.", at=T1
+        )
+        _remember_task(ctx, task_id="task:open", title="Still open.", at=T2)
+        _remember_task(ctx, task_id="task:done", title="Will complete.", at=T3)
+        _complete_task(ctx, task_id="task:done", at=T4)
+        service = self._make_service(ctx)
+
+        projections = service.list_records(space=SPACE, state="open")
+
+        assert [p.id for p in projections] == ["task:open"]
+        assert all(p.lifecycle_state == "open" for p in projections)
+
+    def test_filters_to_current_records(self) -> None:
+        ctx = _make_context()
+        _remember_decision(
+            ctx, decision_id="decision:1", statement="A current decision.", at=T1
+        )
+        _remember_observation(
+            ctx,
+            observation_id="observation:1",
+            statement="A current observation.",
+            at=T2,
+        )
+        _remember_task(ctx, task_id="task:1", title="An open task.", at=T3)
+        service = self._make_service(ctx)
+
+        projections = service.list_records(space=SPACE, state="current")
+
+        assert [p.id for p in projections] == ["decision:1", "observation:1"]
+        assert all(p.lifecycle_state == "current" for p in projections)
+
+    def test_filters_to_completed_records(self) -> None:
+        ctx = _make_context()
+        _remember_task(ctx, task_id="task:open", title="Still open.", at=T1)
+        _remember_task(ctx, task_id="task:done", title="Will complete.", at=T2)
+        _complete_task(ctx, task_id="task:done", at=T3)
+        service = self._make_service(ctx)
+
+        projections = service.list_records(space=SPACE, state="completed")
+
+        assert [p.id for p in projections] == ["task:done"]
+        assert all(p.lifecycle_state == "completed" for p in projections)
+
+    def test_filters_to_superseded_records(self) -> None:
+        from memorable.core.application import RememberDecisionService
+
+        ctx = _make_context()
+        _remember_decision(
+            ctx, decision_id="decision:old", statement="Old call.", at=T1
+        )
+        # Remembering a successor with supersedes marks the old as superseded.
+        profile = ctx.load_profile(SPACE)
+        RememberDecisionService(
+            repository=ctx.decision_repo, profile=profile
+        ).remember(
+            space=SPACE,
+            decision_id="decision:new",
+            statement="New call.",
+            source_id=SOURCE_ID,
+            at=T2,
+            supersedes="decision:old",
+        )
+        service = self._make_service(ctx)
+
+        projections = service.list_records(space=SPACE, state="superseded")
+
+        assert [p.id for p in projections] == ["decision:old"]
+        assert all(p.lifecycle_state == "superseded" for p in projections)
+
+    def test_filters_to_invalidated_records(self) -> None:
+        ctx = _make_context()
+        _remember_observation(
+            ctx, observation_id="observation:1", statement="No longer true.", at=T1
+        )
+        _remember_observation(
+            ctx, observation_id="observation:2", statement="Still true.", at=T2
+        )
+        _invalidate_record(
+            ctx, ctx.observation_repo, record_id="observation:1", at=T3
+        )
+        service = self._make_service(ctx)
+
+        projections = service.list_records(space=SPACE, state="invalidated")
+
+        assert [p.id for p in projections] == ["observation:1"]
+        assert all(p.lifecycle_state == "invalidated" for p in projections)
+
+    def test_state_none_lists_records_in_any_state(self) -> None:
+        ctx = _make_context()
+        _remember_decision(
+            ctx, decision_id="decision:1", statement="A decision.", at=T1
+        )
+        _remember_task(ctx, task_id="task:open", title="Open.", at=T2)
+        _remember_task(ctx, task_id="task:done", title="Done.", at=T3)
+        _complete_task(ctx, task_id="task:done", at=T4)
+        service = self._make_service(ctx)
+
+        projections = service.list_records(space=SPACE, state=None)
+
+        assert {p.id for p in projections} == {
+            "decision:1",
+            "task:open",
+            "task:done",
+        }
+        assert {p.lifecycle_state for p in projections} == {
+            "current",
+            "open",
+            "completed",
+        }
+
+    def test_type_and_state_filters_compose(self) -> None:
+        ctx = _make_context()
+        _remember_task(ctx, task_id="task:open", title="Open task.", at=T1)
+        _remember_task(ctx, task_id="task:done", title="Done task.", at=T2)
+        _complete_task(ctx, task_id="task:done", at=T3)
+        _remember_decision(
+            ctx, decision_id="decision:1", statement="A decision.", at=T4
+        )
+        service = self._make_service(ctx)
+
+        projections = service.list_records(
+            space=SPACE, type="task", state="open"
+        )
+
+        assert [p.id for p in projections] == ["task:open"]
+
+
 class TestMCPListRecords:
     """MCP list_records_tool wraps ListRecordsService and returns projections."""
 
@@ -529,3 +686,38 @@ class TestMCPListRecords:
 
         assert "error" in result
         assert "nonsense" in result["error"]
+
+    def test_list_records_tool_filters_by_state(self) -> None:
+        from memorable.mcp.server import (
+            complete_task_tool,
+            list_records_tool,
+            remember_task_tool,
+        )
+
+        remember_task_tool(
+            space=SPACE,
+            task_id="task:open",
+            title="Still open.",
+            source=SOURCE_ID,
+            at="2026-05-23T10:00:00Z",
+        )
+        remember_task_tool(
+            space=SPACE,
+            task_id="task:done",
+            title="Will complete.",
+            source=SOURCE_ID,
+            at="2026-05-23T11:00:00Z",
+        )
+        complete_task_tool(
+            space=SPACE,
+            task_id="task:done",
+            at="2026-05-23T12:00:00Z",
+            source=SOURCE_ID,
+        )
+
+        result = list_records_tool(space=SPACE, state="open")
+
+        assert "error" not in result
+        records = result["records"]
+        assert [r["id"] for r in records] == ["task:open"]
+        assert all(r["lifecycle_state"] == "open" for r in records)
