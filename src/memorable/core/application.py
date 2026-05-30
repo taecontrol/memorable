@@ -888,6 +888,8 @@ class ListRecordsService:
         space: str,
         type: str | None = None,
         state: str | None = None,
+        since: datetime | None = None,
+        until: datetime | None = None,
         limit: int = 50,
     ) -> list[RecordProjection]:
         """List MemoryRecords in the space as projections, ordered by Creation Time.
@@ -896,8 +898,15 @@ class ListRecordsService:
         listed; when ``None``, every MemoryRecord type is listed. When ``state``
         is given, only records whose Lifecycle State matches are listed (e.g.
         ``open``, ``current``, ``completed``, ``superseded``, ``invalidated``);
-        when ``None``, records in any state are listed. Returns at most ``limit``
-        projections (default 50).
+        when ``None``, records in any state are listed.
+
+        ``since`` and ``until`` bound Provenance Creation Time as a half-open
+        window ``[since, until)``: ``since`` is an inclusive lower bound and
+        ``until`` an exclusive upper bound. Either bound may be omitted;
+        omitting both lists records of any Creation Time.
+
+        All filters (``type``, ``state``, ``since``, ``until``) combine with
+        AND. Returns at most ``limit`` projections (default 50).
 
         Raises ValueError if ``type`` is not a listable MemoryRecord type
         (e.g. ``entity`` or an unknown value).
@@ -961,6 +970,11 @@ class ListRecordsService:
 
         if state is not None:
             projections = [p for p in projections if p.lifecycle_state == state]
+
+        if since is not None:
+            projections = [p for p in projections if p.creation_time >= since]
+        if until is not None:
+            projections = [p for p in projections if p.creation_time < until]
 
         projections.sort(key=lambda projection: projection.creation_time)
         return projections[:limit]

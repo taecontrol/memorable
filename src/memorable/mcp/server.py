@@ -806,24 +806,32 @@ def inspect_task_tool(
         "a single record type ('decision', 'observation', 'relation', 'task'); "
         "omit it to list every type. 'entity' is not valid. Pass state to "
         "restrict to a single Lifecycle State ('open', 'current', 'completed', "
-        "'superseded', 'invalidated'); omit it to list any state. Use this to "
-        "answer state questions like 'what is open?' or 'what did we do "
-        "recently?'."
+        "'superseded', 'invalidated'); omit it to list any state. Pass since "
+        "and/or until (ISO timestamps) to bound Provenance Creation Time as a "
+        "half-open window [since, until): since is inclusive, until is "
+        "exclusive; either may be omitted. All filters combine with AND. Use "
+        "this to answer state questions like 'what is open?', 'what decisions "
+        "did we make today?', or 'what did we do this week?'."
     ),
 )
 def list_records_tool(
     space: str,
     type: str | None = None,
     state: str | None = None,
+    since: str | None = None,
+    until: str | None = None,
     limit: int = 50,
 ) -> dict[str, object]:
     """List MemoryRecords in a MemorySpace as a Memory Review projection.
 
     When ``type`` is given, only records of that MemoryRecord type are listed;
     omit it to list every type. When ``state`` is given, only records whose
-    Lifecycle State matches are listed; omit it to list any state. Returns a
-    dict with a ``records`` list on success, or an error dict (e.g. an unknown
-    ``type`` or ``entity``).
+    Lifecycle State matches are listed; omit it to list any state. ``since`` and
+    ``until`` (ISO timestamps) bound Provenance Creation Time as a half-open
+    window ``[since, until)`` — ``since`` inclusive, ``until`` exclusive; either
+    may be omitted. All filters combine with AND. Returns a dict with a
+    ``records`` list on success, or an error dict (e.g. an unknown ``type`` or
+    ``entity``).
     """
     service = ListRecordsService(
         decision_repo=_context.decision_repo,
@@ -832,9 +840,17 @@ def list_records_tool(
         task_repo=_context.task_repo,
     )
 
+    since_dt = parse_iso_timestamp(since) if since is not None else None
+    until_dt = parse_iso_timestamp(until) if until is not None else None
+
     try:
         projections = service.list_records(
-            space=space, type=type, state=state, limit=limit
+            space=space,
+            type=type,
+            state=state,
+            since=since_dt,
+            until=until_dt,
+            limit=limit,
         )
     except ValueError as e:
         return {"error": str(e)}

@@ -536,6 +536,97 @@ class TestListRecordsServiceStateFilter:
         assert [p.id for p in projections] == ["task:open"]
 
 
+class TestListRecordsServiceCreationTimeWindow:
+    """ListRecordsService bounds listing by a Provenance Creation Time window.
+
+    Boundary semantics: ``since`` is an inclusive lower bound and ``until`` is
+    an exclusive upper bound, both compared against Provenance Creation Time.
+    Either bound may be omitted; omitting both preserves list-all behavior.
+    """
+
+    def _make_service(self, ctx):
+        from memorable.core.application import ListRecordsService
+
+        return ListRecordsService(
+            decision_repo=ctx.decision_repo,
+            observation_repo=ctx.observation_repo,
+            relation_repo=ctx.relation_repo,
+            task_repo=ctx.task_repo,
+        )
+
+    def _seed_four_decisions(self, ctx) -> None:
+        _remember_decision(ctx, decision_id="decision:t1", statement="At T1.", at=T1)
+        _remember_decision(ctx, decision_id="decision:t2", statement="At T2.", at=T2)
+        _remember_decision(ctx, decision_id="decision:t3", statement="At T3.", at=T3)
+        _remember_decision(ctx, decision_id="decision:t4", statement="At T4.", at=T4)
+
+    def test_since_is_inclusive_lower_bound(self) -> None:
+        ctx = _make_context()
+        self._seed_four_decisions(ctx)
+        service = self._make_service(ctx)
+
+        projections = service.list_records(space=SPACE, since=T2)
+
+        # T2 itself is included (inclusive lower bound); T1 is excluded.
+        assert [p.id for p in projections] == [
+            "decision:t2",
+            "decision:t3",
+            "decision:t4",
+        ]
+
+    def test_until_is_exclusive_upper_bound(self) -> None:
+        ctx = _make_context()
+        self._seed_four_decisions(ctx)
+        service = self._make_service(ctx)
+
+        projections = service.list_records(space=SPACE, until=T3)
+
+        # T3 itself is excluded (exclusive upper bound); T1 and T2 remain.
+        assert [p.id for p in projections] == ["decision:t1", "decision:t2"]
+
+    def test_since_and_until_bound_a_window(self) -> None:
+        ctx = _make_context()
+        self._seed_four_decisions(ctx)
+        service = self._make_service(ctx)
+
+        projections = service.list_records(space=SPACE, since=T2, until=T4)
+
+        # [T2, T4): T2 and T3 included, T1 before and T4 at the open bound excluded.
+        assert [p.id for p in projections] == ["decision:t2", "decision:t3"]
+
+    def test_omitting_both_bounds_lists_all(self) -> None:
+        ctx = _make_context()
+        self._seed_four_decisions(ctx)
+        service = self._make_service(ctx)
+
+        projections = service.list_records(space=SPACE)
+
+        assert [p.id for p in projections] == [
+            "decision:t1",
+            "decision:t2",
+            "decision:t3",
+            "decision:t4",
+        ]
+
+    def test_type_and_creation_time_window_compose(self) -> None:
+        ctx = _make_context()
+        # A decision and a task both at T2; only the decision should survive a
+        # type=decision + since=T2 compound filter.
+        _remember_decision(
+            ctx, decision_id="decision:early", statement="Before window.", at=T1
+        )
+        _remember_decision(
+            ctx, decision_id="decision:in", statement="In window.", at=T2
+        )
+        _remember_task(ctx, task_id="task:in", title="Also in window.", at=T2)
+        service = self._make_service(ctx)
+
+        projections = service.list_records(space=SPACE, type="decision", since=T2)
+
+        assert [p.id for p in projections] == ["decision:in"]
+        assert all(p.type == "decision" for p in projections)
+
+
 class TestMCPListRecords:
     """MCP list_records_tool wraps ListRecordsService and returns projections."""
 
@@ -686,6 +777,92 @@ class TestMCPListRecords:
 
         assert "error" in result
         assert "nonsense" in result["error"]
+
+    def _seed_decisions_across_days(self) -> None:
+        from memorable.mcp.server import remember_decision_tool
+
+        remember_decision_tool(
+            space=SPACE,
+            decision_id="decision:mon",
+            statement="Monday call.",
+            source=SOURCE_ID,
+            at="2026-05-25T10:00:00Z",
+        )
+        remember_decision_tool(
+            space=SPACE,
+            decision_id="decision:wed",
+            statement="Wednesday call.",
+            source=SOURCE_ID,
+            at="2026-05-27T10:00:00Z",
+        )
+        remember_decision_tool(
+            space=SPACE,
+            decision_id="decision:fri",
+            statement="Friday call.",
+            source=SOURCE_ID,
+            at="2026-05-29T10:00:00Z",
+        )
+
+    def test_list_records_tool_filters_by_since(self) -> None:
+        from memorable.mcp.server import list_records_tool
+
+        self._seed_decisions_across_days()
+
+        result = list_records_tool(space=SPACE, since="2026-05-27T10:00:00Z")
+
+        assert "error" not in result
+        # since is an inclusive lower bound: Wednesday is included, Monday dropped.
+        assert [r["id"] for r in result["records"]] == [
+            "decision:wed",
+            "decision:fri",
+        ]
+
+    def test_list_records_tool_filters_by_until(self) -> None:
+        from memorable.mcp.server import list_records_tool
+
+        self._seed_decisions_across_days()
+
+        result = list_records_tool(space=SPACE, until="2026-05-27T10:00:00Z")
+
+        assert "error" not in result
+        # until is an exclusive upper bound: Wednesday is dropped.
+        assert [r["id"] for r in result["records"]] == ["decision:mon"]
+
+    def test_list_records_tool_composes_type_and_since(self) -> None:
+        from memorable.mcp.server import (
+            list_records_tool,
+            remember_decision_tool,
+            remember_task_tool,
+        )
+
+        remember_decision_tool(
+            space=SPACE,
+            decision_id="decision:in",
+            statement="Decision today.",
+            source=SOURCE_ID,
+            at="2026-05-30T09:00:00Z",
+        )
+        remember_task_tool(
+            space=SPACE,
+            task_id="task:in",
+            title="Task today.",
+            source=SOURCE_ID,
+            at="2026-05-30T09:00:00Z",
+        )
+        remember_decision_tool(
+            space=SPACE,
+            decision_id="decision:old",
+            statement="Decision yesterday.",
+            source=SOURCE_ID,
+            at="2026-05-29T09:00:00Z",
+        )
+
+        result = list_records_tool(
+            space=SPACE, type="decision", since="2026-05-30T00:00:00Z"
+        )
+
+        assert "error" not in result
+        assert [r["id"] for r in result["records"]] == ["decision:in"]
 
     def test_list_records_tool_filters_by_state(self) -> None:
         from memorable.mcp.server import (
