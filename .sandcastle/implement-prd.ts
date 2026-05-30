@@ -16,7 +16,7 @@ import { join } from "node:path";
 import { setTimeout as delay } from "node:timers/promises";
 
 const MODEL = "openai/gpt-5.5";
-const IMPLEMENTER_VARIANT = "medium";
+const IMPLEMENTER_VARIANT = "high";
 const REVIEWER_VARIANT = "xhigh";
 const IMAGE_NAME = "memorable-sandcastle-opencode:latest";
 const COMPLETION_SIGNAL = "<promise>COMPLETE</promise>";
