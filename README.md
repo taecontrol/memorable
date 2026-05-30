@@ -1,27 +1,43 @@
 # Memorable
 
-Memorable is a project-scoped GraphRAG memory system for agents.
+Memorable gives your AI coding agent a long-term memory for a project — what was
+decided, what changed, and what's true now — so it doesn't lose context between
+sessions and you don't have to repeat yourself.
 
-It stores structured project memory in Neo4j and retrieves it through the
-`memorable` CLI and MCP server.
+Instead of scattering this across Markdown files, Memorable stores it as
+structured, searchable memory that your agent can write to and read back. You use
+it two ways:
 
-## Quickstart
+- **With your agent** — the **MCP server** (`memorable-mcp`) plugs Memorable into
+  Claude, Cursor, and other MCP clients so the agent remembers and recalls on its
+  own. This is the main way to use it.
+- **By hand** — the **`memorable` CLI** lets you write, search, and inspect memory
+  directly from the terminal.
 
-Use Memorable as a one-shot tool with `uvx`:
+Under the hood it's a GraphRAG memory system backed by Neo4j.
+
+## Install
+
+Run it as a one-shot tool with `uvx`:
 
 ```bash
 uvx --from memorable-kg memorable --help
 ```
 
-For regular use, install it once:
+Or install it once for regular use:
 
 ```bash
 uv tool install memorable-kg
 ```
 
-The commands below assume the persistent install. If you prefer `uvx`, prefix
-each command with `uvx --from memorable-kg` (the published distribution is
-`memorable-kg`; the installed command is `memorable`).
+The published distribution is `memorable-kg`; the installed commands are
+`memorable` and `memorable-mcp`. The examples below assume the persistent
+install — if you prefer `uvx`, prefix each command with `uvx --from memorable-kg`.
+
+Requirements: Python 3.14+, and Docker (only if you use the bundled local Neo4j;
+not needed when you point Memorable at a remote/cloud Neo4j).
+
+## Quickstart
 
 Start in the project directory whose memory you want to manage:
 
@@ -30,13 +46,14 @@ mkdir memorable-quickstart
 cd memorable-quickstart
 ```
 
-Start the local Neo4j runtime:
+Start the local Neo4j runtime (requires Docker):
 
 ```bash
 memorable db start
 ```
 
-Initialize the MemorySpace and write the Minimal MemoryProfile scaffold:
+Set up memory for this project. This creates a starter config file you can grow
+into later:
 
 ```bash
 memorable init --space memorable-quickstart --description "Quickstart memory"
@@ -56,9 +73,21 @@ relations: []
 records: []
 ```
 
-The Minimal scaffold has no `write_policy` block. Kernel record types persist
-immediately without profile declaration, so you can remember Decisions,
-Observations, and Tasks before adding project-specific types.
+This file describes your project's memory. You can leave the three lists empty
+to start — they're there for when you want to teach Memorable about your
+specific domain:
+
+- **`entities`** — the *things* in your project worth remembering, like a
+  service, an API, or a person.
+- **`relations`** — how those things connect, like "service A depends on
+  service B."
+- **`records`** — your own kinds of memory, when the built-in ones aren't
+  specific enough.
+
+You don't need any of that to get going. Memorable already understands a few
+universal kinds of memory — **Decisions**, **Observations**, and **Tasks** — so
+you can start saving and searching memory right away, then add project-specific
+types later as you need them.
 
 Check the runtime before writing memory:
 
@@ -77,7 +106,7 @@ memorable remember decision \
   --reason "Verify a fresh install can persist a kernel Decision."
 ```
 
-Search for it with GraphRAG Retrieval:
+Search for it — by meaning, not just keywords:
 
 ```bash
 memorable search --query "project decisions searchable"
@@ -92,7 +121,228 @@ The JSON result should include a hit like:
 }
 ```
 
-## More Information
+## Configuration
+
+Memorable resolves its runtime configuration from four layered sources, each
+overriding the one before it:
+
+1. **Built-in defaults** (shown below).
+2. **`.memorable/runtime.yaml`** — committed, shared project defaults.
+3. **`.memorable/runtime.local.yaml`** — gitignored, per-developer overrides.
+4. **`.memorable/.env`** (or environment variables) — secrets only.
+
+Inspect the resolved values and where each one came from:
+
+```bash
+memorable db status
+```
+
+### What you can configure
+
+All non-secret settings live in `runtime.yaml` / `runtime.local.yaml`. Secrets
+(Neo4j password, embedding API key) come from `.env` or the environment.
+
+| Setting | Env var | Default | Notes |
+|---|---|---|---|
+| `neo4j.uri` | `MEMORABLE_NEO4J_URI` | `bolt://localhost:7687` | Bolt URI. Use `neo4j+s://…` for cloud. |
+| `neo4j.user` | `MEMORABLE_NEO4J_USER` | `neo4j` | Database user. |
+| `neo4j.password` | `MEMORABLE_NEO4J_PASSWORD` | `memorable` | **Secret** — set via `.env`/env. |
+| `docker.neo4j_version` | — | `5.26` | Image tag for the local container. |
+| `docker.http_port` | — | `7474` | Local Neo4j HTTP port. |
+| `docker.bolt_port` | — | `7687` | Local Neo4j Bolt port. |
+| `embeddings.provider` | — | `fastembed` | `fastembed`, `openrouter`, or `fake`. |
+| `embeddings.model` | — | `BAAI/bge-small-en-v1.5` | Model name for the provider. |
+| `embeddings.dimensions` | — | `384` | Vector size; must match the model. |
+| `embeddings.api_key` | `MEMORABLE_OPENROUTER_API_KEY` | — | **Secret** — required for `openrouter`. |
+
+### Embeddings
+
+To search by meaning, Memorable turns your memory into vectors (number lists that
+capture meaning) using an *embedding provider*. Three are built in:
+
+- **`fastembed`** (default) — runs locally via ONNX, no API key, no network.
+  Default model `BAAI/bge-small-en-v1.5` at 384 dimensions.
+- **`openrouter`** — remote, OpenAI-compatible API. Default model
+  `google/gemini-embedding-2-preview`, whose native size is 3072 dimensions
+  (it supports Matryoshka truncation to 128–3072; recommended 768, 1536, or
+  3072). Memorable's built-in default for this provider is 768.
+- **`fake`** — deterministic hash-based vectors for tests; do not use for real
+  memory.
+
+#### Using OpenRouter for embeddings
+
+`.memorable/runtime.yaml` (committed):
+
+```yaml
+embeddings:
+  provider: openrouter
+  model: google/gemini-embedding-2-preview
+  dimensions: 3072  # native size; or truncate to 1536 / 768
+```
+
+`.memorable/.env` (gitignored — keep the key out of version control):
+
+```bash
+MEMORABLE_OPENROUTER_API_KEY=sk-or-...
+```
+
+`provider`, `model`, and `dimensions` are not read from environment variables —
+they must live in `runtime.yaml` / `runtime.local.yaml`. Only the API key comes
+from `.env`/env.
+
+> **Important:** `dimensions` must match the model you choose. The vector index
+> is created from this value, so if you switch providers/models after writing
+> memory, re-create the space against a clean database.
+
+Verify the provider builds correctly:
+
+```bash
+memorable doctor
+```
+
+The `embedding_provider_builds` check fails fast if, for example, you selected
+`openrouter` without setting `MEMORABLE_OPENROUTER_API_KEY`.
+
+## Neo4j
+
+### Local (Docker)
+
+`memorable db start` runs a packaged `docker-compose.yml` (Neo4j with the APOC
+plugin, a persistent `memorable-neo4j-data` volume). Manage it with:
+
+```bash
+memorable db start    # docker compose up -d
+memorable db stop     # docker compose down
+memorable db status   # show resolved config + value sources
+```
+
+To customize the container (extra plugins, memory limits, etc.), eject the
+template and edit your local copy — it then takes precedence over the packaged
+one:
+
+```bash
+memorable db eject    # writes .memorable/docker-compose.yml
+```
+
+### Remote / cloud Neo4j
+
+Point Memorable at an existing instance instead of running Docker. In
+`.memorable/runtime.yaml`:
+
+```yaml
+neo4j:
+  uri: neo4j+s://<your-instance>.databases.neo4j.io
+  user: neo4j
+```
+
+And the password in `.memorable/.env`:
+
+```bash
+MEMORABLE_NEO4J_PASSWORD=<your-password>
+```
+
+When the URI is remote (`neo4j+s://`, `neo4j+ssc://`, or a non-localhost host),
+`memorable db start`/`stop` become no-ops — there is no local container to
+manage. Run `memorable doctor` to confirm connectivity.
+
+## CLI reference
+
+Setup & diagnostics:
+
+| Command | Purpose |
+|---|---|
+| `memorable init` | Create `.memorable/memory.yaml` scaffold and initialize the MemorySpace. |
+| `memorable doctor [--json]` | Run health checks (connectivity, constraints, vector index, embeddings, profile). |
+| `memorable status` | Print the diagnostic status payload. |
+| `memorable db start\|stop\|status\|eject` | Manage / inspect the local Neo4j runtime. |
+| `memorable profile show` | Show the loaded MemoryProfile. |
+
+Writing memory (`remember`):
+
+| Command | Writes |
+|---|---|
+| `memorable remember entity` | An Entity (`--id --type --name --source --at`). |
+| `memorable remember decision` | A Decision (`--id --statement --source --at`, optional `--supersedes`). |
+| `memorable remember observation` | An Observation (same shape as decision). |
+| `memorable remember task` | A Task (`--id --title --source --at`). |
+| `memorable remember relation` | A Relation between two entities (`--id --source-entity-id --target-entity-id --relation-type --statement --source --at`). |
+
+Most write commands also accept `--space`, `--writer` (default
+`agent:memorable`), and `--reason`.
+
+Lifecycle, truth & history:
+
+| Command | Purpose |
+|---|---|
+| `memorable complete task --id --at` | Mark a Task complete. |
+| `memorable task inspect --id [--as-of]` | Snapshot a Task's lifecycle. |
+| `memorable truth current --id` | Current truth following the supersession chain. |
+| `memorable truth as-of --id --at` | Point-in-time truth. |
+| `memorable inspect history --id` | Full supersession chain with lifecycle states. |
+| `memorable inspect provenance --id` | Source, writer, reason, validity times. |
+| `memorable invalidate --id --record-type --at` | Mark a record invalidated (no successor). |
+| `memorable correct --id --record-type --new-statement --source --at` | Append a corrected statement. |
+
+Search:
+
+| Command | Purpose |
+|---|---|
+| `memorable search --query [--mode current\|as-of] [--as-of]` | Hybrid GraphRAG retrieval. |
+
+Run any command with `--help` for its full option list.
+
+## MCP server
+
+This is the main way to use Memorable: the MCP server connects it to your AI
+agent (Claude, Cursor, and other MCP clients), so the agent can save and recall
+memory on its own — no manual CLI commands.
+
+Start it manually to test:
+
+```bash
+memorable-mcp
+```
+
+Wire it into an MCP client. For Claude Desktop (`claude_desktop_config.json`):
+
+```json
+{
+  "mcpServers": {
+    "memorable": {
+      "command": "memorable-mcp"
+    }
+  }
+}
+```
+
+If you installed with `uvx` instead of `uv tool install`, use:
+
+```json
+{
+  "mcpServers": {
+    "memorable": {
+      "command": "uvx",
+      "args": ["--from", "memorable-kg", "memorable-mcp"]
+    }
+  }
+}
+```
+
+The server operates on the `.memorable/` of its working directory, so launch it
+from (or configure your client to run it in) the project whose memory you want.
+It picks up that project's `.memorable/.env`, so you do not need to repeat
+secrets in the client config.
+
+> If the client can't run the server inside the project (no `.memorable/.env`
+> on disk), pass secrets via an `env` block instead. Note that when a
+> `.memorable/.env` *does* exist it takes precedence and any `env` values are
+> ignored:
+>
+> ```json
+> { "command": "memorable-mcp", "env": { "MEMORABLE_OPENROUTER_API_KEY": "sk-or-..." } }
+> ```
+
+## More information
 
 Start with the product charter in [`docs/product.md`](docs/product.md).
 
