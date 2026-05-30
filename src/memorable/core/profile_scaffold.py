@@ -16,20 +16,17 @@ space:
 
 entities: []
 # Add Entity types when the MemorySpace needs stable named things.
-# Example:
-# entities:
+# Replace the line above with entries, e.g.:
 #   - name: Person
 
 relations: []
 # Add Relation types when Entities need typed connections.
-# Example:
-# relations:
+# Replace the line above with entries, e.g.:
 #   - name: supports
 
 records: []
 # Add project-specific MemoryRecord types by extending a kernel type.
-# Example:
-# records:
+# Replace the line above with entries, e.g.:
 #   - name: ProjectDecision
 #     extends: Decision
 """

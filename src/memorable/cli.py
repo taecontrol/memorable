@@ -194,7 +194,7 @@ def _cmd_init(args: argparse.Namespace) -> int:
     profile_path = base_path / ".memorable" / "memory.yaml"
 
     if not profile_path.exists():
-        profile_path.parent.mkdir(exist_ok=True)
+        profile_path.parent.mkdir(parents=True, exist_ok=True)
         space_name = args.space if args.space is not None else base_path.resolve().name
         yaml_text = render_minimal_profile_scaffold(
             space_name, description=args.description
