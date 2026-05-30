@@ -87,6 +87,41 @@ class TestToolRegistration:
                 f"Tool {tool.name!r} missing memorable_ prefix"
             )
 
+    def test_list_records_tool_contract_signature_is_stable(self) -> None:
+        tools = {tool.name: tool for tool in _list_tools()}
+        tool = tools["memorable_list_records"]
+
+        assert tool.name == "memorable_list_records"
+        assert tool.inputSchema == {
+            "properties": {
+                "space": {"title": "Space", "type": "string"},
+                "type": {
+                    "anyOf": [{"type": "string"}, {"type": "null"}],
+                    "default": None,
+                    "title": "Type",
+                },
+                "state": {
+                    "anyOf": [{"type": "string"}, {"type": "null"}],
+                    "default": None,
+                    "title": "State",
+                },
+                "since": {
+                    "anyOf": [{"type": "string"}, {"type": "null"}],
+                    "default": None,
+                    "title": "Since",
+                },
+                "until": {
+                    "anyOf": [{"type": "string"}, {"type": "null"}],
+                    "default": None,
+                    "title": "Until",
+                },
+                "limit": {"default": 50, "title": "Limit", "type": "integer"},
+            },
+            "required": ["space"],
+            "title": "list_records_toolArguments",
+            "type": "object",
+        }
+
 
 # Core domain terms that must appear in at least one tool description.
 # These are from docs/ubiquitous-language.md accepted language.

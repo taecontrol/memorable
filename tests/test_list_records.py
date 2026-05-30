@@ -287,30 +287,90 @@ class TestListRecordsService:
             "decision:2",
         ]
 
+    def test_bounded_merge_matches_naive_sort_all_then_slice(self) -> None:
+        from memorable.core.application import ListRecordsService
+        from memorable.core.models import RecordProjection
+
+        def at_minute(minute: int) -> datetime:
+            return datetime(2026, 5, 23, 10, minute, tzinfo=UTC)
+
+        def projection(record_type: str, record_id: str, at: datetime):
+            return RecordProjection(
+                id=record_id,
+                type=record_type,
+                label=record_id,
+                lifecycle_state="current",
+                creation_time=at,
+            )
+
+        class ProjectionOnlyRepo:
+            def __init__(self, rows: list[RecordProjection]) -> None:
+                self._rows = rows
+
+            def list_projections_by_space(
+                self,
+                *,
+                space: str,
+                state: str | None,
+                since: datetime | None,
+                until: datetime | None,
+                limit: int,
+            ) -> list[RecordProjection]:
+                assert space == SPACE
+                assert state is None
+                assert since is None
+                assert until is None
+                return self._rows[:limit]
+
+        rows_by_type = {
+            "decision": [
+                projection("decision", "decision:04", at_minute(4)),
+                projection("decision", "decision:07", at_minute(7)),
+            ],
+            "observation": [
+                projection("observation", "observation:01", at_minute(1)),
+                projection("observation", "observation:06", at_minute(6)),
+            ],
+            "relation": [
+                projection("relation", "relation:03", at_minute(3)),
+                projection("relation", "relation:05", at_minute(5)),
+            ],
+            "task": [
+                projection("task", "task:02", at_minute(2)),
+                projection("task", "task:08", at_minute(8)),
+            ],
+        }
+        service = ListRecordsService(
+            decision_repo=ProjectionOnlyRepo(rows_by_type["decision"]),
+            observation_repo=ProjectionOnlyRepo(rows_by_type["observation"]),
+            relation_repo=ProjectionOnlyRepo(rows_by_type["relation"]),
+            task_repo=ProjectionOnlyRepo(rows_by_type["task"]),
+        )
+        all_rows = [row for rows in rows_by_type.values() for row in rows]
+        expected = sorted(all_rows, key=lambda p: (p.creation_time, p.id))[:5]
+
+        projections = service.list_records(space=SPACE, limit=5)
+
+        assert projections == expected
+
     def test_missing_provenance_raises_integrity_error_not_value_error(self) -> None:
         """A broken Provenance join is a store invariant violation, not bad input.
 
-        ``list_by_space`` can return a record whose ``get_provenance`` join is
-        missing (e.g. a graph node that outlived its Provenance relationship).
-        That is a data-integrity failure distinct from a caller passing an
-        unlistable ``type``, so it must raise ``ProvenanceIntegrityError`` rather
-        than the ``ValueError`` reserved for bad input.
+        ``list_projections_by_space`` can return a record whose Provenance join
+        is missing (e.g. a graph node that outlived its Provenance
+        relationship). That is a data-integrity failure distinct from a caller
+        passing an unlistable ``type``, so it must raise
+        ``ProvenanceIntegrityError`` rather than the ``ValueError`` reserved for
+        bad input.
         """
         import pytest
 
-        from memorable.core.application import (
-            ListRecordsService,
-            ProvenanceIntegrityError,
-        )
+        from memorable.core.application import ListRecordsService
         from memorable.core.context import ApplicationContext
-        from memorable.core.models import Decision
+        from memorable.core.models import Decision, ProvenanceIntegrityError
         from memorable.core.repositories import InMemoryDecisionRepository
 
-        class MissingProvenanceDecisionRepo(InMemoryDecisionRepository):
-            def get_provenance(self, space: str, record_id: str):  # noqa: ARG002
-                return None
-
-        repo = MissingProvenanceDecisionRepo()
+        repo = InMemoryDecisionRepository()
         repo._records[(SPACE, "decision:orphan")] = Decision(
             id="decision:orphan",
             statement="Orphaned decision.",
@@ -697,6 +757,111 @@ class TestMCPListRecords:
         from memorable.core.context import default_context
 
         default_context.reset()
+
+    def test_list_records_tool_contract_shape_and_order_are_stable(self) -> None:
+        import asyncio
+
+        from memorable.mcp.server import (
+            mcp_server,
+            remember_decision_tool,
+            remember_entity_tool,
+            remember_observation_tool,
+            remember_relation_tool,
+            remember_task_tool,
+        )
+
+        remember_entity_tool(
+            space=SPACE,
+            entity_id="entity:contract-source",
+            entity_type="Project",
+            name="Contract Source",
+            source=SOURCE_ID,
+            at="2026-05-23T09:00:00Z",
+        )
+        remember_entity_tool(
+            space=SPACE,
+            entity_id="entity:contract-target",
+            entity_type="Project",
+            name="Contract Target",
+            source=SOURCE_ID,
+            at="2026-05-23T09:01:00Z",
+        )
+        remember_decision_tool(
+            space=SPACE,
+            decision_id="decision:contract",
+            statement="Keep the MCP listing contract stable.",
+            source=SOURCE_ID,
+            at="2026-05-23T10:00:00Z",
+        )
+        remember_observation_tool(
+            space=SPACE,
+            observation_id="observation:contract",
+            statement="Agents depend on this projection shape.",
+            source=SOURCE_ID,
+            at="2026-05-23T11:00:00Z",
+        )
+        remember_relation_tool(
+            space=SPACE,
+            relation_id="relation:contract",
+            source_entity_id="entity:contract-source",
+            target_entity_id="entity:contract-target",
+            relation_type="depends-on",
+            statement="Contract source depends on contract target.",
+            source=SOURCE_ID,
+            at="2026-05-23T12:00:00Z",
+        )
+        remember_task_tool(
+            space=SPACE,
+            task_id="task:contract",
+            title="Verify the MCP contract.",
+            source=SOURCE_ID,
+            at="2026-05-23T13:00:00Z",
+        )
+
+        _, result = asyncio.run(
+            mcp_server.call_tool(
+                "memorable_list_records", {"space": SPACE, "limit": 10}
+            )
+        )
+
+        assert "error" not in result
+        records = result["records"]
+        assert [set(record) for record in records] == [
+            {"id", "type", "label", "lifecycle_state", "creation_time"},
+            {"id", "type", "label", "lifecycle_state", "creation_time"},
+            {"id", "type", "label", "lifecycle_state", "creation_time"},
+            {"id", "type", "label", "lifecycle_state", "creation_time"},
+        ]
+        assert records == [
+            {
+                "id": "decision:contract",
+                "type": "decision",
+                "label": "Keep the MCP listing contract stable.",
+                "lifecycle_state": "current",
+                "creation_time": "2026-05-23T10:00:00+00:00",
+            },
+            {
+                "id": "observation:contract",
+                "type": "observation",
+                "label": "Agents depend on this projection shape.",
+                "lifecycle_state": "current",
+                "creation_time": "2026-05-23T11:00:00+00:00",
+            },
+            {
+                "id": "relation:contract",
+                "type": "relation",
+                "label": "Contract source depends on contract target.",
+                "lifecycle_state": "current",
+                "creation_time": "2026-05-23T12:00:00+00:00",
+            },
+            {
+                "id": "task:contract",
+                "type": "task",
+                "label": "Verify the MCP contract.",
+                "lifecycle_state": "open",
+                "creation_time": "2026-05-23T13:00:00+00:00",
+            },
+        ]
 
     def test_list_records_tool_returns_projections(self) -> None:
         from memorable.mcp.server import (

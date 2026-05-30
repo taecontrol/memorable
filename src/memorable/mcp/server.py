@@ -17,7 +17,6 @@ from memorable.core.application import (
     InvalidateService,
     ListRecordsService,
     PointInTimeTruthService,
-    ProvenanceIntegrityError,
     RememberDecisionService,
     RememberEntityService,
     RememberObservationService,
@@ -26,6 +25,7 @@ from memorable.core.application import (
     build_status_payload,
 )
 from memorable.core.context import ApplicationContext, default_context
+from memorable.core.models import ProvenanceIntegrityError
 from memorable.core.ports import TemporalRecordRepository
 from memorable.core.profile import ProfileValidationError, load_profile_from_yaml
 from memorable.core.temporal import parse_iso_timestamp

@@ -27,6 +27,7 @@ class TestNeo4jObservationRepositoryExists:
         assert callable(repo.get)
         assert callable(repo.get_provenance)
         assert callable(repo.list_by_space)
+        assert callable(repo.list_projections_by_space)
         assert callable(repo.mark_superseded)
 
     def test_satisfies_temporal_record_repository_protocol(self) -> None:

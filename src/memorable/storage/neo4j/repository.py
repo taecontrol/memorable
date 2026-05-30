@@ -7,7 +7,7 @@ only domain language from Memorable Core.
 
 from __future__ import annotations
 
-from datetime import datetime
+from datetime import UTC, datetime
 from typing import Any, Protocol, runtime_checkable
 
 from memorable.core.models import (
@@ -16,6 +16,8 @@ from memorable.core.models import (
     MemorySpace,
     Observation,
     Provenance,
+    ProvenanceIntegrityError,
+    RecordProjection,
     Relation,
     Task,
 )
@@ -37,10 +39,12 @@ class Neo4jDriver(Protocol):
 
 
 def _to_iso(dt: datetime | None) -> str | None:
-    """Convert a datetime to ISO 8601 string for storage, or None."""
+    """Convert a datetime to canonical UTC ISO 8601 string for storage, or None."""
     if dt is None:
         return None
-    return dt.isoformat()
+    if dt.tzinfo is None or dt.utcoffset() is None:
+        raise ValueError("stored datetimes must be timezone-aware")
+    return dt.astimezone(UTC).isoformat(timespec="microseconds")
 
 
 def _from_iso(value: str | None) -> datetime | None:
@@ -48,6 +52,69 @@ def _from_iso(value: str | None) -> datetime | None:
     if value is None:
         return None
     return datetime.fromisoformat(value)
+
+
+def _list_projections_by_space(
+    driver: Neo4jDriver,
+    *,
+    storage_label: str,
+    label_property: str,
+    record_type: str,
+    space: str,
+    state: str | None,
+    since: datetime | None,
+    until: datetime | None,
+    limit: int,
+) -> list[RecordProjection]:
+    """Return one record type's projections filtered and ordered by Creation Time.
+
+    The Provenance join, Creation-Time window, ordering, and limit are all
+    pushed into the matching pipeline so only the returned rows are
+    materialized — the store is never scanned in full. Neo4j sorts NULL last
+    in ASC order, so a record whose Provenance join is missing still appears
+    in the returned rows when no window bound is active and triggers the
+    integrity check.
+    """
+    query = (
+        f"MATCH (record:{storage_label} {{space: $space}}) "
+        "WHERE ($state IS NULL OR record.lifecycle_state = $state) "
+        "OPTIONAL MATCH (p:Provenance)-[:PROVENANCE_OF]->(record) "
+        "WITH record, p "
+        "WHERE ($since IS NULL OR p.creation_time >= $since) "
+        "  AND ($until IS NULL OR p.creation_time < $until) "
+        "ORDER BY p.creation_time ASC, record.id ASC "
+        "LIMIT $limit "
+        f"RETURN record.id AS id, record.{label_property} AS label, "
+        "       record.lifecycle_state AS lifecycle_state, "
+        "       p.creation_time AS creation_time, "
+        "       (p IS NOT NULL) AS has_provenance"
+    )
+    with driver.session() as session:
+        result = session.run(
+            query,
+            space=space,
+            state=state,
+            since=_to_iso(since),
+            until=_to_iso(until),
+            limit=limit,
+        )
+        projections: list[RecordProjection] = []
+        for record in result:
+            if not record["has_provenance"]:
+                raise ProvenanceIntegrityError(
+                    f"Provenance missing for {record_type} '{record['id']}' "
+                    f"in MemorySpace '{space}'."
+                )
+            projections.append(
+                RecordProjection(
+                    id=record["id"],
+                    type=record_type,
+                    label=record["label"],
+                    lifecycle_state=record["lifecycle_state"],
+                    creation_time=_from_iso(record["creation_time"]),
+                )
+            )
+        return projections
 
 
 # --- MemorySpace adapter ---
@@ -372,6 +439,28 @@ class Neo4jDecisionRepository:
                 for record in result
             ]
 
+    def list_projections_by_space(
+        self,
+        *,
+        space: str,
+        state: str | None,
+        since: datetime | None,
+        until: datetime | None,
+        limit: int,
+    ) -> list[RecordProjection]:
+        """Return Decision projections filtered and ordered by Creation Time."""
+        return _list_projections_by_space(
+            self._driver,
+            storage_label="Decision",
+            label_property="statement",
+            record_type="decision",
+            space=space,
+            state=state,
+            since=since,
+            until=until,
+            limit=limit,
+        )
+
     def mark_superseded(
         self,
         space: str,
@@ -599,6 +688,28 @@ class Neo4jObservationRepository:
                 )
                 for record in result
             ]
+
+    def list_projections_by_space(
+        self,
+        *,
+        space: str,
+        state: str | None,
+        since: datetime | None,
+        until: datetime | None,
+        limit: int,
+    ) -> list[RecordProjection]:
+        """Return Observation projections filtered and ordered by Creation Time."""
+        return _list_projections_by_space(
+            self._driver,
+            storage_label="Observation",
+            label_property="statement",
+            record_type="observation",
+            space=space,
+            state=state,
+            since=since,
+            until=until,
+            limit=limit,
+        )
 
     def mark_superseded(
         self,
@@ -844,6 +955,28 @@ class Neo4jTaskRepository:
                 for record in result
             ]
 
+    def list_projections_by_space(
+        self,
+        *,
+        space: str,
+        state: str | None,
+        since: datetime | None,
+        until: datetime | None,
+        limit: int,
+    ) -> list[RecordProjection]:
+        """Return Task projections filtered and ordered by Creation Time."""
+        return _list_projections_by_space(
+            self._driver,
+            storage_label="Task",
+            label_property="title",
+            record_type="task",
+            space=space,
+            state=state,
+            since=since,
+            until=until,
+            limit=limit,
+        )
+
 
 # --- Relation adapter ---
 
@@ -1014,6 +1147,28 @@ class Neo4jRelationRepository:
                 )
                 for record in result
             ]
+
+    def list_projections_by_space(
+        self,
+        *,
+        space: str,
+        state: str | None,
+        since: datetime | None,
+        until: datetime | None,
+        limit: int,
+    ) -> list[RecordProjection]:
+        """Return Relation projections filtered and ordered by Creation Time."""
+        return _list_projections_by_space(
+            self._driver,
+            storage_label="Relation",
+            label_property="statement",
+            record_type="relation",
+            space=space,
+            state=state,
+            since=since,
+            until=until,
+            limit=limit,
+        )
 
     def mark_superseded(
         self,
