@@ -356,11 +356,12 @@ class TestListRecordsService:
     def test_missing_provenance_raises_integrity_error_not_value_error(self) -> None:
         """A broken Provenance join is a store invariant violation, not bad input.
 
-        ``list_by_space`` can return a record whose ``get_provenance`` join is
-        missing (e.g. a graph node that outlived its Provenance relationship).
-        That is a data-integrity failure distinct from a caller passing an
-        unlistable ``type``, so it must raise ``ProvenanceIntegrityError`` rather
-        than the ``ValueError`` reserved for bad input.
+        ``list_projections_by_space`` can return a record whose Provenance join
+        is missing (e.g. a graph node that outlived its Provenance
+        relationship). That is a data-integrity failure distinct from a caller
+        passing an unlistable ``type``, so it must raise
+        ``ProvenanceIntegrityError`` rather than the ``ValueError`` reserved for
+        bad input.
         """
         import pytest
 
@@ -369,11 +370,7 @@ class TestListRecordsService:
         from memorable.core.models import Decision, ProvenanceIntegrityError
         from memorable.core.repositories import InMemoryDecisionRepository
 
-        class MissingProvenanceDecisionRepo(InMemoryDecisionRepository):
-            def get_provenance(self, space: str, record_id: str):  # noqa: ARG002
-                return None
-
-        repo = MissingProvenanceDecisionRepo()
+        repo = InMemoryDecisionRepository()
         repo._records[(SPACE, "decision:orphan")] = Decision(
             id="decision:orphan",
             statement="Orphaned decision.",

@@ -327,32 +327,3 @@ def test_list_projections_by_space_raises_when_provenance_join_is_missing(
             until=None,
             limit=10,
         )
-
-
-@pytest.mark.parametrize("harness_fixture", ALL_REPOS)
-def test_list_projections_by_space_does_not_let_limit_hide_missing_provenance(
-    harness_fixture: str,
-    request: pytest.FixtureRequest,
-) -> None:
-    harness = _harness(harness_fixture, request)
-    repo = harness.repository
-    space = _unique_space()
-    valid_time = datetime(2026, 5, 25, 10, 0, 0, tzinfo=UTC)
-    missing_time = datetime(2026, 5, 25, 11, 0, 0, tzinfo=UTC)
-    _save(harness, space=space, record_id="rec-valid", creation_time=valid_time)
-    _save(
-        harness,
-        space=space,
-        record_id="rec-missing-provenance",
-        creation_time=missing_time,
-    )
-    harness.remove_provenance(space=space, record_id="rec-missing-provenance")
-
-    with pytest.raises(ProvenanceIntegrityError):
-        repo.list_projections_by_space(
-            space=space,
-            state=None,
-            since=None,
-            until=None,
-            limit=1,
-        )

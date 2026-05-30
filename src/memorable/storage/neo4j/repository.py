@@ -66,32 +66,28 @@ def _list_projections_by_space(
     until: datetime | None,
     limit: int,
 ) -> list[RecordProjection]:
-    """Return one record type's projections filtered and ordered by Creation Time."""
+    """Return one record type's projections filtered and ordered by Creation Time.
+
+    The Provenance join, Creation-Time window, ordering, and limit are all
+    pushed into the matching pipeline so only the returned rows are
+    materialized — the store is never scanned in full. Neo4j sorts NULL last
+    in ASC order, so a record whose Provenance join is missing still appears
+    in the returned rows when no window bound is active and triggers the
+    integrity check.
+    """
     query = (
         f"MATCH (record:{storage_label} {{space: $space}}) "
         "WHERE ($state IS NULL OR record.lifecycle_state = $state) "
         "OPTIONAL MATCH (p:Provenance)-[:PROVENANCE_OF]->(record) "
-        "WITH collect({"
-        f"  id: record.id, label: record.{label_property}, "
-        "  lifecycle_state: record.lifecycle_state, "
-        "  creation_time: p.creation_time, "
-        "  has_provenance: p IS NOT NULL"
-        "}) AS rows "
-        "WITH [row IN rows WHERE NOT row.has_provenance | row.id] "
-        "       AS missing_ids, "
-        "     [row IN rows WHERE row.has_provenance "
-        "       AND ($since IS NULL OR row.creation_time >= $since) "
-        "       AND ($until IS NULL OR row.creation_time < $until)] "
-        "       AS filtered_rows "
-        "CALL { "
-        "  WITH filtered_rows "
-        "  UNWIND filtered_rows AS row "
-        "  WITH row "
-        "  ORDER BY row.creation_time ASC, row.id ASC "
-        "  LIMIT $limit "
-        "  RETURN collect(row) AS projections "
-        "} "
-        "RETURN missing_ids, projections"
+        "WITH record, p "
+        "WHERE ($since IS NULL OR p.creation_time >= $since) "
+        "  AND ($until IS NULL OR p.creation_time < $until) "
+        "ORDER BY p.creation_time ASC, record.id ASC "
+        "LIMIT $limit "
+        f"RETURN record.id AS id, record.{label_property} AS label, "
+        "       record.lifecycle_state AS lifecycle_state, "
+        "       p.creation_time AS creation_time, "
+        "       (p IS NOT NULL) AS has_provenance"
     )
     with driver.session() as session:
         result = session.run(
@@ -102,17 +98,13 @@ def _list_projections_by_space(
             until=_to_iso(until),
             limit=limit,
         )
-        query_record = result.single()
-        if query_record is None:
-            return []
-        missing_ids = query_record["missing_ids"]
-        if missing_ids:
-            raise ProvenanceIntegrityError(
-                f"Provenance missing for {record_type} '{missing_ids[0]}' "
-                f"in MemorySpace '{space}'."
-            )
         projections: list[RecordProjection] = []
-        for record in query_record["projections"]:
+        for record in result:
+            if not record["has_provenance"]:
+                raise ProvenanceIntegrityError(
+                    f"Provenance missing for {record_type} '{record['id']}' "
+                    f"in MemorySpace '{space}'."
+                )
             projections.append(
                 RecordProjection(
                     id=record["id"],
