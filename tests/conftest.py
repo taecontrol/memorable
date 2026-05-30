@@ -246,9 +246,7 @@ def observation_projection_neo4j_harness() -> Iterator[
             "MATCH (p:Provenance)-[r:PROVENANCE_OF]->(o:Observation) "
             "WHERE o.space STARTS WITH 'test-' DELETE r, p, o"
         )
-        session.run(
-            "MATCH (o:Observation) WHERE o.space STARTS WITH 'test-' DELETE o"
-        )
+        session.run("MATCH (o:Observation) WHERE o.space STARTS WITH 'test-' DELETE o")
     driver.close()
 
 

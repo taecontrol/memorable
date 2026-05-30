@@ -337,8 +337,7 @@ class InMemoryTaskRepository:
             provenance = self._provenance.get((space, task.id))
             if provenance is None:
                 raise ProvenanceIntegrityError(
-                    f"Provenance missing for task '{task.id}' "
-                    f"in MemorySpace '{space}'."
+                    f"Provenance missing for task '{task.id}' in MemorySpace '{space}'."
                 )
             if since is not None and provenance.creation_time < since:
                 continue
