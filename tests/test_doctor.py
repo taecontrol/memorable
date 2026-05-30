@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import json
+from pathlib import Path
 
 from memorable.config import RuntimeConfig
 
@@ -270,6 +271,80 @@ def test_doctor_reports_embedding_provider_build_failure_with_hint() -> None:
         "ok": False,
         "hint": "Check embeddings.provider, model, dimensions, and API key.",
     }
+
+
+def test_doctor_reports_memory_profile_parse_pass(tmp_path: Path) -> None:
+    from memorable.runtime.doctor import run_diagnostics
+
+    profile_path = tmp_path / ".memorable" / "memory.yaml"
+    profile_path.parent.mkdir()
+    profile_path.write_text("valid profile", encoding="utf-8")
+
+    results = run_diagnostics(
+        RuntimeConfig(),
+        ping_neo4j=lambda _config: None,
+        list_schema_constraints=lambda _config: EXPECTED_SCHEMA_CONSTRAINTS,
+        list_vector_indexes=lambda _config: EXPECTED_VECTOR_INDEXES,
+        build_embedding_provider=lambda _settings, api_key=None: object(),
+        profile_path=profile_path,
+        load_profile_from_yaml=lambda _yaml_text: object(),
+    )
+
+    assert {result["check"]: result for result in results}[
+        "memory_profile_parses"
+    ] == {"check": "memory_profile_parses", "ok": True, "hint": ""}
+
+
+def test_doctor_reports_memory_profile_parse_failure_with_hint(
+    tmp_path: Path,
+) -> None:
+    from memorable.runtime.doctor import run_diagnostics
+
+    profile_path = tmp_path / ".memorable" / "memory.yaml"
+    profile_path.parent.mkdir()
+    profile_path.write_text("invalid profile", encoding="utf-8")
+
+    def fail(_yaml_text: str) -> object:
+        raise ValueError("bad profile")
+
+    results = run_diagnostics(
+        RuntimeConfig(),
+        ping_neo4j=lambda _config: None,
+        list_schema_constraints=lambda _config: EXPECTED_SCHEMA_CONSTRAINTS,
+        list_vector_indexes=lambda _config: EXPECTED_VECTOR_INDEXES,
+        build_embedding_provider=lambda _settings, api_key=None: object(),
+        profile_path=profile_path,
+        load_profile_from_yaml=fail,
+    )
+
+    assert {result["check"]: result for result in results}[
+        "memory_profile_parses"
+    ] == {
+        "check": "memory_profile_parses",
+        "ok": False,
+        "hint": "Fix .memorable/memory.yaml so it is valid MemoryProfile YAML.",
+    }
+
+
+def test_doctor_skips_memory_profile_parse_when_profile_is_absent(
+    tmp_path: Path,
+) -> None:
+    from memorable.runtime.doctor import all_checks_passed, run_diagnostics
+
+    results = run_diagnostics(
+        RuntimeConfig(),
+        ping_neo4j=lambda _config: None,
+        list_schema_constraints=lambda _config: EXPECTED_SCHEMA_CONSTRAINTS,
+        list_vector_indexes=lambda _config: EXPECTED_VECTOR_INDEXES,
+        build_embedding_provider=lambda _settings, api_key=None: object(),
+        profile_path=tmp_path / ".memorable" / "memory.yaml",
+        load_profile_from_yaml=lambda _yaml_text: (_ for _ in ()).throw(
+            AssertionError("profile parser should not run when profile is absent")
+        ),
+    )
+
+    assert "memory_profile_parses" not in {result["check"] for result in results}
+    assert all_checks_passed(results)
 
 
 def test_doctor_aggregate_all_pass_logic() -> None:

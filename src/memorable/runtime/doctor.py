@@ -1,11 +1,13 @@
 from __future__ import annotations
 
 from collections.abc import Callable
+from pathlib import Path
 from typing import NotRequired, TypedDict
 
 from neo4j import GraphDatabase
 
 from memorable.config import RuntimeConfig
+from memorable.core.profile import load_profile_from_yaml
 from memorable.retrieval.embeddings import build_embedding_provider
 from memorable.storage.neo4j.schema import (
     expected_constraint_shapes,
@@ -38,6 +40,7 @@ NEO4J_CONNECTIVITY_HINT = (
 SCHEMA_CONSTRAINTS_HINT = "Run 'memorable init' to bootstrap schema constraints."
 VECTOR_INDEX_HINT = "Run 'memorable init' to bootstrap the vector index."
 EMBEDDING_PROVIDER_HINT = "Check embeddings.provider, model, dimensions, and API key."
+MEMORY_PROFILE_HINT = "Fix .memorable/memory.yaml so it is valid MemoryProfile YAML."
 
 
 def ping_neo4j(config: RuntimeConfig) -> None:
@@ -145,6 +148,8 @@ def run_diagnostics(
         [RuntimeConfig], list[VectorIndex]
     ] = list_vector_indexes,
     build_embedding_provider: Callable[..., object] = build_embedding_provider,
+    profile_path: Path | None = None,
+    load_profile_from_yaml: Callable[[str], object] = load_profile_from_yaml,
 ) -> list[DiagnosticResult]:
     """Run runtime diagnostics and return presentation-independent results."""
     results: list[DiagnosticResult] = []
@@ -201,6 +206,25 @@ def run_diagnostics(
         results.append(
             {"check": "embedding_provider_builds", "ok": True, "hint": ""}
         )
+
+    if profile_path is None:
+        profile_path = Path.cwd() / ".memorable" / "memory.yaml"
+
+    if profile_path.exists():
+        try:
+            load_profile_from_yaml(profile_path.read_text(encoding="utf-8"))
+        except Exception:
+            results.append(
+                {
+                    "check": "memory_profile_parses",
+                    "ok": False,
+                    "hint": MEMORY_PROFILE_HINT,
+                }
+            )
+        else:
+            results.append(
+                {"check": "memory_profile_parses", "ok": True, "hint": ""}
+            )
 
     return results
 
