@@ -461,9 +461,7 @@ class TestListRecordsServiceStateFilter:
         )
         # Remembering a successor with supersedes marks the old as superseded.
         profile = ctx.load_profile(SPACE)
-        RememberDecisionService(
-            repository=ctx.decision_repo, profile=profile
-        ).remember(
+        RememberDecisionService(repository=ctx.decision_repo, profile=profile).remember(
             space=SPACE,
             decision_id="decision:new",
             statement="New call.",
@@ -486,9 +484,7 @@ class TestListRecordsServiceStateFilter:
         _remember_observation(
             ctx, observation_id="observation:2", statement="Still true.", at=T2
         )
-        _invalidate_record(
-            ctx, ctx.observation_repo, record_id="observation:1", at=T3
-        )
+        _invalidate_record(ctx, ctx.observation_repo, record_id="observation:1", at=T3)
         service = self._make_service(ctx)
 
         projections = service.list_records(space=SPACE, state="invalidated")
@@ -529,9 +525,7 @@ class TestListRecordsServiceStateFilter:
         )
         service = self._make_service(ctx)
 
-        projections = service.list_records(
-            space=SPACE, type="task", state="open"
-        )
+        projections = service.list_records(space=SPACE, type="task", state="open")
 
         assert [p.id for p in projections] == ["task:open"]
 
