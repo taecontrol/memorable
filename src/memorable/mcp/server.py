@@ -17,6 +17,7 @@ from memorable.core.application import (
     InvalidateService,
     ListRecordsService,
     PointInTimeTruthService,
+    ProvenanceIntegrityError,
     RememberDecisionService,
     RememberEntityService,
     RememberObservationService,
@@ -853,6 +854,12 @@ def list_records_tool(
             limit=limit,
         )
     except ValueError as e:
+        # Bad caller input, e.g. an unlistable type ('entity' or unknown).
+        return {"error": str(e)}
+    except ProvenanceIntegrityError as e:
+        # Store invariant violation: a listed record's Provenance join is
+        # missing. Surface as an error dict rather than letting it escape to
+        # the MCP caller, but keep it distinct from caller-input errors.
         return {"error": str(e)}
 
     return {

@@ -834,6 +834,18 @@ class CompleteTaskService:
         return CompleteTaskResult(task=completed, event_id=event_id, completion_time=at)
 
 
+class ProvenanceIntegrityError(Exception):
+    """Raised when a MemoryRecord exists but its Provenance join is missing.
+
+    This signals a store invariant violation, not a caller error: every
+    MemoryRecord must join to a Provenance that carries its Creation Time. A
+    record returned by ``list_by_space`` whose ``get_provenance`` yields ``None``
+    means the join was lost (e.g. a graph node that outlived or preceded its
+    Provenance relationship). It is distinct from ``ValueError``, which is
+    reserved for bad caller input such as an unlistable ``type``.
+    """
+
+
 @dataclass(frozen=True)
 class RecordProjection:
     """A compact, type-agnostic view of a MemoryRecord for Memory Review.
@@ -908,8 +920,11 @@ class ListRecordsService:
         All filters (``type``, ``state``, ``since``, ``until``) combine with
         AND. Returns at most ``limit`` projections (default 50).
 
-        Raises ValueError if ``type`` is not a listable MemoryRecord type
-        (e.g. ``entity`` or an unknown value).
+        Raises:
+            ValueError: if ``type`` is not a listable MemoryRecord type (e.g.
+                ``entity`` or an unknown value) — a bad-caller-input error.
+            ProvenanceIntegrityError: if a listed record's Provenance join is
+                missing — a store invariant violation, not a caller error.
         """
         if type is not None and type not in self.RECORD_TYPES:
             raise ValueError(
@@ -933,7 +948,7 @@ class ListRecordsService:
             for record in repo.list_by_space(space):
                 provenance = repo.get_provenance(space, record.id)
                 if provenance is None:
-                    raise ValueError(
+                    raise ProvenanceIntegrityError(
                         f"Provenance missing for {record_type} '{record.id}' "
                         f"in MemorySpace '{space}'."
                     )
@@ -954,7 +969,7 @@ class ListRecordsService:
                     space=space, task_id=task.id
                 )
                 if provenance is None:
-                    raise ValueError(
+                    raise ProvenanceIntegrityError(
                         f"Provenance missing for task '{task.id}' "
                         f"in MemorySpace '{space}'."
                     )
@@ -976,7 +991,9 @@ class ListRecordsService:
         if until is not None:
             projections = [p for p in projections if p.creation_time < until]
 
-        projections.sort(key=lambda projection: projection.creation_time)
+        # Tie-break on id so records sharing a Creation Time order
+        # deterministically regardless of list_by_space order across backends.
+        projections.sort(key=lambda p: (p.creation_time, p.id))
         return projections[:limit]
 
 

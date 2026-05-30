@@ -287,6 +287,75 @@ class TestListRecordsService:
             "decision:2",
         ]
 
+    def test_missing_provenance_raises_integrity_error_not_value_error(self) -> None:
+        """A broken Provenance join is a store invariant violation, not bad input.
+
+        ``list_by_space`` can return a record whose ``get_provenance`` join is
+        missing (e.g. a graph node that outlived its Provenance relationship).
+        That is a data-integrity failure distinct from a caller passing an
+        unlistable ``type``, so it must raise ``ProvenanceIntegrityError`` rather
+        than the ``ValueError`` reserved for bad input.
+        """
+        import pytest
+
+        from memorable.core.application import (
+            ListRecordsService,
+            ProvenanceIntegrityError,
+        )
+        from memorable.core.context import ApplicationContext
+        from memorable.core.models import Decision
+        from memorable.core.repositories import InMemoryDecisionRepository
+
+        class MissingProvenanceDecisionRepo(InMemoryDecisionRepository):
+            def get_provenance(self, space: str, record_id: str):  # noqa: ARG002
+                return None
+
+        repo = MissingProvenanceDecisionRepo()
+        repo._records[(SPACE, "decision:orphan")] = Decision(
+            id="decision:orphan",
+            statement="Orphaned decision.",
+            space=SPACE,
+            validity_time=T1,
+            invalidation_time=None,
+            lifecycle_state="current",
+            supersedes=None,
+            superseded_by=None,
+        )
+        ctx = ApplicationContext(decision_repo=repo)
+        service = ListRecordsService(
+            decision_repo=ctx.decision_repo,
+            observation_repo=ctx.observation_repo,
+            relation_repo=ctx.relation_repo,
+            task_repo=ctx.task_repo,
+        )
+
+        with pytest.raises(ProvenanceIntegrityError):
+            service.list_records(space=SPACE)
+
+    def test_equal_creation_time_tie_breaks_by_id_ascending(self) -> None:
+        ctx = _make_context()
+        # Same Creation Time, inserted in reverse-id order so a stable sort
+        # alone would preserve insertion order. Only a (creation_time, id)
+        # key yields ascending ids.
+        _remember_decision(
+            ctx, decision_id="decision:c", statement="Third by id.", at=T1
+        )
+        _remember_decision(
+            ctx, decision_id="decision:b", statement="Second by id.", at=T1
+        )
+        _remember_decision(
+            ctx, decision_id="decision:a", statement="First by id.", at=T1
+        )
+        service = self._make_service(ctx)
+
+        projections = service.list_records(space=SPACE)
+
+        assert [p.id for p in projections] == [
+            "decision:a",
+            "decision:b",
+            "decision:c",
+        ]
+
 
 class TestListRecordsServiceTypeFilter:
     """ListRecordsService restricts listing to a single MemoryRecord type."""
