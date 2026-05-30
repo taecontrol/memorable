@@ -34,6 +34,7 @@ class VectorIndex(TypedDict):
     labelsOrTypes: NotRequired[list[str]]
     properties: list[str]
 
+
 NEO4J_CONNECTIVITY_HINT = (
     "Start Neo4j with 'memorable db start' or check .memorable/runtime.yaml."
 )
@@ -203,9 +204,7 @@ def run_diagnostics(
             }
         )
     else:
-        results.append(
-            {"check": "embedding_provider_builds", "ok": True, "hint": ""}
-        )
+        results.append({"check": "embedding_provider_builds", "ok": True, "hint": ""})
 
     if profile_path is None:
         profile_path = Path.cwd() / ".memorable" / "memory.yaml"
@@ -222,9 +221,7 @@ def run_diagnostics(
                 }
             )
         else:
-            results.append(
-                {"check": "memory_profile_parses", "ok": True, "hint": ""}
-            )
+            results.append({"check": "memory_profile_parses", "ok": True, "hint": ""})
 
     return results
 

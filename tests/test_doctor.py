@@ -63,9 +63,11 @@ def test_doctor_reports_neo4j_connectivity_pass() -> None:
         list_vector_indexes=lambda _config: EXPECTED_VECTOR_INDEXES,
     )
 
-    assert {result["check"]: result for result in results}[
-        "neo4j_connectivity"
-    ] == {"check": "neo4j_connectivity", "ok": True, "hint": ""}
+    assert {result["check"]: result for result in results}["neo4j_connectivity"] == {
+        "check": "neo4j_connectivity",
+        "ok": True,
+        "hint": "",
+    }
 
 
 def test_doctor_reports_schema_constraints_pass() -> None:
@@ -78,9 +80,11 @@ def test_doctor_reports_schema_constraints_pass() -> None:
         list_vector_indexes=lambda _config: EXPECTED_VECTOR_INDEXES,
     )
 
-    assert {result["check"]: result for result in results}[
-        "schema_constraints"
-    ] == {"check": "schema_constraints", "ok": True, "hint": ""}
+    assert {result["check"]: result for result in results}["schema_constraints"] == {
+        "check": "schema_constraints",
+        "ok": True,
+        "hint": "",
+    }
 
 
 def test_doctor_reports_schema_constraints_pass_with_generated_names() -> None:
@@ -98,9 +102,11 @@ def test_doctor_reports_schema_constraints_pass_with_generated_names() -> None:
         list_vector_indexes=lambda _config: EXPECTED_VECTOR_INDEXES,
     )
 
-    assert {result["check"]: result for result in results}[
-        "schema_constraints"
-    ] == {"check": "schema_constraints", "ok": True, "hint": ""}
+    assert {result["check"]: result for result in results}["schema_constraints"] == {
+        "check": "schema_constraints",
+        "ok": True,
+        "hint": "",
+    }
 
 
 def test_doctor_reports_schema_constraints_failure_with_hint() -> None:
@@ -117,9 +123,7 @@ def test_doctor_reports_schema_constraints_failure_with_hint() -> None:
         list_vector_indexes=lambda _config: EXPECTED_VECTOR_INDEXES,
     )
 
-    assert {result["check"]: result for result in results}[
-        "schema_constraints"
-    ] == {
+    assert {result["check"]: result for result in results}["schema_constraints"] == {
         "check": "schema_constraints",
         "ok": False,
         "hint": "Run 'memorable init' to bootstrap schema constraints.",
@@ -143,9 +147,7 @@ def test_doctor_reports_schema_constraints_failure_when_name_has_wrong_shape() -
         list_vector_indexes=lambda _config: EXPECTED_VECTOR_INDEXES,
     )
 
-    assert {result["check"]: result for result in results}[
-        "schema_constraints"
-    ] == {
+    assert {result["check"]: result for result in results}["schema_constraints"] == {
         "check": "schema_constraints",
         "ok": False,
         "hint": "Run 'memorable init' to bootstrap schema constraints.",
@@ -169,9 +171,7 @@ def test_doctor_reports_neo4j_connectivity_failure_with_hint() -> None:
         list_vector_indexes=lambda _config: EXPECTED_VECTOR_INDEXES,
     )
 
-    assert {result["check"]: result for result in results}[
-        "neo4j_connectivity"
-    ] == {
+    assert {result["check"]: result for result in results}["neo4j_connectivity"] == {
         "check": "neo4j_connectivity",
         "ok": False,
         "hint": expected_hint,
@@ -188,9 +188,11 @@ def test_doctor_reports_vector_index_pass() -> None:
         list_vector_indexes=lambda _config: EXPECTED_VECTOR_INDEXES,
     )
 
-    assert {result["check"]: result for result in results}[
-        "vector_index"
-    ] == {"check": "vector_index", "ok": True, "hint": ""}
+    assert {result["check"]: result for result in results}["vector_index"] == {
+        "check": "vector_index",
+        "ok": True,
+        "hint": "",
+    }
 
 
 def test_doctor_reports_vector_index_failure_with_hint() -> None:
@@ -290,9 +292,11 @@ def test_doctor_reports_memory_profile_parse_pass(tmp_path: Path) -> None:
         load_profile_from_yaml=lambda _yaml_text: object(),
     )
 
-    assert {result["check"]: result for result in results}[
-        "memory_profile_parses"
-    ] == {"check": "memory_profile_parses", "ok": True, "hint": ""}
+    assert {result["check"]: result for result in results}["memory_profile_parses"] == {
+        "check": "memory_profile_parses",
+        "ok": True,
+        "hint": "",
+    }
 
 
 def test_doctor_reports_memory_profile_parse_failure_with_hint(
@@ -317,9 +321,7 @@ def test_doctor_reports_memory_profile_parse_failure_with_hint(
         load_profile_from_yaml=fail,
     )
 
-    assert {result["check"]: result for result in results}[
-        "memory_profile_parses"
-    ] == {
+    assert {result["check"]: result for result in results}["memory_profile_parses"] == {
         "check": "memory_profile_parses",
         "ok": False,
         "hint": "Fix .memorable/memory.yaml so it is valid MemoryProfile YAML.",
