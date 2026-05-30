@@ -7,6 +7,7 @@ import {
   type SandboxRunResult,
 } from "@ai-hero/sandcastle";
 import { docker } from "@ai-hero/sandcastle/sandboxes/docker";
+import { Buffer } from "node:buffer";
 import { spawn } from "node:child_process";
 import { randomUUID } from "node:crypto";
 import { constants } from "node:fs";
@@ -265,9 +266,10 @@ async function main() {
       finalVerification,
     });
 
-    await runCommand("git", ["push", "-u", "origin", branch], {
+    await pushBranchWithGitHubToken({
+      repo: issueRef.repo,
+      branch,
       cwd: sandbox.worktreePath,
-      stream: true,
     });
 
     const draft = architectReview.status === "blocking_findings";
@@ -1376,6 +1378,36 @@ async function committedSliceCommits(
 
 async function gitStatus(cwd: string) {
   return (await runCommand("git", ["status", "--porcelain"], { cwd })).stdout;
+}
+
+async function pushBranchWithGitHubToken(args: {
+  repo: string;
+  branch: string;
+  cwd: string;
+}) {
+  const token = (await runCommand("gh", ["auth", "token"], { cwd: args.cwd })).stdout.trim();
+  if (!token) {
+    throw new Error("gh auth token returned no token; run gh auth login first.");
+  }
+
+  const auth = Buffer.from(`x-access-token:${token}`).toString("base64");
+  await runCommand(
+    "git",
+    [
+      "push",
+      `https://github.com/${args.repo}.git`,
+      `HEAD:refs/heads/${args.branch}`,
+    ],
+    {
+      cwd: args.cwd,
+      env: {
+        GIT_CONFIG_COUNT: "1",
+        GIT_CONFIG_KEY_0: "http.extraheader",
+        GIT_CONFIG_VALUE_0: `AUTHORIZATION: Basic ${auth}`,
+      },
+      stream: true,
+    },
+  );
 }
 
 async function includeUntrackedFilesInReviewDiff(cwd: string) {
