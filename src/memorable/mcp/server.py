@@ -15,6 +15,7 @@ from memorable.core.application import (
     InspectProvenanceService,
     InspectTaskService,
     InvalidateService,
+    ListRecordsService,
     PointInTimeTruthService,
     RememberDecisionService,
     RememberEntityService,
@@ -791,6 +792,52 @@ def inspect_task_tool(
             task.completion_time.isoformat() if task.completion_time else None
         ),
         "completion_event_id": task.completion_event_id,
+    }
+
+
+@mcp_server.tool(
+    name="memorable_list_records",
+    description=(
+        "Memory Review: deterministically list MemoryRecords in a MemorySpace. "
+        "Fans across Decision, Observation, Relation, and Task records "
+        "(Entities are excluded) and returns a compact projection "
+        "{id, type, label, lifecycle_state, creation_time} ordered by "
+        "Creation Time, capped by limit (default 50). Use this to answer state "
+        "questions like 'what is open?' or 'what did we do recently?'."
+    ),
+)
+def list_records_tool(
+    space: str,
+    limit: int = 50,
+) -> dict[str, object]:
+    """List MemoryRecords in a MemorySpace as a Memory Review projection.
+
+    Returns a dict with a ``records`` list on success, or an error dict.
+    """
+    service = ListRecordsService(
+        decision_repo=_context.decision_repo,
+        observation_repo=_context.observation_repo,
+        relation_repo=_context.relation_repo,
+        task_repo=_context.task_repo,
+    )
+
+    try:
+        projections = service.list_records(space=space, limit=limit)
+    except ValueError as e:
+        return {"error": str(e)}
+
+    return {
+        "space": space,
+        "records": [
+            {
+                "id": projection.id,
+                "type": projection.type,
+                "label": projection.label,
+                "lifecycle_state": projection.lifecycle_state,
+                "creation_time": projection.creation_time.isoformat(),
+            }
+            for projection in projections
+        ],
     }
 
 

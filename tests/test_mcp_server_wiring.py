@@ -66,13 +66,14 @@ EXPECTED_TOOL_NAMES = {
     "memorable_inspect_task",
     "memorable_invalidate",
     "memorable_correct",
+    "memorable_list_records",
 }
 
 
 class TestToolRegistration:
-    def test_all_17_tools_registered(self) -> None:
+    def test_all_18_tools_registered(self) -> None:
         tool_names = _list_tool_names()
-        assert len(tool_names) == 17
+        assert len(tool_names) == 18
 
     def test_all_expected_tool_names_present(self) -> None:
         tool_names = _list_tool_names()
