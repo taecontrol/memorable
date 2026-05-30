@@ -65,3 +65,16 @@ Revisit this decision if:
 - A query pattern emerges that is too expensive to express without pushing logic into the storage layer.
 
 In those cases, specific hot-path queries can be pushed down to the repository as optimized methods without reverting the general principle.
+
+## Amendments
+
+### 2026-05-30: Memory Review listing pushdown (first sanctioned exception)
+
+Memory Review's listing primitive (`ListRecordsService`) is the first query pattern to invoke the Reconsideration Trigger above. It fanned across every MemoryRecord type, materialized the entire MemorySpace, then filtered, sorted, and sliced `limit` in Python, issuing one `get_provenance` call per record (N+1). Correct for in-memory repositories; against Neo4j it loads the whole space and runs one Provenance query per record regardless of `limit`.
+
+This pushdown is sanctioned, with a deliberate boundary that keeps the ADR's intent intact:
+
+- **What is pushed down.** A flat projection query per record type: filter by Lifecycle State and a Creation-Time window, join Provenance for Creation Time, order by Creation Time, and bound by `limit`. This is stored-property filter/sort/limit that every backend expresses natively — not temporal reconstruction.
+- **What stays in the service.** Cross-type semantics — the global Creation-Time merge across the per-type results, the deterministic `(creation_time, id)` tie-break, type validation, and the Entity exclusion — remain in `ListRecordsService`. The most divergence-prone logic stays in one tested place; each type query returns its own top-`limit`, and the service does a bounded k-way merge.
+
+This distinction is load-bearing: ADR 0009 guards against duplicating *temporal-reconstruction* logic (chain-walking, point-in-time projection) across adapters. Duplicating trivial filter/sort/limit is categorically lower risk and is mitigated by a shared repository contract test that both the in-memory and Neo4j adapters must pass. Note that pushing Creation-Time ordering/window into the store relies on canonical, UTC, zero-padded ISO-8601 timestamps so that string comparison in Cypher agrees with `datetime` comparison in memory.
