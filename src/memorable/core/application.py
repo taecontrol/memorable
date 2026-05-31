@@ -952,11 +952,13 @@ class ListRecordsService:
         observation_repo: ObservationRepository,
         relation_repo: RelationRepository,
         task_repo: TaskRepository,
+        about_repo: AboutRepository | None = None,
     ) -> None:
         self._decision_repo = decision_repo
         self._observation_repo = observation_repo
         self._relation_repo = relation_repo
         self._task_repo = task_repo
+        self._about_repo = about_repo
 
     def list_records(
         self,
@@ -966,6 +968,7 @@ class ListRecordsService:
         state: str | None = None,
         since: datetime | None = None,
         until: datetime | None = None,
+        about: str | None = None,
         limit: int = 50,
     ) -> list[RecordProjection]:
         """List MemoryRecords in the space as projections, ordered by Creation Time.
@@ -981,8 +984,10 @@ class ListRecordsService:
         ``until`` an exclusive upper bound. Either bound may be omitted;
         omitting both lists records of any Creation Time.
 
-        All filters (``type``, ``state``, ``since``, ``until``) combine with
-        AND. Returns at most ``limit`` projections (default 50).
+        When ``about`` is given, only records linked to that Entity by About are
+        listed. All filters (``type``, ``state``, ``since``, ``until``,
+        ``about``) combine with AND. Returns at most ``limit`` projections
+        (default 50).
 
         Raises:
             ValueError: if ``type`` is not a listable MemoryRecord type (e.g.
@@ -996,6 +1001,14 @@ class ListRecordsService:
                 f"Valid types: {list(self.RECORD_TYPES)} (or omit for all). "
                 f"Entities are not MemoryRecords and are excluded."
             )
+
+        record_ids: set[str] | None = None
+        if about is not None:
+            if self._about_repo is None:
+                raise ValueError("AboutRepository is required for an about filter.")
+            record_ids = set(self._about_repo.records_for_entity(space, about))
+            if not record_ids:
+                return []
 
         repos = (
             ("decision", self._decision_repo),
@@ -1015,6 +1028,7 @@ class ListRecordsService:
                 since=since,
                 until=until,
                 limit=limit,
+                record_ids=record_ids,
             )
             if not stream:
                 continue

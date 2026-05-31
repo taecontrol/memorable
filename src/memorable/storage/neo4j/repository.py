@@ -65,6 +65,7 @@ def _list_projections_by_space(
     since: datetime | None,
     until: datetime | None,
     limit: int,
+    record_ids: set[str] | None = None,
 ) -> list[RecordProjection]:
     """Return one record type's projections filtered and ordered by Creation Time.
 
@@ -77,7 +78,8 @@ def _list_projections_by_space(
     """
     query = (
         f"MATCH (record:{storage_label} {{space: $space}}) "
-        "WHERE ($state IS NULL OR record.lifecycle_state = $state) "
+        "WHERE ($record_ids IS NULL OR record.id IN $record_ids) "
+        "  AND ($state IS NULL OR record.lifecycle_state = $state) "
         "OPTIONAL MATCH (p:Provenance)-[:PROVENANCE_OF]->(record) "
         "WITH record, p "
         "WHERE ($since IS NULL OR p.creation_time >= $since) "
@@ -97,6 +99,7 @@ def _list_projections_by_space(
             since=_to_iso(since),
             until=_to_iso(until),
             limit=limit,
+            record_ids=sorted(record_ids) if record_ids is not None else None,
         )
         projections: list[RecordProjection] = []
         for record in result:
@@ -512,6 +515,7 @@ class Neo4jDecisionRepository:
         since: datetime | None,
         until: datetime | None,
         limit: int,
+        record_ids: set[str] | None = None,
     ) -> list[RecordProjection]:
         """Return Decision projections filtered and ordered by Creation Time."""
         return _list_projections_by_space(
@@ -524,6 +528,7 @@ class Neo4jDecisionRepository:
             since=since,
             until=until,
             limit=limit,
+            record_ids=record_ids,
         )
 
     def mark_superseded(
@@ -762,6 +767,7 @@ class Neo4jObservationRepository:
         since: datetime | None,
         until: datetime | None,
         limit: int,
+        record_ids: set[str] | None = None,
     ) -> list[RecordProjection]:
         """Return Observation projections filtered and ordered by Creation Time."""
         return _list_projections_by_space(
@@ -774,6 +780,7 @@ class Neo4jObservationRepository:
             since=since,
             until=until,
             limit=limit,
+            record_ids=record_ids,
         )
 
     def mark_superseded(
@@ -1028,6 +1035,7 @@ class Neo4jTaskRepository:
         since: datetime | None,
         until: datetime | None,
         limit: int,
+        record_ids: set[str] | None = None,
     ) -> list[RecordProjection]:
         """Return Task projections filtered and ordered by Creation Time."""
         return _list_projections_by_space(
@@ -1040,6 +1048,7 @@ class Neo4jTaskRepository:
             since=since,
             until=until,
             limit=limit,
+            record_ids=record_ids,
         )
 
 
@@ -1221,6 +1230,7 @@ class Neo4jRelationRepository:
         since: datetime | None,
         until: datetime | None,
         limit: int,
+        record_ids: set[str] | None = None,
     ) -> list[RecordProjection]:
         """Return Relation projections filtered and ordered by Creation Time."""
         return _list_projections_by_space(
@@ -1233,6 +1243,7 @@ class Neo4jRelationRepository:
             since=since,
             until=until,
             limit=limit,
+            record_ids=record_ids,
         )
 
     def mark_superseded(

@@ -187,6 +187,7 @@ class DecisionRepository(Protocol):
         since: datetime | None,
         until: datetime | None,
         limit: int,
+        record_ids: set[str] | None = None,
     ) -> list[RecordProjection]:
         """Return Decision projections filtered and ordered by Creation Time."""
         ...
@@ -233,6 +234,7 @@ class ObservationRepository(Protocol):
         since: datetime | None,
         until: datetime | None,
         limit: int,
+        record_ids: set[str] | None = None,
     ) -> list[RecordProjection]:
         """Return Observation projections filtered and ordered by Creation Time."""
         ...
@@ -279,6 +281,7 @@ class RelationRepository(Protocol):
         since: datetime | None,
         until: datetime | None,
         limit: int,
+        record_ids: set[str] | None = None,
     ) -> list[RecordProjection]:
         """Return Relation projections filtered and ordered by Creation Time."""
         ...
@@ -336,6 +339,7 @@ class TaskRepository(Protocol):
         since: datetime | None,
         until: datetime | None,
         limit: int,
+        record_ids: set[str] | None = None,
     ) -> list[RecordProjection]:
         """Return Task projections filtered and ordered by Creation Time."""
         ...

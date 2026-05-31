@@ -133,12 +133,15 @@ class InMemoryTemporalRepository[T: TemporalRecord]:
         since: datetime | None,
         until: datetime | None,
         limit: int,
+        record_ids: set[str] | None,
         record_type: str,
         label: Callable[[T], str],
     ) -> list[RecordProjection]:
         candidates: list[_ProjectionCandidate] = []
         for (record_space, _), record in self._records.items():
             if record_space != space:
+                continue
+            if record_ids is not None and record.id not in record_ids:
                 continue
             if state is not None and record.lifecycle_state != state:
                 continue
@@ -309,6 +312,7 @@ class InMemoryDecisionRepository(InMemoryTemporalRepository[Decision]):
         since: datetime | None,
         until: datetime | None,
         limit: int,
+        record_ids: set[str] | None = None,
     ) -> list[RecordProjection]:
         return self._list_record_projections_by_space(
             space=space,
@@ -316,6 +320,7 @@ class InMemoryDecisionRepository(InMemoryTemporalRepository[Decision]):
             since=since,
             until=until,
             limit=limit,
+            record_ids=record_ids,
             record_type="decision",
             label=lambda decision: decision.statement,
         )
@@ -339,6 +344,7 @@ class InMemoryObservationRepository(InMemoryTemporalRepository[Observation]):
         since: datetime | None,
         until: datetime | None,
         limit: int,
+        record_ids: set[str] | None = None,
     ) -> list[RecordProjection]:
         return self._list_record_projections_by_space(
             space=space,
@@ -346,6 +352,7 @@ class InMemoryObservationRepository(InMemoryTemporalRepository[Observation]):
             since=since,
             until=until,
             limit=limit,
+            record_ids=record_ids,
             record_type="observation",
             label=lambda observation: observation.statement,
         )
@@ -370,6 +377,7 @@ class InMemoryRelationRepository(InMemoryTemporalRepository[Relation]):
         since: datetime | None,
         until: datetime | None,
         limit: int,
+        record_ids: set[str] | None = None,
     ) -> list[RecordProjection]:
         return self._list_record_projections_by_space(
             space=space,
@@ -377,6 +385,7 @@ class InMemoryRelationRepository(InMemoryTemporalRepository[Relation]):
             since=since,
             until=until,
             limit=limit,
+            record_ids=record_ids,
             record_type="relation",
             label=lambda relation: relation.statement,
         )
@@ -418,10 +427,13 @@ class InMemoryTaskRepository:
         since: datetime | None,
         until: datetime | None,
         limit: int,
+        record_ids: set[str] | None = None,
     ) -> list[RecordProjection]:
         candidates: list[_ProjectionCandidate] = []
         for (record_space, _), task in self._tasks.items():
             if record_space != space:
+                continue
+            if record_ids is not None and task.id not in record_ids:
                 continue
             if state is not None and task.lifecycle_state != state:
                 continue
