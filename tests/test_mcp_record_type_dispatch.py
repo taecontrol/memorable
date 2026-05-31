@@ -3,6 +3,7 @@
 Verifies:
 - Returns DecisionRepository for record_type "decision"
 - Returns ObservationRepository for record_type "observation"
+- Returns TaskRepository for record_type "task"
 - Returns a structured error dict for unknown record_type values
 - Error dict shape matches the established convention
 """
@@ -43,6 +44,10 @@ class TestResolveRepositoryHappyPath:
         result = _resolve_repository("relation")
         assert isinstance(result, TemporalRecordRepository)
 
+    def test_returns_task_repo_for_task(self) -> None:
+        result = _resolve_repository("task")
+        assert result is self.ctx.task_repo
+
 
 class TestResolveRepositoryErrorPath:
     def setup_method(self) -> None:
@@ -68,7 +73,7 @@ class TestResolveRepositoryErrorPath:
         result = _resolve_repository("nope")
         expected = {
             "error": "Unknown record_type 'nope'. "
-            "Supported types: decision, observation, relation."
+            "Supported types: decision, observation, relation, task."
         }
         assert result == expected
 

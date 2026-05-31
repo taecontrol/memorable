@@ -66,13 +66,14 @@ def _resolve_repository(
         "decision": lambda: _context.decision_repo,
         "observation": lambda: _context.observation_repo,
         "relation": lambda: _context.relation_repo,
+        "task": lambda: _context.task_repo,
     }
     accessor = repos.get(record_type)
     if accessor is not None:
         return accessor()
     return {
         "error": f"Unknown record_type '{record_type}'. "
-        f"Supported types: decision, observation, relation."
+        f"Supported types: decision, observation, relation, task."
     }
 
 
@@ -990,17 +991,17 @@ def invalidate_tool(
         "create the Entity first. About is membership, not a Relation claim. "
         "About is correctable through this tool. "
         "Accepts record_type to select the repository "
-        "(decision, observation, relation). Use record_type='task' only to "
-        "correct About membership on a Task."
+        "(decision, observation, relation, task). Task supports About "
+        "membership correction only."
     ),
 )
 def correct_tool(
     space: str,
     record_id: str,
     record_type: str,
-    new_statement: str,
     source: str,
     at: str,
+    new_statement: str | None = None,
     reason: str = "",
     writer: str = "agent:memorable",
     about: list[str] | None = None,
@@ -1010,10 +1011,12 @@ def correct_tool(
     Args:
         space: MemorySpace containing the record.
         record_id: ID of the record to correct.
-        record_type: Type of record ("decision" or "observation").
-        new_statement: The corrected statement.
+        record_type: Type of record ("decision", "observation", "relation", or
+            "task").
         source: Source ID for the correction provenance.
         at: ISO timestamp for the correction.
+        new_statement: The corrected statement. Optional when about is provided;
+            omission keeps the current statement/title and only re-staples About.
         reason: Optional reason for the correction.
         writer: Identity of the agent or user making the correction.
         about: Optional Entity ids to replace this record's About links with.
@@ -1026,7 +1029,14 @@ def correct_tool(
     )
     timestamp = parse_iso_timestamp(at)
 
+    if new_statement is None and about is None:
+        return {"error": "new_statement is required unless about is provided."}
+
     if record_type == "task":
+        task_statement = new_statement
+        if task_statement is None:
+            task = _context.task_repo.get(space=space, task_id=record_id)
+            task_statement = task.title if task is not None else ""
         task_service = CorrectTaskService(
             repository=_context.task_repo,
             about_linker=about_linker,
@@ -1035,7 +1045,7 @@ def correct_tool(
             result = task_service.correct(
                 space=space,
                 task_id=record_id,
-                new_statement=new_statement,
+                new_statement=task_statement,
                 source=source,
                 writer=writer,
                 at=timestamp,
@@ -1057,11 +1067,16 @@ def correct_tool(
 
     service = CorrectService(repository=resolved, about_linker=about_linker)
 
+    corrected_statement = new_statement
+    if corrected_statement is None:
+        record = resolved.get(space, record_id)
+        corrected_statement = record.statement if record is not None else ""
+
     try:
         result = service.correct(
             space=space,
             record_id=record_id,
-            new_statement=new_statement,
+            new_statement=corrected_statement,
             record_kind=record_type,
             source=source,
             writer=writer,

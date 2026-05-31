@@ -239,6 +239,64 @@ class TestCallToolSuccessPath:
         _, structured = result
         assert structured["result"] == expected
 
+    def test_correct_task_about_only_omits_new_statement(self) -> None:
+        from memorable.core.context import default_context
+        from memorable.mcp.server import set_mcp_context
+
+        default_context.reset()
+        set_mcp_context(default_context)
+        _call_tool(
+            "memorable_remember_entity",
+            {
+                "space": "memorable",
+                "entity_id": "entity:wrong",
+                "entity_type": "Project",
+                "name": "Wrong",
+                "source": "source:test",
+                "at": "2026-05-31T09:00:00Z",
+            },
+        )
+        _call_tool(
+            "memorable_remember_entity",
+            {
+                "space": "memorable",
+                "entity_id": "entity:right",
+                "entity_type": "Project",
+                "name": "Right",
+                "source": "source:test",
+                "at": "2026-05-31T09:01:00Z",
+            },
+        )
+        _call_tool(
+            "memorable_remember_task",
+            {
+                "space": "memorable",
+                "task_id": "task:about-only",
+                "title": "Correct About only.",
+                "source": "source:test",
+                "at": "2026-05-31T09:02:00Z",
+                "about": ["entity:wrong"],
+            },
+        )
+
+        _, structured = _call_tool(
+            "memorable_correct",
+            {
+                "space": "memorable",
+                "record_id": "task:about-only",
+                "record_type": "task",
+                "source": "source:correction",
+                "at": "2026-05-31T10:00:00Z",
+                "about": ["entity:right"],
+            },
+        )
+
+        assert "error" not in structured
+        assert structured["new_statement"] == "Correct About only."
+        assert default_context.about_repo.entities_for_record(
+            "memorable", "task:about-only"
+        ) == ["entity:right"]
+
 
 class TestCallToolErrorPath:
     def setup_method(self) -> None:

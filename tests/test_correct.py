@@ -898,6 +898,57 @@ class TestMCPCorrectTool:
         assert provenance.writer == "human:reviewer"
         assert provenance.creation_time == CORRECTION_TIMESTAMP
 
+    def test_correct_restaples_task_about_edges_without_new_statement_via_mcp(
+        self,
+    ) -> None:
+        from memorable.core.context import default_context
+        from memorable.mcp.server import (
+            correct_tool,
+            remember_entity_tool,
+            remember_task_tool,
+        )
+
+        remember_entity_tool(
+            space="memorable",
+            entity_id="entity:wrong",
+            entity_type="Project",
+            name="Wrong",
+            source=SOURCE_ID,
+            at="2026-05-25T09:00:00Z",
+        )
+        remember_entity_tool(
+            space="memorable",
+            entity_id="entity:right",
+            entity_type="Project",
+            name="Right",
+            source=SOURCE_ID,
+            at="2026-05-25T09:01:00Z",
+        )
+        remember_task_tool(
+            space="memorable",
+            task_id="task:about-only",
+            title="Verify About-only correction.",
+            source=SOURCE_ID,
+            at="2026-05-25T09:02:00Z",
+            about=["entity:wrong"],
+        )
+
+        result = correct_tool(
+            space="memorable",
+            record_id="task:about-only",
+            record_type="task",
+            source=CORRECTION_SOURCE_ID,
+            at="2026-05-25T10:00:00Z",
+            about=["entity:right"],
+        )
+
+        assert "error" not in result
+        assert result["old_statement"] == "Verify About-only correction."
+        assert result["new_statement"] == "Verify About-only correction."
+        assert default_context.about_repo.entities_for_record(
+            "memorable", "task:about-only"
+        ) == ["entity:right"]
+
     def test_correct_task_about_missing_entity_fails_loud_via_mcp(self) -> None:
         from memorable.core.context import default_context
         from memorable.mcp.server import (
