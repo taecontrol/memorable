@@ -7,6 +7,7 @@ from mcp.server.fastmcp import FastMCP
 
 from memorable.config import load_runtime_config
 from memorable.core.application import (
+    AboutLinker,
     CompleteTaskService,
     CorrectService,
     CurrentTruthService,
@@ -228,7 +229,10 @@ def remember_entity_tool(
     name="memorable_remember_decision",
     description=(
         "Remember a Decision with Provenance in a MemorySpace. "
-        "Supports Supersession to replace an earlier Decision."
+        "Supports Supersession to replace an earlier Decision. "
+        "Optional about links staple the Decision to existing Entities it "
+        "concerns; create the Entity first. About is membership, not a "
+        "Relation claim."
     ),
 )
 def remember_decision_tool(
@@ -238,6 +242,7 @@ def remember_decision_tool(
     source: str,
     at: str,
     supersedes: str | None = None,
+    about: list[str] | None = None,
     writer: str = "agent:memorable",
     reason: str = "",
 ) -> dict[str, object]:
@@ -251,8 +256,14 @@ def remember_decision_tool(
     except ProfileValidationError as e:
         return {"error": str(e)}
 
+    about_linker = AboutLinker(
+        entity_repo=_context.entity_repo,
+        about_repo=_context.about_repo,
+    )
     service = RememberDecisionService(
-        repository=_context.decision_repo, profile=profile
+        repository=_context.decision_repo,
+        profile=profile,
+        about_linker=about_linker,
     )
 
     timestamp = parse_iso_timestamp(at)
@@ -267,6 +278,7 @@ def remember_decision_tool(
             writer=writer,
             reason=reason,
             supersedes=supersedes,
+            about=about,
         )
     except ValueError as e:
         return {"error": str(e)}
@@ -289,7 +301,10 @@ def remember_decision_tool(
     name="memorable_remember_observation",
     description=(
         "Remember an Observation with Provenance in a MemorySpace. "
-        "Supports Supersession to replace an earlier Observation."
+        "Supports Supersession to replace an earlier Observation. "
+        "Optional about links staple the Observation to existing Entities it "
+        "concerns; create the Entity first. About is membership, not a "
+        "Relation claim."
     ),
 )
 def remember_observation_tool(
@@ -299,6 +314,7 @@ def remember_observation_tool(
     source: str,
     at: str,
     supersedes: str | None = None,
+    about: list[str] | None = None,
     writer: str = "agent:memorable",
     reason: str = "",
 ) -> dict[str, object]:
@@ -312,8 +328,14 @@ def remember_observation_tool(
     except ProfileValidationError as e:
         return {"error": str(e)}
 
+    about_linker = AboutLinker(
+        entity_repo=_context.entity_repo,
+        about_repo=_context.about_repo,
+    )
     service = RememberObservationService(
-        repository=_context.observation_repo, profile=profile
+        repository=_context.observation_repo,
+        profile=profile,
+        about_linker=about_linker,
     )
 
     timestamp = parse_iso_timestamp(at)
@@ -328,6 +350,7 @@ def remember_observation_tool(
             writer=writer,
             reason=reason,
             supersedes=supersedes,
+            about=about,
         )
     except ValueError as e:
         return {"error": str(e)}
@@ -603,7 +626,10 @@ def inspect_provenance_tool(
     name="memorable_remember_task",
     description=(
         "Remember a Task with Provenance in a MemorySpace. "
-        "Tasks have a Lifecycle State and support completion transitions."
+        "Tasks have a Lifecycle State and support completion transitions. "
+        "Optional about links staple the Task to existing Entities it "
+        "concerns; create the Entity first. About is membership, not a "
+        "Relation claim."
     ),
 )
 def remember_task_tool(
@@ -612,6 +638,7 @@ def remember_task_tool(
     title: str,
     source: str,
     at: str,
+    about: list[str] | None = None,
     writer: str = "agent:memorable",
     reason: str = "",
 ) -> dict[str, object]:
@@ -625,7 +652,15 @@ def remember_task_tool(
     except ProfileValidationError as e:
         return {"error": str(e)}
 
-    service = RememberTaskService(repository=_context.task_repo, profile=profile)
+    about_linker = AboutLinker(
+        entity_repo=_context.entity_repo,
+        about_repo=_context.about_repo,
+    )
+    service = RememberTaskService(
+        repository=_context.task_repo,
+        profile=profile,
+        about_linker=about_linker,
+    )
 
     timestamp = parse_iso_timestamp(at)
 
@@ -638,6 +673,7 @@ def remember_task_tool(
             at=timestamp,
             writer=writer,
             reason=reason,
+            about=about,
         )
     except ValueError as e:
         return {"error": str(e)}

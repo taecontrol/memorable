@@ -16,6 +16,7 @@ from memorable.core.models import (
     Task,
 )
 from memorable.core.ports import (
+    AboutRepository,
     DecisionRepository,
     EntityRepository,
     MemorySpaceRepository,
@@ -179,6 +180,57 @@ class RememberEntityService:
         return RememberEntityResult(entity=entity, provenance=provenance)
 
 
+class AboutLinker:
+    """Application service that owns About write behavior."""
+
+    def __init__(
+        self,
+        *,
+        entity_repo: EntityRepository,
+        about_repo: AboutRepository,
+    ) -> None:
+        self._entity_repo = entity_repo
+        self._about_repo = about_repo
+
+    def link(self, *, space: str, record_id: str, entity_ids: list[str]) -> None:
+        """Link a MemoryRecord to existing Entities it is about.
+
+        Raises ValueError if any target Entity is missing. No About links are
+        written unless every target exists.
+        """
+        self._verify_entities_exist(space=space, entity_ids=entity_ids)
+        self._about_repo.link(space, record_id, entity_ids)
+
+    def restaple(self, *, space: str, record_id: str, entity_ids: list[str]) -> None:
+        """Replace all About links for a MemoryRecord after verification."""
+        self._verify_entities_exist(space=space, entity_ids=entity_ids)
+        self._about_repo.unlink(space, record_id)
+        self._about_repo.link(space, record_id, entity_ids)
+
+    def _verify_entities_exist(self, *, space: str, entity_ids: list[str]) -> None:
+        for entity_id in entity_ids:
+            if self._entity_repo.get(space, entity_id) is None:
+                raise ValueError(
+                    f"About target Entity '{entity_id}' not found "
+                    f"in MemorySpace '{space}'. Create the Entity before "
+                    "linking a MemoryRecord to it."
+                )
+
+
+def _link_about(
+    about_linker: AboutLinker | None,
+    *,
+    space: str,
+    record_id: str,
+    about: list[str] | None,
+) -> None:
+    if not about:
+        return
+    if about_linker is None:
+        raise ValueError("AboutLinker is required to write About links.")
+    about_linker.link(space=space, record_id=record_id, entity_ids=about)
+
+
 @dataclass(frozen=True)
 class RememberDecisionResult:
     """Result of remembering a Decision with provenance."""
@@ -203,9 +255,15 @@ class RememberDecisionService:
     When supersedes is provided, marks the old decision as superseded.
     """
 
-    def __init__(self, repository: DecisionRepository, profile: MemoryProfile) -> None:
+    def __init__(
+        self,
+        repository: DecisionRepository,
+        profile: MemoryProfile,
+        about_linker: AboutLinker | None = None,
+    ) -> None:
         self._repository = repository
         self._profile = profile
+        self._about_linker = about_linker
 
     def remember(
         self,
@@ -218,6 +276,7 @@ class RememberDecisionService:
         writer: str = "agent:memorable",
         reason: str = "",
         supersedes: str | None = None,
+        about: list[str] | None = None,
     ) -> RememberDecisionResult:
         """Create provenance and persist the Decision.
 
@@ -257,6 +316,13 @@ class RememberDecisionService:
                 invalidation_time=at,
             )
 
+        _link_about(
+            self._about_linker,
+            space=space,
+            record_id=decision_id,
+            about=about,
+        )
+
         return RememberDecisionResult(decision=decision, provenance=provenance)
 
 
@@ -286,9 +352,11 @@ class RememberObservationService:
         self,
         repository: ObservationRepository,
         profile: MemoryProfile,
+        about_linker: AboutLinker | None = None,
     ) -> None:
         self._repository = repository
         self._profile = profile
+        self._about_linker = about_linker
 
     def remember(
         self,
@@ -301,6 +369,7 @@ class RememberObservationService:
         writer: str = "agent:memorable",
         reason: str = "",
         supersedes: str | None = None,
+        about: list[str] | None = None,
     ) -> RememberObservationResult:
         """Create provenance and persist the Observation.
 
@@ -339,6 +408,13 @@ class RememberObservationService:
                 superseded_by=observation_id,
                 invalidation_time=at,
             )
+
+        _link_about(
+            self._about_linker,
+            space=space,
+            record_id=observation_id,
+            about=about,
+        )
 
         return RememberObservationResult(observation=observation, provenance=provenance)
 
@@ -739,9 +815,15 @@ class RememberTaskService:
     project-specific by definition and must be declared in the MemoryProfile.
     """
 
-    def __init__(self, repository: TaskRepository, profile: MemoryProfile) -> None:
+    def __init__(
+        self,
+        repository: TaskRepository,
+        profile: MemoryProfile,
+        about_linker: AboutLinker | None = None,
+    ) -> None:
         self._repository = repository
         self._profile = profile
+        self._about_linker = about_linker
 
     def remember(
         self,
@@ -753,6 +835,7 @@ class RememberTaskService:
         at: datetime,
         writer: str = "agent:memorable",
         reason: str = "",
+        about: list[str] | None = None,
     ) -> RememberTaskResult:
         """Create provenance and persist the Task.
 
@@ -782,6 +865,13 @@ class RememberTaskService:
         )
 
         self._repository.save(task, provenance)
+
+        _link_about(
+            self._about_linker,
+            space=space,
+            record_id=task_id,
+            about=about,
+        )
 
         return RememberTaskResult(task=task, provenance=provenance)
 
