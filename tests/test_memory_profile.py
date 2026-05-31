@@ -178,8 +178,88 @@ def test_profile_with_supported_description_keys_loads() -> None:
 
     assert profile.space.name == "memorable"
     assert profile.entities[0].name == "Project"
+    assert profile.entities[0].description == "A remembered project"
     assert profile.relations[0].name == "depends_on"
+    assert profile.relations[0].description == "Dependency between entities"
     assert profile.records[0].name == "ArchitectureDecision"
+    assert profile.records[0].description == "Chosen architecture direction"
+
+
+def test_profile_summary_includes_type_descriptions() -> None:
+    """The shared profile summary surfaces type documentation."""
+    from memorable.core.profile import load_profile_from_yaml, profile_summary
+
+    yaml_text = textwrap.dedent("""\
+        version: 1
+        space:
+          name: memorable
+          description: Agent memory system design
+        entities:
+          - name: Project
+            description: A remembered project
+        relations:
+          - name: depends_on
+            description: Dependency between entities
+        records:
+          - name: ArchitectureDecision
+            extends: Decision
+            description: Chosen architecture direction
+    """)
+
+    profile = load_profile_from_yaml(yaml_text)
+
+    assert profile_summary(profile) == {
+        "space_name": "memorable",
+        "description": "Agent memory system design",
+        "entity_count": 1,
+        "record_count": 1,
+        "relation_count": 1,
+        "entities": [
+            {"name": "Project", "description": "A remembered project"},
+        ],
+        "relations": [
+            {"name": "depends_on", "description": "Dependency between entities"},
+        ],
+        "records": [
+            {
+                "name": "ArchitectureDecision",
+                "extends": "Decision",
+                "description": "Chosen architecture direction",
+            },
+        ],
+    }
+
+
+def test_profile_summary_defaults_missing_type_descriptions_to_empty_string() -> None:
+    """Profiles without type descriptions still summarize with empty descriptions."""
+    from memorable.core.profile import load_profile_from_yaml, profile_summary
+
+    yaml_text = textwrap.dedent("""\
+        version: 1
+        space:
+          name: memorable
+        entities:
+          - name: Project
+        relations:
+          - name: depends_on
+        records:
+          - name: ArchitectureDecision
+            extends: Decision
+    """)
+
+    profile = load_profile_from_yaml(yaml_text)
+
+    summary = profile_summary(profile)
+
+    assert summary["entities"] == [
+        {"name": "Project", "description": ""},
+    ]
+    assert summary["relations"] == [
+        {"name": "depends_on", "description": ""},
+    ]
+    assert summary["records"] == [
+        {"name": "ArchitectureDecision", "extends": "Decision", "description": ""},
+    ]
 
 
 def test_missing_version_raises_validation_error() -> None:
@@ -582,5 +662,13 @@ class TestMCPInit:
         assert result["space_name"] == "memorable"
         assert result["entity_count"] == 2
         assert result["record_count"] == 2
+        assert result["entities"] == [
+            {"name": "Project", "description": ""},
+            {"name": "Component", "description": ""},
+        ]
+        assert result["records"] == [
+            {"name": "ArchitectureDecision", "extends": "Decision", "description": ""},
+            {"name": "OpenQuestion", "extends": "Observation", "description": ""},
+        ]
         assert "write_policy_default" not in result
         assert "write_policy_sensitive" not in result

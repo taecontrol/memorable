@@ -25,12 +25,16 @@ space:
   description: Test space for relation CLI
 entities:
   - name: Component
+    description: Deployable part of the system
 records:
   - name: GeneralObservation
     extends: Observation
+    description: General project observation
 relations:
   - name: depends-on
+    description: Source depends on target
   - name: owns
+    description: Source owns target
 """
 
 
@@ -430,7 +434,10 @@ class TestProfileShowRelationTypes:
         result = inspect_space_tool(str(tmp_path))
 
         assert "relations" in result
-        assert result["relations"] == ["depends-on", "owns"]
+        assert result["relations"] == [
+            {"name": "depends-on", "description": "Source depends on target"},
+            {"name": "owns", "description": "Source owns target"},
+        ]
         assert result["relation_count"] == 2
 
     def test_cli_profile_show_includes_relation_types(
@@ -447,7 +454,10 @@ class TestProfileShowRelationTypes:
         assert rc == 0
         output = json.loads(capsys.readouterr().out)
         assert "relations" in output
-        assert output["relations"] == ["depends-on", "owns"]
+        assert output["relations"] == [
+            {"name": "depends-on", "description": "Source depends on target"},
+            {"name": "owns", "description": "Source owns target"},
+        ]
         assert "write_policy_default" not in output
         assert "write_policy_sensitive" not in output
 
@@ -462,7 +472,10 @@ class TestProfileShowRelationTypes:
         assert rc == 0
         output = json.loads(capsys.readouterr().out)
         assert output["space_name"] == "test-space"
-        assert output["relations"] == ["depends-on", "owns"]
+        assert output["relations"] == [
+            {"name": "depends-on", "description": "Source depends on target"},
+            {"name": "owns", "description": "Source owns target"},
+        ]
 
     def test_cli_profile_show_fails_when_no_profile_exists(
         self, tmp_path: Path, capsys

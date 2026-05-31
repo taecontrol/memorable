@@ -41,6 +41,7 @@ class EntityDeclaration:
     """A project-specific entity type declared in a MemoryProfile."""
 
     name: str
+    description: str = ""
 
 
 @dataclass(frozen=True)
@@ -48,6 +49,7 @@ class RelationDeclaration:
     """A project-specific relation type declared in a MemoryProfile."""
 
     name: str
+    description: str = ""
 
 
 @dataclass(frozen=True)
@@ -56,6 +58,7 @@ class RecordDeclaration:
 
     name: str
     extends: str
+    description: str = ""
 
 
 @dataclass(frozen=True)
@@ -99,15 +102,21 @@ def load_profile_from_yaml(yaml_text: str) -> MemoryProfile:
     )
 
     entities = tuple(
-        EntityDeclaration(name=e["name"]) for e in data.get("entities", [])
+        EntityDeclaration(name=e["name"], description=e.get("description", ""))
+        for e in data.get("entities", [])
     )
 
     relations = tuple(
-        RelationDeclaration(name=r["name"]) for r in data.get("relations", [])
+        RelationDeclaration(name=r["name"], description=r.get("description", ""))
+        for r in data.get("relations", [])
     )
 
     records = tuple(
-        RecordDeclaration(name=r["name"], extends=r["extends"])
+        RecordDeclaration(
+            name=r["name"],
+            extends=r["extends"],
+            description=r.get("description", ""),
+        )
         for r in data.get("records", [])
     )
 
@@ -118,6 +127,33 @@ def load_profile_from_yaml(yaml_text: str) -> MemoryProfile:
         relations=relations,
         records=records,
     )
+
+
+def profile_summary(profile: MemoryProfile) -> dict[str, object]:
+    """Return the shared inspect/MCP summary for a MemoryProfile."""
+    return {
+        "space_name": profile.space.name,
+        "description": profile.space.description,
+        "entity_count": len(profile.entities),
+        "record_count": len(profile.records),
+        "relation_count": len(profile.relations),
+        "entities": [
+            {"name": entity.name, "description": entity.description}
+            for entity in profile.entities
+        ],
+        "relations": [
+            {"name": relation.name, "description": relation.description}
+            for relation in profile.relations
+        ],
+        "records": [
+            {
+                "name": record.name,
+                "extends": record.extends,
+                "description": record.description,
+            }
+            for record in profile.records
+        ],
+    }
 
 
 def _validate_version(data: dict) -> None:

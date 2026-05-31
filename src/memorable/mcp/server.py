@@ -27,7 +27,11 @@ from memorable.core.application import (
 from memorable.core.context import ApplicationContext, default_context
 from memorable.core.models import ProvenanceIntegrityError
 from memorable.core.ports import TemporalRecordRepository
-from memorable.core.profile import ProfileValidationError, load_profile_from_yaml
+from memorable.core.profile import (
+    ProfileValidationError,
+    load_profile_from_yaml,
+    profile_summary,
+)
 from memorable.core.temporal import parse_iso_timestamp
 from memorable.runtime.doctor import DiagnosticResult, run_diagnostics
 
@@ -158,16 +162,7 @@ def inspect_space_tool(base_path: str) -> dict[str, object]:
     except ProfileValidationError as e:
         return {"error": str(e)}
 
-    return {
-        "space_name": profile.space.name,
-        "description": profile.space.description,
-        "entity_count": len(profile.entities),
-        "record_count": len(profile.records),
-        "relation_count": len(profile.relations),
-        "entities": [e.name for e in profile.entities],
-        "relations": [r.name for r in profile.relations],
-        "records": [{"name": r.name, "extends": r.extends} for r in profile.records],
-    }
+    return profile_summary(profile)
 
 
 @mcp_server.tool(
