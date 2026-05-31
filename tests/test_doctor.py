@@ -20,6 +20,12 @@ EXPECTED_SCHEMA_CONSTRAINTS = [
         "properties": ["space", "id"],
     },
     {
+        "name": "record_space_id_unique",
+        "type": "UNIQUENESS",
+        "labelsOrTypes": ["Record"],
+        "properties": ["space", "id"],
+    },
+    {
         "name": "decision_space_id_unique",
         "type": "UNIQUENESS",
         "labelsOrTypes": ["Decision"],

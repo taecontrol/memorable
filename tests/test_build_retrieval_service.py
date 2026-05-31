@@ -30,6 +30,7 @@ class TestBuildRetrievalServiceFactory:
         assert service._task_repo is ctx.task_repo
         assert service._observation_repo is ctx.observation_repo
         assert service._relation_repo is ctx.relation_repo
+        assert service._about_repo is ctx.about_repo
         assert service._embedding_provider is provider
 
     def test_application_context_has_no_build_retrieval_service(self) -> None:

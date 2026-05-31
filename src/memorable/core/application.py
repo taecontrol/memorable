@@ -16,6 +16,7 @@ from memorable.core.models import (
     Task,
 )
 from memorable.core.ports import (
+    AboutRepository,
     DecisionRepository,
     EntityRepository,
     MemorySpaceRepository,
@@ -179,6 +180,71 @@ class RememberEntityService:
         return RememberEntityResult(entity=entity, provenance=provenance)
 
 
+class AboutLinker:
+    """Application service that owns About write behavior."""
+
+    def __init__(
+        self,
+        *,
+        entity_repo: EntityRepository,
+        about_repo: AboutRepository,
+    ) -> None:
+        self._entity_repo = entity_repo
+        self._about_repo = about_repo
+
+    def link(self, *, space: str, record_id: str, entity_ids: list[str]) -> None:
+        """Link a MemoryRecord to existing Entities it is about.
+
+        Raises ValueError if any target Entity is missing. No About links are
+        written unless every target exists.
+        """
+        self.verify_targets(space=space, entity_ids=entity_ids)
+        self._about_repo.link(space, record_id, entity_ids)
+
+    def restaple(self, *, space: str, record_id: str, entity_ids: list[str]) -> None:
+        """Replace all About links for a MemoryRecord after verification."""
+        self.verify_targets(space=space, entity_ids=entity_ids)
+        self._about_repo.unlink(space, record_id)
+        self._about_repo.link(space, record_id, entity_ids)
+
+    def verify_targets(self, *, space: str, entity_ids: list[str]) -> None:
+        """Raise if any About target Entity does not exist."""
+        for entity_id in entity_ids:
+            if self._entity_repo.get(space, entity_id) is None:
+                raise ValueError(
+                    f"About target Entity '{entity_id}' not found "
+                    f"in MemorySpace '{space}'. Create the Entity before "
+                    "linking a MemoryRecord to it."
+                )
+
+
+def _link_about(
+    about_linker: AboutLinker | None,
+    *,
+    space: str,
+    record_id: str,
+    about: list[str] | None,
+) -> None:
+    if not about:
+        return
+    if about_linker is None:
+        raise ValueError("AboutLinker is required to write About links.")
+    about_linker.link(space=space, record_id=record_id, entity_ids=about)
+
+
+def _verify_about_targets(
+    about_linker: AboutLinker | None,
+    *,
+    space: str,
+    about: list[str] | None,
+) -> None:
+    if not about:
+        return
+    if about_linker is None:
+        raise ValueError("AboutLinker is required to write About links.")
+    about_linker.verify_targets(space=space, entity_ids=about)
+
+
 @dataclass(frozen=True)
 class RememberDecisionResult:
     """Result of remembering a Decision with provenance."""
@@ -203,9 +269,15 @@ class RememberDecisionService:
     When supersedes is provided, marks the old decision as superseded.
     """
 
-    def __init__(self, repository: DecisionRepository, profile: MemoryProfile) -> None:
+    def __init__(
+        self,
+        repository: DecisionRepository,
+        profile: MemoryProfile,
+        about_linker: AboutLinker | None = None,
+    ) -> None:
         self._repository = repository
         self._profile = profile
+        self._about_linker = about_linker
 
     def remember(
         self,
@@ -218,11 +290,14 @@ class RememberDecisionService:
         writer: str = "agent:memorable",
         reason: str = "",
         supersedes: str | None = None,
+        about: list[str] | None = None,
     ) -> RememberDecisionResult:
         """Create provenance and persist the Decision.
 
         Decision is a kernel record type, so no profile declaration is required.
         """
+        _verify_about_targets(self._about_linker, space=space, about=about)
+
         decision = Decision(
             id=decision_id,
             statement=statement,
@@ -257,6 +332,13 @@ class RememberDecisionService:
                 invalidation_time=at,
             )
 
+        _link_about(
+            self._about_linker,
+            space=space,
+            record_id=decision_id,
+            about=about,
+        )
+
         return RememberDecisionResult(decision=decision, provenance=provenance)
 
 
@@ -286,9 +368,11 @@ class RememberObservationService:
         self,
         repository: ObservationRepository,
         profile: MemoryProfile,
+        about_linker: AboutLinker | None = None,
     ) -> None:
         self._repository = repository
         self._profile = profile
+        self._about_linker = about_linker
 
     def remember(
         self,
@@ -301,11 +385,14 @@ class RememberObservationService:
         writer: str = "agent:memorable",
         reason: str = "",
         supersedes: str | None = None,
+        about: list[str] | None = None,
     ) -> RememberObservationResult:
         """Create provenance and persist the Observation.
 
         Observation is a kernel record type, so no profile declaration is required.
         """
+        _verify_about_targets(self._about_linker, space=space, about=about)
+
         observation = Observation(
             id=observation_id,
             statement=statement,
@@ -339,6 +426,13 @@ class RememberObservationService:
                 superseded_by=observation_id,
                 invalidation_time=at,
             )
+
+        _link_about(
+            self._about_linker,
+            space=space,
+            record_id=observation_id,
+            about=about,
+        )
 
         return RememberObservationResult(observation=observation, provenance=provenance)
 
@@ -636,8 +730,13 @@ class CorrectService:
     Works with any repository satisfying TemporalRecordRepository.
     """
 
-    def __init__(self, repository: TemporalRecordRepository) -> None:
+    def __init__(
+        self,
+        repository: TemporalRecordRepository,
+        about_linker: AboutLinker | None = None,
+    ) -> None:
         self._repository = repository
+        self._about_linker = about_linker
 
     def correct(
         self,
@@ -650,6 +749,7 @@ class CorrectService:
         writer: str,
         at: datetime,
         reason: str = "",
+        about: list[str] | None = None,
     ) -> CorrectResult:
         """Correct a temporal record's statement in place.
 
@@ -667,6 +767,15 @@ class CorrectService:
             )
 
         old_statement = record.statement
+
+        if about is not None:
+            if self._about_linker is None:
+                raise ValueError("AboutLinker is required to correct About links.")
+            self._about_linker.restaple(
+                space=space,
+                record_id=record_id,
+                entity_ids=about,
+            )
 
         self._repository.correct(
             space=space,
@@ -705,6 +814,74 @@ class CorrectService:
         )
 
 
+class CorrectTaskService:
+    """Application service for correcting Task About membership."""
+
+    def __init__(
+        self,
+        *,
+        repository: TaskRepository,
+        about_linker: AboutLinker,
+    ) -> None:
+        self._repository = repository
+        self._about_linker = about_linker
+
+    def correct(
+        self,
+        *,
+        space: str,
+        task_id: str,
+        new_statement: str,
+        source: str,
+        writer: str,
+        at: datetime,
+        reason: str = "",
+        about: list[str] | None = None,
+    ) -> CorrectResult:
+        task = self._repository.get(space=space, task_id=task_id)
+        if task is None:
+            raise ValueError(f"Task '{task_id}' not found in MemorySpace '{space}'.")
+        if about is None:
+            raise ValueError(
+                "Task correction through memorable_correct currently supports "
+                "About re-staple only; pass about to replace Task About links."
+            )
+        if new_statement != task.title:
+            raise ValueError(
+                "Task title correction is not supported by memorable_correct; "
+                "pass the existing Task title as new_statement when re-stapling About."
+            )
+
+        self._about_linker.restaple(space=space, record_id=task_id, entity_ids=about)
+
+        episode_id = make_episode_id(source, at)
+        if reason:
+            provenance_reason = f"Corrected from: '{task.title}'. Reason: {reason}."
+        else:
+            provenance_reason = f"Corrected from: '{task.title}'."
+        self._repository.save_provenance(
+            space=space,
+            task_id=task_id,
+            provenance=Provenance(
+                record_id=task_id,
+                record_kind="task",
+                source_id=source,
+                episode_id=episode_id,
+                writer=writer,
+                reason=provenance_reason,
+                creation_time=at,
+                validity_time=at,
+            ),
+        )
+
+        return CorrectResult(
+            record_id=task_id,
+            space=space,
+            old_statement=task.title,
+            new_statement=task.title,
+        )
+
+
 class InspectProvenanceService:
     """Application service that retrieves provenance for an Entity.
 
@@ -739,9 +916,15 @@ class RememberTaskService:
     project-specific by definition and must be declared in the MemoryProfile.
     """
 
-    def __init__(self, repository: TaskRepository, profile: MemoryProfile) -> None:
+    def __init__(
+        self,
+        repository: TaskRepository,
+        profile: MemoryProfile,
+        about_linker: AboutLinker | None = None,
+    ) -> None:
         self._repository = repository
         self._profile = profile
+        self._about_linker = about_linker
 
     def remember(
         self,
@@ -753,11 +936,14 @@ class RememberTaskService:
         at: datetime,
         writer: str = "agent:memorable",
         reason: str = "",
+        about: list[str] | None = None,
     ) -> RememberTaskResult:
         """Create provenance and persist the Task.
 
         Task is a kernel record type, so no profile declaration is required.
         """
+        _verify_about_targets(self._about_linker, space=space, about=about)
+
         task = Task(
             id=task_id,
             title=title,
@@ -782,6 +968,13 @@ class RememberTaskService:
         )
 
         self._repository.save(task, provenance)
+
+        _link_about(
+            self._about_linker,
+            space=space,
+            record_id=task_id,
+            about=about,
+        )
 
         return RememberTaskResult(task=task, provenance=provenance)
 
@@ -862,11 +1055,13 @@ class ListRecordsService:
         observation_repo: ObservationRepository,
         relation_repo: RelationRepository,
         task_repo: TaskRepository,
+        about_repo: AboutRepository | None = None,
     ) -> None:
         self._decision_repo = decision_repo
         self._observation_repo = observation_repo
         self._relation_repo = relation_repo
         self._task_repo = task_repo
+        self._about_repo = about_repo
 
     def list_records(
         self,
@@ -876,6 +1071,7 @@ class ListRecordsService:
         state: str | None = None,
         since: datetime | None = None,
         until: datetime | None = None,
+        about: str | None = None,
         limit: int = 50,
     ) -> list[RecordProjection]:
         """List MemoryRecords in the space as projections, ordered by Creation Time.
@@ -891,8 +1087,10 @@ class ListRecordsService:
         ``until`` an exclusive upper bound. Either bound may be omitted;
         omitting both lists records of any Creation Time.
 
-        All filters (``type``, ``state``, ``since``, ``until``) combine with
-        AND. Returns at most ``limit`` projections (default 50).
+        When ``about`` is given, only records linked to that Entity by About are
+        listed. All filters (``type``, ``state``, ``since``, ``until``,
+        ``about``) combine with AND. Returns at most ``limit`` projections
+        (default 50).
 
         Raises:
             ValueError: if ``type`` is not a listable MemoryRecord type (e.g.
@@ -906,6 +1104,14 @@ class ListRecordsService:
                 f"Valid types: {list(self.RECORD_TYPES)} (or omit for all). "
                 f"Entities are not MemoryRecords and are excluded."
             )
+
+        record_ids: set[str] | None = None
+        if about is not None:
+            if self._about_repo is None:
+                raise ValueError("AboutRepository is required for an about filter.")
+            record_ids = set(self._about_repo.records_for_entity(space, about))
+            if not record_ids:
+                return []
 
         repos = (
             ("decision", self._decision_repo),
@@ -925,6 +1131,7 @@ class ListRecordsService:
                 since=since,
                 until=until,
                 limit=limit,
+                record_ids=record_ids,
             )
             if not stream:
                 continue

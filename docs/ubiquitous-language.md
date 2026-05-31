@@ -469,6 +469,8 @@ Preferred terms: Relation, Supersession, provenance link, lifecycle transition, 
 
 Reason: Edge is graph storage vocabulary. Memorable Core should name domain relationships.
 
+Exception: "About edge" is an accepted compound term — it names the specific domain concept of record→Entity membership (see the About entry and ADR-0018), not generic storage-edge vocabulary. Still avoid bare "node/edge" graph-storage language for domain relationships.
+
 ### Fact
 
 Avoid using Fact when the memory may be uncertain, superseded, contextual, or time-bound.

@@ -494,6 +494,126 @@ class TestCorrectServiceWithObservation:
 
 
 # =====================================================================
+# CorrectService tests — About re-staple
+# =====================================================================
+
+
+class TestCorrectServiceAboutRestaple:
+    """CorrectService re-staples About edges through correction."""
+
+    def _setup(self):
+        from memorable.core.application import (
+            AboutLinker,
+            RememberDecisionService,
+            RememberEntityService,
+        )
+        from memorable.core.profile import load_profile_from_yaml
+        from memorable.core.repositories import (
+            InMemoryAboutRepository,
+            InMemoryDecisionRepository,
+            InMemoryEntityRepository,
+        )
+
+        profile = load_profile_from_yaml(VALID_PROFILE_YAML)
+        decision_repo = InMemoryDecisionRepository()
+        entity_repo = InMemoryEntityRepository()
+        about_repo = InMemoryAboutRepository()
+        about_linker = AboutLinker(entity_repo=entity_repo, about_repo=about_repo)
+        entity_service = RememberEntityService(repository=entity_repo, profile=profile)
+
+        for entity_id in ("entity:wrong", "entity:right", "entity:other"):
+            entity_service.remember(
+                space="memorable",
+                entity_id=entity_id,
+                entity_type="Project",
+                name=entity_id,
+                source_id=SOURCE_ID,
+                at=FIXTURE_TIMESTAMP,
+            )
+
+        remember = RememberDecisionService(
+            repository=decision_repo,
+            profile=profile,
+            about_linker=about_linker,
+        )
+        remember.remember(
+            space="memorable",
+            decision_id=DECISION_ID,
+            statement="Use Graphiti for storage.",
+            source_id=SOURCE_ID,
+            at=FIXTURE_TIMESTAMP,
+            about=["entity:wrong"],
+        )
+
+        return decision_repo, about_repo, about_linker
+
+    def test_correct_restaples_about_edges(self) -> None:
+        from memorable.core.application import CorrectService
+
+        repo, about_repo, about_linker = self._setup()
+        service = CorrectService(repository=repo, about_linker=about_linker)
+
+        service.correct(
+            space="memorable",
+            record_id=DECISION_ID,
+            new_statement="Use Neo4j for storage.",
+            record_kind="decision",
+            source=CORRECTION_SOURCE_ID,
+            writer="human:reviewer",
+            at=CORRECTION_TIMESTAMP,
+            about=["entity:right", "entity:other"],
+        )
+
+        assert about_repo.entities_for_record("memorable", DECISION_ID) == [
+            "entity:other",
+            "entity:right",
+        ]
+        assert about_repo.records_for_entity("memorable", "entity:wrong") == []
+
+    def test_correct_without_about_leaves_edges_intact(self) -> None:
+        from memorable.core.application import CorrectService
+
+        repo, about_repo, about_linker = self._setup()
+        service = CorrectService(repository=repo, about_linker=about_linker)
+
+        service.correct(
+            space="memorable",
+            record_id=DECISION_ID,
+            new_statement="Use Neo4j for storage.",
+            record_kind="decision",
+            source=CORRECTION_SOURCE_ID,
+            writer="human:reviewer",
+            at=CORRECTION_TIMESTAMP,
+        )
+
+        assert about_repo.entities_for_record("memorable", DECISION_ID) == [
+            "entity:wrong"
+        ]
+
+    def test_correct_restaple_fails_loud_when_target_entity_is_missing(self) -> None:
+        from memorable.core.application import CorrectService
+
+        repo, about_repo, about_linker = self._setup()
+        service = CorrectService(repository=repo, about_linker=about_linker)
+
+        with pytest.raises(ValueError, match="Entity 'entity:missing' not found"):
+            service.correct(
+                space="memorable",
+                record_id=DECISION_ID,
+                new_statement="Use Neo4j for storage.",
+                record_kind="decision",
+                source=CORRECTION_SOURCE_ID,
+                writer="human:reviewer",
+                at=CORRECTION_TIMESTAMP,
+                about=["entity:missing"],
+            )
+
+        assert about_repo.entities_for_record("memorable", DECISION_ID) == [
+            "entity:wrong"
+        ]
+
+
+# =====================================================================
 # MCP tool tests
 # =====================================================================
 
@@ -621,6 +741,259 @@ class TestMCPCorrectTool:
         )
         assert provenance is not None
         assert provenance.writer == "human:luis"
+
+    def test_correct_restaples_about_edges_via_mcp(self) -> None:
+        from memorable.core.context import default_context
+        from memorable.mcp.server import (
+            correct_tool,
+            remember_decision_tool,
+            remember_entity_tool,
+        )
+
+        remember_entity_tool(
+            space="memorable",
+            entity_id="entity:wrong",
+            entity_type="Project",
+            name="Wrong",
+            source=SOURCE_ID,
+            at="2026-05-25T09:00:00Z",
+        )
+        remember_entity_tool(
+            space="memorable",
+            entity_id="entity:right",
+            entity_type="Project",
+            name="Right",
+            source=SOURCE_ID,
+            at="2026-05-25T09:01:00Z",
+        )
+        remember_decision_tool(
+            space="memorable",
+            decision_id=DECISION_ID,
+            statement="Use Graphiti for storage.",
+            source=SOURCE_ID,
+            at="2026-05-25T09:02:00Z",
+            about=["entity:wrong"],
+        )
+
+        result = correct_tool(
+            space="memorable",
+            record_id=DECISION_ID,
+            record_type="decision",
+            new_statement="Use Neo4j for storage.",
+            source=CORRECTION_SOURCE_ID,
+            at="2026-05-25T10:00:00Z",
+            about=["entity:right"],
+        )
+
+        assert "error" not in result
+        assert default_context.about_repo.entities_for_record(
+            "memorable", DECISION_ID
+        ) == ["entity:right"]
+        assert (
+            default_context.about_repo.records_for_entity("memorable", "entity:wrong")
+            == []
+        )
+
+    def test_correct_about_missing_entity_fails_loud_via_mcp(self) -> None:
+        from memorable.core.context import default_context
+        from memorable.mcp.server import (
+            correct_tool,
+            remember_decision_tool,
+            remember_entity_tool,
+        )
+
+        remember_entity_tool(
+            space="memorable",
+            entity_id="entity:wrong",
+            entity_type="Project",
+            name="Wrong",
+            source=SOURCE_ID,
+            at="2026-05-25T09:00:00Z",
+        )
+        remember_decision_tool(
+            space="memorable",
+            decision_id=DECISION_ID,
+            statement="Use Graphiti for storage.",
+            source=SOURCE_ID,
+            at="2026-05-25T09:01:00Z",
+            about=["entity:wrong"],
+        )
+
+        result = correct_tool(
+            space="memorable",
+            record_id=DECISION_ID,
+            record_type="decision",
+            new_statement="Use Neo4j for storage.",
+            source=CORRECTION_SOURCE_ID,
+            at="2026-05-25T10:00:00Z",
+            about=["entity:missing"],
+        )
+
+        assert result == {
+            "error": "About target Entity 'entity:missing' not found "
+            "in MemorySpace 'memorable'. Create the Entity before "
+            "linking a MemoryRecord to it."
+        }
+        assert default_context.about_repo.entities_for_record(
+            "memorable", DECISION_ID
+        ) == ["entity:wrong"]
+
+    def test_correct_restaples_task_about_edges_via_mcp(self) -> None:
+        from memorable.core.context import default_context
+        from memorable.mcp.server import (
+            correct_tool,
+            remember_entity_tool,
+            remember_task_tool,
+        )
+
+        remember_entity_tool(
+            space="memorable",
+            entity_id="entity:wrong",
+            entity_type="Project",
+            name="Wrong",
+            source=SOURCE_ID,
+            at="2026-05-25T09:00:00Z",
+        )
+        remember_entity_tool(
+            space="memorable",
+            entity_id="entity:right",
+            entity_type="Project",
+            name="Right",
+            source=SOURCE_ID,
+            at="2026-05-25T09:01:00Z",
+        )
+        remember_task_tool(
+            space="memorable",
+            task_id="task:about-correction",
+            title="Verify About correction.",
+            source=SOURCE_ID,
+            at="2026-05-25T09:02:00Z",
+            about=["entity:wrong"],
+        )
+
+        result = correct_tool(
+            space="memorable",
+            record_id="task:about-correction",
+            record_type="task",
+            new_statement="Verify About correction.",
+            source=CORRECTION_SOURCE_ID,
+            at="2026-05-25T10:00:00Z",
+            writer="human:reviewer",
+            about=["entity:right"],
+        )
+
+        assert "error" not in result
+        assert default_context.about_repo.entities_for_record(
+            "memorable", "task:about-correction"
+        ) == ["entity:right"]
+        assert (
+            default_context.about_repo.records_for_entity("memorable", "entity:wrong")
+            == []
+        )
+        provenance = default_context.task_repo.get_provenance(
+            space="memorable",
+            task_id="task:about-correction",
+        )
+        assert provenance is not None
+        assert provenance.record_kind == "task"
+        assert provenance.source_id == CORRECTION_SOURCE_ID
+        assert provenance.writer == "human:reviewer"
+        assert provenance.creation_time == CORRECTION_TIMESTAMP
+
+    def test_correct_restaples_task_about_edges_without_new_statement_via_mcp(
+        self,
+    ) -> None:
+        from memorable.core.context import default_context
+        from memorable.mcp.server import (
+            correct_tool,
+            remember_entity_tool,
+            remember_task_tool,
+        )
+
+        remember_entity_tool(
+            space="memorable",
+            entity_id="entity:wrong",
+            entity_type="Project",
+            name="Wrong",
+            source=SOURCE_ID,
+            at="2026-05-25T09:00:00Z",
+        )
+        remember_entity_tool(
+            space="memorable",
+            entity_id="entity:right",
+            entity_type="Project",
+            name="Right",
+            source=SOURCE_ID,
+            at="2026-05-25T09:01:00Z",
+        )
+        remember_task_tool(
+            space="memorable",
+            task_id="task:about-only",
+            title="Verify About-only correction.",
+            source=SOURCE_ID,
+            at="2026-05-25T09:02:00Z",
+            about=["entity:wrong"],
+        )
+
+        result = correct_tool(
+            space="memorable",
+            record_id="task:about-only",
+            record_type="task",
+            source=CORRECTION_SOURCE_ID,
+            at="2026-05-25T10:00:00Z",
+            about=["entity:right"],
+        )
+
+        assert "error" not in result
+        assert result["old_statement"] == "Verify About-only correction."
+        assert result["new_statement"] == "Verify About-only correction."
+        assert default_context.about_repo.entities_for_record(
+            "memorable", "task:about-only"
+        ) == ["entity:right"]
+
+    def test_correct_task_about_missing_entity_fails_loud_via_mcp(self) -> None:
+        from memorable.core.context import default_context
+        from memorable.mcp.server import (
+            correct_tool,
+            remember_entity_tool,
+            remember_task_tool,
+        )
+
+        remember_entity_tool(
+            space="memorable",
+            entity_id="entity:wrong",
+            entity_type="Project",
+            name="Wrong",
+            source=SOURCE_ID,
+            at="2026-05-25T09:00:00Z",
+        )
+        remember_task_tool(
+            space="memorable",
+            task_id="task:about-correction",
+            title="Verify About correction.",
+            source=SOURCE_ID,
+            at="2026-05-25T09:01:00Z",
+            about=["entity:wrong"],
+        )
+
+        result = correct_tool(
+            space="memorable",
+            record_id="task:about-correction",
+            record_type="task",
+            new_statement="Verify About correction.",
+            source=CORRECTION_SOURCE_ID,
+            at="2026-05-25T10:00:00Z",
+            about=["entity:missing"],
+        )
+
+        assert result == {
+            "error": "About target Entity 'entity:missing' not found "
+            "in MemorySpace 'memorable'. Create the Entity before "
+            "linking a MemoryRecord to it."
+        }
+        assert default_context.about_repo.entities_for_record(
+            "memorable", "task:about-correction"
+        ) == ["entity:wrong"]
 
     def test_correct_unknown_record_type(self) -> None:
         from memorable.mcp.server import correct_tool

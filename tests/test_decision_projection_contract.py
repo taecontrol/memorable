@@ -189,6 +189,33 @@ def test_list_projections_by_space_orders_by_creation_time(
 
 
 @pytest.mark.parametrize("harness_fixture", ALL_REPOS)
+def test_list_projections_by_space_filters_by_record_ids(
+    harness_fixture: str,
+    request: pytest.FixtureRequest,
+) -> None:
+    harness = _harness(harness_fixture, request)
+    repo = harness.repository
+    space = _unique_space()
+    prefix = harness.record_type[:3]
+    t1 = datetime(2026, 5, 25, 10, 0, 0, tzinfo=UTC)
+    t2 = datetime(2026, 5, 25, 11, 0, 0, tzinfo=UTC)
+
+    _save(harness, space=space, record_id=f"{prefix}-wanted", creation_time=t1)
+    _save(harness, space=space, record_id=f"{prefix}-unrelated", creation_time=t2)
+
+    projections = repo.list_projections_by_space(
+        space=space,
+        state=None,
+        since=None,
+        until=None,
+        limit=10,
+        record_ids={f"{prefix}-wanted"},
+    )
+
+    assert [p.id for p in projections] == [f"{prefix}-wanted"]
+
+
+@pytest.mark.parametrize("harness_fixture", ALL_REPOS)
 def test_list_projections_by_space_filters_by_lifecycle_state(
     harness_fixture: str,
     request: pytest.FixtureRequest,

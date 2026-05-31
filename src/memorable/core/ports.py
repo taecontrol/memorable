@@ -136,6 +136,26 @@ class EntityRepository(Protocol):
         ...
 
 
+class AboutRepository(Protocol):
+    """Port for About links between MemoryRecords and Entities."""
+
+    def link(self, space: str, record_id: str, entity_ids: list[str]) -> None:
+        """Link a MemoryRecord to the Entities it is about."""
+        ...
+
+    def unlink(self, space: str, record_id: str) -> None:
+        """Hard-remove all About links for a MemoryRecord."""
+        ...
+
+    def entities_for_record(self, space: str, record_id: str) -> list[str]:
+        """Return Entity ids linked from the MemoryRecord."""
+        ...
+
+    def records_for_entity(self, space: str, entity_id: str) -> list[str]:
+        """Return MemoryRecord ids linked to the Entity."""
+        ...
+
+
 class DecisionRepository(Protocol):
     """Port for Decision persistence with provenance.
 
@@ -167,6 +187,7 @@ class DecisionRepository(Protocol):
         since: datetime | None,
         until: datetime | None,
         limit: int,
+        record_ids: set[str] | None = None,
     ) -> list[RecordProjection]:
         """Return Decision projections filtered and ordered by Creation Time."""
         ...
@@ -213,6 +234,7 @@ class ObservationRepository(Protocol):
         since: datetime | None,
         until: datetime | None,
         limit: int,
+        record_ids: set[str] | None = None,
     ) -> list[RecordProjection]:
         """Return Observation projections filtered and ordered by Creation Time."""
         ...
@@ -259,6 +281,7 @@ class RelationRepository(Protocol):
         since: datetime | None,
         until: datetime | None,
         limit: int,
+        record_ids: set[str] | None = None,
     ) -> list[RecordProjection]:
         """Return Relation projections filtered and ordered by Creation Time."""
         ...
@@ -293,6 +316,16 @@ class TaskRepository(Protocol):
         """Retrieve the provenance for a Task, or None if not found."""
         ...
 
+    def save_provenance(
+        self,
+        *,
+        space: str,
+        task_id: str,
+        provenance: Provenance,
+    ) -> None:
+        """Replace the provenance for a Task."""
+        ...
+
     def complete(
         self,
         *,
@@ -316,6 +349,7 @@ class TaskRepository(Protocol):
         since: datetime | None,
         until: datetime | None,
         limit: int,
+        record_ids: set[str] | None = None,
     ) -> list[RecordProjection]:
         """Return Task projections filtered and ordered by Creation Time."""
         ...

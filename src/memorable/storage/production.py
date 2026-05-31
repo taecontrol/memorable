@@ -12,6 +12,7 @@ from neo4j import Driver, GraphDatabase
 from memorable.config import RuntimeConfig
 from memorable.core.context import ApplicationContext
 from memorable.storage.neo4j.repository import (
+    Neo4jAboutRepository,
     Neo4jDecisionRepository,
     Neo4jEntityRepository,
     Neo4jMemorySpaceRepository,
@@ -58,6 +59,7 @@ def build_production_context(
         task_repo=Neo4jTaskRepository(driver),
         observation_repo=Neo4jObservationRepository(driver),
         relation_repo=Neo4jRelationRepository(driver),
+        about_repo=Neo4jAboutRepository(driver),
         memory_space_repo=Neo4jMemorySpaceRepository(driver),
     )
 

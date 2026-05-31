@@ -7,8 +7,10 @@ from mcp.server.fastmcp import FastMCP
 
 from memorable.config import load_runtime_config
 from memorable.core.application import (
+    AboutLinker,
     CompleteTaskService,
     CorrectService,
+    CorrectTaskService,
     CurrentTruthService,
     InitService,
     InspectHistoryService,
@@ -228,7 +230,10 @@ def remember_entity_tool(
     name="memorable_remember_decision",
     description=(
         "Remember a Decision with Provenance in a MemorySpace. "
-        "Supports Supersession to replace an earlier Decision."
+        "Supports Supersession to replace an earlier Decision. "
+        "Optional about links staple the Decision to existing Entities it "
+        "concerns; create the Entity first. About is membership, not a "
+        "Relation claim, and correctable via memorable_correct."
     ),
 )
 def remember_decision_tool(
@@ -238,6 +243,7 @@ def remember_decision_tool(
     source: str,
     at: str,
     supersedes: str | None = None,
+    about: list[str] | None = None,
     writer: str = "agent:memorable",
     reason: str = "",
 ) -> dict[str, object]:
@@ -251,8 +257,14 @@ def remember_decision_tool(
     except ProfileValidationError as e:
         return {"error": str(e)}
 
+    about_linker = AboutLinker(
+        entity_repo=_context.entity_repo,
+        about_repo=_context.about_repo,
+    )
     service = RememberDecisionService(
-        repository=_context.decision_repo, profile=profile
+        repository=_context.decision_repo,
+        profile=profile,
+        about_linker=about_linker,
     )
 
     timestamp = parse_iso_timestamp(at)
@@ -267,6 +279,7 @@ def remember_decision_tool(
             writer=writer,
             reason=reason,
             supersedes=supersedes,
+            about=about,
         )
     except ValueError as e:
         return {"error": str(e)}
@@ -289,7 +302,10 @@ def remember_decision_tool(
     name="memorable_remember_observation",
     description=(
         "Remember an Observation with Provenance in a MemorySpace. "
-        "Supports Supersession to replace an earlier Observation."
+        "Supports Supersession to replace an earlier Observation. "
+        "Optional about links staple the Observation to existing Entities it "
+        "concerns; create the Entity first. About is membership, not a "
+        "Relation claim, and correctable via memorable_correct."
     ),
 )
 def remember_observation_tool(
@@ -299,6 +315,7 @@ def remember_observation_tool(
     source: str,
     at: str,
     supersedes: str | None = None,
+    about: list[str] | None = None,
     writer: str = "agent:memorable",
     reason: str = "",
 ) -> dict[str, object]:
@@ -312,8 +329,14 @@ def remember_observation_tool(
     except ProfileValidationError as e:
         return {"error": str(e)}
 
+    about_linker = AboutLinker(
+        entity_repo=_context.entity_repo,
+        about_repo=_context.about_repo,
+    )
     service = RememberObservationService(
-        repository=_context.observation_repo, profile=profile
+        repository=_context.observation_repo,
+        profile=profile,
+        about_linker=about_linker,
     )
 
     timestamp = parse_iso_timestamp(at)
@@ -328,6 +351,7 @@ def remember_observation_tool(
             writer=writer,
             reason=reason,
             supersedes=supersedes,
+            about=about,
         )
     except ValueError as e:
         return {"error": str(e)}
@@ -603,7 +627,10 @@ def inspect_provenance_tool(
     name="memorable_remember_task",
     description=(
         "Remember a Task with Provenance in a MemorySpace. "
-        "Tasks have a Lifecycle State and support completion transitions."
+        "Tasks have a Lifecycle State and support completion transitions. "
+        "Optional about links staple the Task to existing Entities it "
+        "concerns; create the Entity first. About is membership, not a "
+        "Relation claim, and correctable via memorable_correct."
     ),
 )
 def remember_task_tool(
@@ -612,6 +639,7 @@ def remember_task_tool(
     title: str,
     source: str,
     at: str,
+    about: list[str] | None = None,
     writer: str = "agent:memorable",
     reason: str = "",
 ) -> dict[str, object]:
@@ -625,7 +653,15 @@ def remember_task_tool(
     except ProfileValidationError as e:
         return {"error": str(e)}
 
-    service = RememberTaskService(repository=_context.task_repo, profile=profile)
+    about_linker = AboutLinker(
+        entity_repo=_context.entity_repo,
+        about_repo=_context.about_repo,
+    )
+    service = RememberTaskService(
+        repository=_context.task_repo,
+        profile=profile,
+        about_linker=about_linker,
+    )
 
     timestamp = parse_iso_timestamp(at)
 
@@ -638,6 +674,7 @@ def remember_task_tool(
             at=timestamp,
             writer=writer,
             reason=reason,
+            about=about,
         )
     except ValueError as e:
         return {"error": str(e)}
@@ -819,7 +856,10 @@ def inspect_task_tool(
         "'superseded', 'invalidated'); omit it to list any state. Pass since "
         "and/or until (ISO timestamps) to bound Provenance Creation Time as a "
         "half-open window [since, until): since is inclusive, until is "
-        "exclusive; either may be omitted. All filters combine with AND. Use "
+        "exclusive; either may be omitted. Pass about to restrict to records "
+        "about one Entity; create the Entity first. About is membership, not a "
+        "Relation claim, and correctable via memorable_correct. All filters "
+        "combine with AND. Use "
         "this to answer state questions like 'what is open?', 'what decisions "
         "did we make today?', or 'what did we do this week?'."
     ),
@@ -830,6 +870,7 @@ def list_records_tool(
     state: str | None = None,
     since: str | None = None,
     until: str | None = None,
+    about: str | None = None,
     limit: int = 50,
 ) -> dict[str, object]:
     """List MemoryRecords in a MemorySpace as a Memory Review projection.
@@ -839,7 +880,8 @@ def list_records_tool(
     Lifecycle State matches are listed; omit it to list any state. ``since`` and
     ``until`` (ISO timestamps) bound Provenance Creation Time as a half-open
     window ``[since, until)`` — ``since`` inclusive, ``until`` exclusive; either
-    may be omitted. All filters combine with AND. Returns a dict with a
+    may be omitted. When ``about`` is given, only records linked to that Entity
+    by About are listed. All filters combine with AND. Returns a dict with a
     ``records`` list on success, or an error dict (e.g. an unknown ``type`` or
     ``entity``).
     """
@@ -848,6 +890,7 @@ def list_records_tool(
         observation_repo=_context.observation_repo,
         relation_repo=_context.relation_repo,
         task_repo=_context.task_repo,
+        about_repo=_context.about_repo,
     )
 
     since_dt = parse_iso_timestamp(since) if since is not None else None
@@ -860,6 +903,7 @@ def list_records_tool(
             state=state,
             since=since_dt,
             until=until_dt,
+            about=about,
             limit=limit,
         )
     except ValueError as e:
@@ -942,51 +986,102 @@ def invalidate_tool(
         "Correct a temporal record's statement in place in a MemorySpace. "
         "Correction means the old statement was never true — it was a mistake. "
         "Updates the statement and replaces Provenance with Correction source. "
+        "Optional about re-staples the record to existing Entities it concerns; "
+        "create the Entity first. About is membership, not a Relation claim. "
+        "About is correctable through this tool. "
         "Accepts record_type to select the repository "
-        "(decision, observation, relation)."
+        "(decision, observation, relation, task). Task supports About "
+        "membership correction only."
     ),
 )
 def correct_tool(
     space: str,
     record_id: str,
     record_type: str,
-    new_statement: str,
     source: str,
     at: str,
+    new_statement: str | None = None,
     reason: str = "",
     writer: str = "agent:memorable",
+    about: list[str] | None = None,
 ) -> dict[str, object]:
     """Correct a temporal record's statement in place.
 
     Args:
         space: MemorySpace containing the record.
         record_id: ID of the record to correct.
-        record_type: Type of record ("decision" or "observation").
-        new_statement: The corrected statement.
+        record_type: Type of record ("decision", "observation", "relation", or
+            "task").
         source: Source ID for the correction provenance.
         at: ISO timestamp for the correction.
+        new_statement: The corrected statement. Optional when about is provided;
+            omission keeps the current statement/title and only re-staples About.
         reason: Optional reason for the correction.
         writer: Identity of the agent or user making the correction.
+        about: Optional Entity ids to replace this record's About links with.
 
     Returns a dict with correction info on success, or an error dict.
     """
+    about_linker = AboutLinker(
+        entity_repo=_context.entity_repo,
+        about_repo=_context.about_repo,
+    )
+    timestamp = parse_iso_timestamp(at)
+
+    if new_statement is None and about is None:
+        return {"error": "new_statement is required unless about is provided."}
+
+    if record_type == "task":
+        task_statement = new_statement
+        if task_statement is None:
+            task = _context.task_repo.get(space=space, task_id=record_id)
+            task_statement = task.title if task is not None else ""
+        task_service = CorrectTaskService(
+            repository=_context.task_repo,
+            about_linker=about_linker,
+        )
+        try:
+            result = task_service.correct(
+                space=space,
+                task_id=record_id,
+                new_statement=task_statement,
+                source=source,
+                writer=writer,
+                at=timestamp,
+                reason=reason,
+                about=about,
+            )
+        except ValueError as e:
+            return {"error": str(e)}
+        return {
+            "record_id": result.record_id,
+            "space": result.space,
+            "old_statement": result.old_statement,
+            "new_statement": result.new_statement,
+        }
+
     resolved = _resolve_repository(record_type)
     if isinstance(resolved, dict):
         return resolved
 
-    service = CorrectService(repository=resolved)
-    timestamp = parse_iso_timestamp(at)
+    service = CorrectService(repository=resolved, about_linker=about_linker)
+
+    corrected_statement = new_statement
+    if corrected_statement is None:
+        record = resolved.get(space, record_id)
+        corrected_statement = record.statement if record is not None else ""
 
     try:
         result = service.correct(
             space=space,
             record_id=record_id,
-            new_statement=new_statement,
+            new_statement=corrected_statement,
             record_kind=record_type,
             source=source,
             writer=writer,
             at=timestamp,
             reason=reason,
+            about=about,
         )
     except ValueError as e:
         return {"error": str(e)}

@@ -28,26 +28,53 @@ def _make_context():
     return ApplicationContext()
 
 
-def _remember_decision(ctx, *, decision_id: str, statement: str, at: datetime):
+def _about_linker(ctx):
+    from memorable.core.application import AboutLinker
+
+    return AboutLinker(entity_repo=ctx.entity_repo, about_repo=ctx.about_repo)
+
+
+def _remember_decision(
+    ctx,
+    *,
+    decision_id: str,
+    statement: str,
+    at: datetime,
+    about: list[str] | None = None,
+):
     from memorable.core.application import RememberDecisionService
 
     profile = ctx.load_profile(SPACE)
-    service = RememberDecisionService(repository=ctx.decision_repo, profile=profile)
+    service = RememberDecisionService(
+        repository=ctx.decision_repo,
+        profile=profile,
+        about_linker=_about_linker(ctx) if about is not None else None,
+    )
     service.remember(
         space=SPACE,
         decision_id=decision_id,
         statement=statement,
         source_id=SOURCE_ID,
         at=at,
+        about=about,
     )
 
 
-def _remember_observation(ctx, *, observation_id: str, statement: str, at: datetime):
+def _remember_observation(
+    ctx,
+    *,
+    observation_id: str,
+    statement: str,
+    at: datetime,
+    about: list[str] | None = None,
+):
     from memorable.core.application import RememberObservationService
 
     profile = ctx.load_profile(SPACE)
     service = RememberObservationService(
-        repository=ctx.observation_repo, profile=profile
+        repository=ctx.observation_repo,
+        profile=profile,
+        about_linker=_about_linker(ctx) if about is not None else None,
     )
     service.remember(
         space=SPACE,
@@ -55,6 +82,7 @@ def _remember_observation(ctx, *, observation_id: str, statement: str, at: datet
         statement=statement,
         source_id=SOURCE_ID,
         at=at,
+        about=about,
     )
 
 
@@ -103,17 +131,29 @@ def _remember_relation(
     )
 
 
-def _remember_task(ctx, *, task_id: str, title: str, at: datetime):
+def _remember_task(
+    ctx,
+    *,
+    task_id: str,
+    title: str,
+    at: datetime,
+    about: list[str] | None = None,
+):
     from memorable.core.application import RememberTaskService
 
     profile = ctx.load_profile(SPACE)
-    service = RememberTaskService(repository=ctx.task_repo, profile=profile)
+    service = RememberTaskService(
+        repository=ctx.task_repo,
+        profile=profile,
+        about_linker=_about_linker(ctx) if about is not None else None,
+    )
     service.remember(
         space=SPACE,
         task_id=task_id,
         title=title,
         source_id=SOURCE_ID,
         at=at,
+        about=about,
     )
 
 
@@ -315,12 +355,16 @@ class TestListRecordsService:
                 since: datetime | None,
                 until: datetime | None,
                 limit: int,
+                record_ids: set[str] | None = None,
             ) -> list[RecordProjection]:
                 assert space == SPACE
                 assert state is None
                 assert since is None
                 assert until is None
-                return self._rows[:limit]
+                rows = self._rows
+                if record_ids is not None:
+                    rows = [row for row in rows if row.id in record_ids]
+                return rows[:limit]
 
         rows_by_type = {
             "decision": [
@@ -750,6 +794,190 @@ class TestListRecordsServiceCreationTimeWindow:
         assert all(p.type == "decision" for p in projections)
 
 
+class TestListRecordsServiceAboutFilter:
+    """ListRecordsService restricts listing to records About one Entity."""
+
+    def _make_service(self, ctx):
+        from memorable.core.application import ListRecordsService
+
+        return ListRecordsService(
+            decision_repo=ctx.decision_repo,
+            observation_repo=ctx.observation_repo,
+            relation_repo=ctx.relation_repo,
+            task_repo=ctx.task_repo,
+            about_repo=ctx.about_repo,
+        )
+
+    def test_filters_to_records_about_entity(self) -> None:
+        ctx = _make_context()
+        _remember_entities(ctx, "entity:build-2", "entity:other", at=T1)
+        _remember_decision(
+            ctx,
+            decision_id="decision:build-2",
+            statement="Build 2 decision.",
+            at=T2,
+            about=["entity:build-2"],
+        )
+        _remember_observation(
+            ctx,
+            observation_id="observation:other",
+            statement="Other observation.",
+            at=T3,
+            about=["entity:other"],
+        )
+        _remember_task(ctx, task_id="task:unlinked", title="Unlinked task.", at=T4)
+        service = self._make_service(ctx)
+
+        projections = service.list_records(space=SPACE, about="entity:build-2")
+
+        assert [p.id for p in projections] == ["decision:build-2"]
+
+    def test_about_filter_is_pushed_to_record_repositories(self) -> None:
+        from memorable.core.application import ListRecordsService
+        from memorable.core.models import RecordProjection
+
+        class AboutRepo:
+            def records_for_entity(self, space: str, entity_id: str) -> list[str]:
+                assert space == SPACE
+                assert entity_id == "entity:build-2"
+                return ["decision:build-2"]
+
+        class ProjectionRepo:
+            def __init__(self, rows: list[RecordProjection]) -> None:
+                self._rows = rows
+
+            def list_projections_by_space(
+                self,
+                *,
+                space: str,
+                state: str | None,
+                since: datetime | None,
+                until: datetime | None,
+                limit: int,
+                record_ids: set[str] | None = None,
+            ) -> list[RecordProjection]:
+                assert space == SPACE
+                assert state is None
+                assert since is None
+                assert until is None
+                assert record_ids == {"decision:build-2"}
+                return [row for row in self._rows if row.id in record_ids][:limit]
+
+        service = ListRecordsService(
+            decision_repo=ProjectionRepo(
+                [
+                    RecordProjection(
+                        id="decision:build-2",
+                        type="decision",
+                        label="Build 2 decision.",
+                        lifecycle_state="current",
+                        creation_time=T1,
+                    )
+                ]
+            ),
+            observation_repo=ProjectionRepo([]),
+            relation_repo=ProjectionRepo([]),
+            task_repo=ProjectionRepo([]),
+            about_repo=AboutRepo(),
+        )
+
+        projections = service.list_records(space=SPACE, about="entity:build-2")
+
+        assert [p.id for p in projections] == ["decision:build-2"]
+
+    def test_about_and_type_filters_compose(self) -> None:
+        ctx = _make_context()
+        _remember_entities(ctx, "entity:build-2", at=T1)
+        _remember_decision(
+            ctx,
+            decision_id="decision:build-2",
+            statement="Build 2 decision.",
+            at=T2,
+            about=["entity:build-2"],
+        )
+        _remember_task(
+            ctx,
+            task_id="task:build-2",
+            title="Build 2 task.",
+            at=T3,
+            about=["entity:build-2"],
+        )
+        service = self._make_service(ctx)
+
+        projections = service.list_records(
+            space=SPACE, type="task", about="entity:build-2"
+        )
+
+        assert [p.id for p in projections] == ["task:build-2"]
+        assert all(p.type == "task" for p in projections)
+
+    def test_about_and_lifecycle_state_filters_compose(self) -> None:
+        ctx = _make_context()
+        _remember_entities(ctx, "entity:build-2", at=T1)
+        _remember_task(
+            ctx,
+            task_id="task:open",
+            title="Open Build 2 task.",
+            at=T2,
+            about=["entity:build-2"],
+        )
+        _remember_task(
+            ctx,
+            task_id="task:done",
+            title="Done Build 2 task.",
+            at=T3,
+            about=["entity:build-2"],
+        )
+        _complete_task(ctx, task_id="task:done", at=T4)
+        service = self._make_service(ctx)
+
+        projections = service.list_records(
+            space=SPACE, state="open", about="entity:build-2"
+        )
+
+        assert [p.id for p in projections] == ["task:open"]
+        assert all(p.lifecycle_state == "open" for p in projections)
+
+    def test_about_and_creation_time_window_filters_compose(self) -> None:
+        ctx = _make_context()
+        _remember_entities(ctx, "entity:build-2", "entity:other", at=T1)
+        _remember_decision(
+            ctx,
+            decision_id="decision:early",
+            statement="Early Build 2 decision.",
+            at=T1,
+            about=["entity:build-2"],
+        )
+        _remember_decision(
+            ctx,
+            decision_id="decision:in",
+            statement="In-window Build 2 decision.",
+            at=T2,
+            about=["entity:build-2"],
+        )
+        _remember_decision(
+            ctx,
+            decision_id="decision:other",
+            statement="In-window other decision.",
+            at=T3,
+            about=["entity:other"],
+        )
+        _remember_decision(
+            ctx,
+            decision_id="decision:late",
+            statement="Late Build 2 decision.",
+            at=T4,
+            about=["entity:build-2"],
+        )
+        service = self._make_service(ctx)
+
+        projections = service.list_records(
+            space=SPACE, since=T2, until=T4, about="entity:build-2"
+        )
+
+        assert [p.id for p in projections] == ["decision:in"]
+
+
 class TestMCPListRecords:
     """MCP list_records_tool wraps ListRecordsService and returns projections."""
 
@@ -989,6 +1217,59 @@ class TestMCPListRecords:
         records = result["records"]
         assert [r["id"] for r in records] == ["decision:1"]
         assert all(r["type"] == "decision" for r in records)
+
+    def test_list_records_tool_filters_by_about(self) -> None:
+        from memorable.mcp.server import (
+            list_records_tool,
+            remember_decision_tool,
+            remember_entity_tool,
+            remember_task_tool,
+        )
+
+        remember_entity_tool(
+            space=SPACE,
+            entity_id="entity:build-2",
+            entity_type="Project",
+            name="Build 2",
+            source=SOURCE_ID,
+            at="2026-05-23T09:00:00Z",
+        )
+        remember_entity_tool(
+            space=SPACE,
+            entity_id="entity:other",
+            entity_type="Project",
+            name="Other",
+            source=SOURCE_ID,
+            at="2026-05-23T09:01:00Z",
+        )
+        remember_decision_tool(
+            space=SPACE,
+            decision_id="decision:build-2",
+            statement="Adopt Build 2.",
+            source=SOURCE_ID,
+            at="2026-05-23T10:00:00Z",
+            about=["entity:build-2"],
+        )
+        remember_task_tool(
+            space=SPACE,
+            task_id="task:other",
+            title="Inspect the other build.",
+            source=SOURCE_ID,
+            at="2026-05-23T11:00:00Z",
+            about=["entity:other"],
+        )
+        remember_task_tool(
+            space=SPACE,
+            task_id="task:unlinked",
+            title="Unlinked task.",
+            source=SOURCE_ID,
+            at="2026-05-23T12:00:00Z",
+        )
+
+        result = list_records_tool(space=SPACE, about="entity:build-2")
+
+        assert "error" not in result
+        assert [r["id"] for r in result["records"]] == ["decision:build-2"]
 
     def test_list_records_tool_rejects_entity_type(self) -> None:
         from memorable.mcp.server import list_records_tool

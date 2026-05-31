@@ -115,6 +115,11 @@ class TestToolRegistration:
                     "default": None,
                     "title": "Until",
                 },
+                "about": {
+                    "anyOf": [{"type": "string"}, {"type": "null"}],
+                    "default": None,
+                    "title": "About",
+                },
                 "limit": {"default": 50, "title": "Limit", "type": "integer"},
             },
             "required": ["space"],
@@ -174,6 +179,20 @@ class TestToolDescriptions:
         assert "doctor diagnoses problems" in description
         assert "remediation hints" in description
 
+    def test_about_tool_descriptions_state_agent_contract(self) -> None:
+        tools = {tool.name: tool for tool in _list_tools()}
+        for tool_name in {
+            "memorable_remember_decision",
+            "memorable_remember_observation",
+            "memorable_remember_task",
+            "memorable_correct",
+            "memorable_list_records",
+        }:
+            description = tools[tool_name].description
+            assert "Entity first" in description
+            assert "membership, not a Relation claim" in description
+            assert "correctable" in description
+
 
 def _call_tool(name: str, arguments: dict) -> object:
     """Call a tool on the FastMCP server and return the result (sync helper)."""
@@ -220,8 +239,71 @@ class TestCallToolSuccessPath:
         _, structured = result
         assert structured["result"] == expected
 
+    def test_correct_task_about_only_omits_new_statement(self) -> None:
+        from memorable.core.context import default_context
+        from memorable.mcp.server import set_mcp_context
+
+        default_context.reset()
+        set_mcp_context(default_context)
+        _call_tool(
+            "memorable_remember_entity",
+            {
+                "space": "memorable",
+                "entity_id": "entity:wrong",
+                "entity_type": "Project",
+                "name": "Wrong",
+                "source": "source:test",
+                "at": "2026-05-31T09:00:00Z",
+            },
+        )
+        _call_tool(
+            "memorable_remember_entity",
+            {
+                "space": "memorable",
+                "entity_id": "entity:right",
+                "entity_type": "Project",
+                "name": "Right",
+                "source": "source:test",
+                "at": "2026-05-31T09:01:00Z",
+            },
+        )
+        _call_tool(
+            "memorable_remember_task",
+            {
+                "space": "memorable",
+                "task_id": "task:about-only",
+                "title": "Correct About only.",
+                "source": "source:test",
+                "at": "2026-05-31T09:02:00Z",
+                "about": ["entity:wrong"],
+            },
+        )
+
+        _, structured = _call_tool(
+            "memorable_correct",
+            {
+                "space": "memorable",
+                "record_id": "task:about-only",
+                "record_type": "task",
+                "source": "source:correction",
+                "at": "2026-05-31T10:00:00Z",
+                "about": ["entity:right"],
+            },
+        )
+
+        assert "error" not in structured
+        assert structured["new_statement"] == "Correct About only."
+        assert default_context.about_repo.entities_for_record(
+            "memorable", "task:about-only"
+        ) == ["entity:right"]
+
 
 class TestCallToolErrorPath:
+    def setup_method(self) -> None:
+        from memorable.core.context import default_context
+
+        default_context.reset()
+
     def test_current_truth_returns_error_for_missing_decision(self) -> None:
         result = _call_tool(
             "memorable_current_truth",
@@ -241,6 +323,26 @@ class TestCallToolErrorPath:
         error_text = structured["error"].lower()
         assert "node" not in error_text
         assert "edge" not in error_text
+
+    def test_remember_decision_about_missing_entity_surfaces_error(self) -> None:
+        result = _call_tool(
+            "memorable_remember_decision",
+            {
+                "space": "memorable",
+                "decision_id": "decision:missing-about",
+                "statement": "This is about a missing Entity.",
+                "source": "source:test",
+                "at": "2026-05-31T09:00:00Z",
+                "about": ["entity:missing"],
+            },
+        )
+
+        _, structured = result
+        assert structured == {
+            "error": "About target Entity 'entity:missing' not found "
+            "in MemorySpace 'memorable'. Create the Entity before "
+            "linking a MemoryRecord to it."
+        }
 
 
 class TestEntryPointWiring:

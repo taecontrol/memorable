@@ -3,7 +3,10 @@
 Verifies:
 - Returns DecisionRepository for record_type "decision"
 - Returns ObservationRepository for record_type "observation"
+- Returns RelationRepository for record_type "relation"
 - Returns a structured error dict for unknown record_type values
+  (including "task", which is intentionally NOT in the shared dispatch
+  because TaskRepository does not satisfy TemporalRecordRepository)
 - Error dict shape matches the established convention
 """
 

@@ -65,6 +65,7 @@ def _list_projections_by_space(
     since: datetime | None,
     until: datetime | None,
     limit: int,
+    record_ids: set[str] | None = None,
 ) -> list[RecordProjection]:
     """Return one record type's projections filtered and ordered by Creation Time.
 
@@ -77,7 +78,8 @@ def _list_projections_by_space(
     """
     query = (
         f"MATCH (record:{storage_label} {{space: $space}}) "
-        "WHERE ($state IS NULL OR record.lifecycle_state = $state) "
+        "WHERE ($record_ids IS NULL OR record.id IN $record_ids) "
+        "  AND ($state IS NULL OR record.lifecycle_state = $state) "
         "OPTIONAL MATCH (p:Provenance)-[:PROVENANCE_OF]->(record) "
         "WITH record, p "
         "WHERE ($since IS NULL OR p.creation_time >= $since) "
@@ -97,6 +99,7 @@ def _list_projections_by_space(
             since=_to_iso(since),
             until=_to_iso(until),
             limit=limit,
+            record_ids=sorted(record_ids) if record_ids is not None else None,
         )
         projections: list[RecordProjection] = []
         for record in result:
@@ -298,6 +301,71 @@ class Neo4jEntityRepository:
             ]
 
 
+# --- About adapter ---
+
+
+class Neo4jAboutRepository:
+    """Storage adapter that persists About links in Neo4j.
+
+    Implements the AboutRepository protocol defined in core.ports. About is
+    stored as a structural relationship from a MemoryRecord to an Entity; the
+    relationship intentionally carries no properties.
+    """
+
+    def __init__(self, driver: Neo4jDriver) -> None:
+        self._driver = driver
+
+    def link(self, space: str, record_id: str, entity_ids: list[str]) -> None:
+        """Link a MemoryRecord to the Entities it is about."""
+        with self._driver.session() as session:
+            session.run(
+                "MATCH (record:Record {space: $space, id: $record_id}) "
+                "UNWIND $entity_ids AS entity_id "
+                "MATCH (entity:Entity {space: $space, id: entity_id}) "
+                "MERGE (record)-[:ABOUT]->(entity)",
+                space=space,
+                record_id=record_id,
+                entity_ids=entity_ids,
+            )
+
+    def unlink(self, space: str, record_id: str) -> None:
+        """Hard-remove all About links for a MemoryRecord."""
+        with self._driver.session() as session:
+            session.run(
+                "MATCH (:Record {space: $space, id: $record_id})"
+                "-[about:ABOUT]->(:Entity {space: $space}) "
+                "DELETE about",
+                space=space,
+                record_id=record_id,
+            )
+
+    def entities_for_record(self, space: str, record_id: str) -> list[str]:
+        """Return Entity ids linked from the MemoryRecord."""
+        with self._driver.session() as session:
+            result = session.run(
+                "MATCH (:Record {space: $space, id: $record_id})"
+                "-[:ABOUT]->(entity:Entity {space: $space}) "
+                "RETURN entity.id AS entity_id "
+                "ORDER BY entity.id ASC",
+                space=space,
+                record_id=record_id,
+            )
+            return [record["entity_id"] for record in result]
+
+    def records_for_entity(self, space: str, entity_id: str) -> list[str]:
+        """Return MemoryRecord ids linked to the Entity."""
+        with self._driver.session() as session:
+            result = session.run(
+                "MATCH (record:Record {space: $space})"
+                "-[:ABOUT]->(:Entity {space: $space, id: $entity_id}) "
+                "RETURN record.id AS record_id "
+                "ORDER BY record.id ASC",
+                space=space,
+                entity_id=entity_id,
+            )
+            return [record["record_id"] for record in result]
+
+
 # --- Decision adapter ---
 
 
@@ -319,7 +387,7 @@ class Neo4jDecisionRepository:
         """
         with self._driver.session() as session:
             session.run(
-                "CREATE (d:Decision {"
+                "CREATE (d:Record:Decision {"
                 "  space: $space, id: $id, statement: $statement, "
                 "  validity_time: $validity_time, "
                 "  invalidation_time: $invalidation_time, "
@@ -447,6 +515,7 @@ class Neo4jDecisionRepository:
         since: datetime | None,
         until: datetime | None,
         limit: int,
+        record_ids: set[str] | None = None,
     ) -> list[RecordProjection]:
         """Return Decision projections filtered and ordered by Creation Time."""
         return _list_projections_by_space(
@@ -459,6 +528,7 @@ class Neo4jDecisionRepository:
             since=since,
             until=until,
             limit=limit,
+            record_ids=record_ids,
         )
 
     def mark_superseded(
@@ -569,7 +639,7 @@ class Neo4jObservationRepository:
         """
         with self._driver.session() as session:
             session.run(
-                "CREATE (o:Observation {"
+                "CREATE (o:Record:Observation {"
                 "  space: $space, id: $id, statement: $statement, "
                 "  validity_time: $validity_time, "
                 "  invalidation_time: $invalidation_time, "
@@ -697,6 +767,7 @@ class Neo4jObservationRepository:
         since: datetime | None,
         until: datetime | None,
         limit: int,
+        record_ids: set[str] | None = None,
     ) -> list[RecordProjection]:
         """Return Observation projections filtered and ordered by Creation Time."""
         return _list_projections_by_space(
@@ -709,6 +780,7 @@ class Neo4jObservationRepository:
             since=since,
             until=until,
             limit=limit,
+            record_ids=record_ids,
         )
 
     def mark_superseded(
@@ -819,7 +891,7 @@ class Neo4jTaskRepository:
         """
         with self._driver.session() as session:
             session.run(
-                "CREATE (t:Task {"
+                "CREATE (t:Record:Task {"
                 "  space: $space, id: $id, title: $title, "
                 "  lifecycle_state: $lifecycle_state, "
                 "  validity_time: $validity_time, "
@@ -907,6 +979,38 @@ class Neo4jTaskRepository:
                 validity_time=_from_iso(record["validity_time"]),
             )
 
+    def save_provenance(
+        self,
+        *,
+        space: str,
+        task_id: str,
+        provenance: Provenance,
+    ) -> None:
+        """Replace the provenance for a Task."""
+        with self._driver.session() as session:
+            session.run(
+                "MATCH (p:Provenance)-[:PROVENANCE_OF]"
+                "->(t:Task {space: $space, id: $id}) "
+                "SET p.record_id = $record_id, "
+                "    p.record_kind = $record_kind, "
+                "    p.source_id = $source_id, "
+                "    p.episode_id = $episode_id, "
+                "    p.writer = $writer, "
+                "    p.reason = $reason, "
+                "    p.creation_time = $creation_time, "
+                "    p.validity_time = $validity_time",
+                space=space,
+                id=task_id,
+                record_id=provenance.record_id,
+                record_kind=provenance.record_kind,
+                source_id=provenance.source_id,
+                episode_id=provenance.episode_id,
+                writer=provenance.writer,
+                reason=provenance.reason,
+                creation_time=_to_iso(provenance.creation_time),
+                validity_time=_to_iso(provenance.validity_time),
+            )
+
     def complete(
         self,
         *,
@@ -963,6 +1067,7 @@ class Neo4jTaskRepository:
         since: datetime | None,
         until: datetime | None,
         limit: int,
+        record_ids: set[str] | None = None,
     ) -> list[RecordProjection]:
         """Return Task projections filtered and ordered by Creation Time."""
         return _list_projections_by_space(
@@ -975,6 +1080,7 @@ class Neo4jTaskRepository:
             since=since,
             until=until,
             limit=limit,
+            record_ids=record_ids,
         )
 
 
@@ -1005,7 +1111,7 @@ class Neo4jRelationRepository:
             session.run(
                 "MATCH (src:Entity {space: $space, id: $source_entity_id}) "
                 "MATCH (tgt:Entity {space: $space, id: $target_entity_id}) "
-                "CREATE (r:Relation {"
+                "CREATE (r:Record:Relation {"
                 "  space: $space, id: $id, "
                 "  source_entity_id: $source_entity_id, "
                 "  target_entity_id: $target_entity_id, "
@@ -1156,6 +1262,7 @@ class Neo4jRelationRepository:
         since: datetime | None,
         until: datetime | None,
         limit: int,
+        record_ids: set[str] | None = None,
     ) -> list[RecordProjection]:
         """Return Relation projections filtered and ordered by Creation Time."""
         return _list_projections_by_space(
@@ -1168,6 +1275,7 @@ class Neo4jRelationRepository:
             since=since,
             until=until,
             limit=limit,
+            record_ids=record_ids,
         )
 
     def mark_superseded(
