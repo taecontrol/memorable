@@ -451,6 +451,7 @@ class TestRetrievalModels:
 def _build_fixture():
     """Build the full tracer-bullet fixture and return repos + service."""
     from memorable.core.application import (
+        AboutLinker,
         CompleteTaskService,
         RememberDecisionService,
         RememberEntityService,
@@ -458,6 +459,7 @@ def _build_fixture():
     )
     from memorable.core.profile import load_profile_from_yaml
     from memorable.core.repositories import (
+        InMemoryAboutRepository,
         InMemoryDecisionRepository,
         InMemoryEntityRepository,
         InMemoryObservationRepository,
@@ -470,7 +472,9 @@ def _build_fixture():
     decision_repo = InMemoryDecisionRepository()
     task_repo = InMemoryTaskRepository()
     observation_repo = InMemoryObservationRepository()
+    about_repo = InMemoryAboutRepository()
     profile = load_profile_from_yaml(VALID_PROFILE_YAML)
+    about_linker = AboutLinker(entity_repo=entity_repo, about_repo=about_repo)
 
     # Step 3: Remember Entity
     entity_svc = RememberEntityService(repository=entity_repo, profile=profile)
@@ -484,7 +488,11 @@ def _build_fixture():
     )
 
     # Step 4: Remember initial Decision
-    decision_svc = RememberDecisionService(repository=decision_repo, profile=profile)
+    decision_svc = RememberDecisionService(
+        repository=decision_repo,
+        profile=profile,
+        about_linker=about_linker,
+    )
     decision_svc.remember(
         space="memorable",
         decision_id="decision:storage-path:v1",
@@ -501,6 +509,7 @@ def _build_fixture():
         source_id=SOURCE_ID,
         at=FIXTURE_TIMESTAMPS["decision_v2"],
         supersedes="decision:storage-path:v1",
+        about=["entity:memorable"],
     )
 
     # Step 6: Remember Task
@@ -528,6 +537,7 @@ def _build_fixture():
         task_repo=task_repo,
         observation_repo=observation_repo,
         embedding_provider=provider,
+        about_repo=about_repo,
     )
 
     return retrieval_service, entity_repo, decision_repo, task_repo
@@ -686,6 +696,148 @@ class TestGraphExpansion:
         # Both the decision and the entity should be present
         assert "decision:storage-path:v2" in result_ids
         assert "entity:memorable" in result_ids
+
+
+def _build_about_expansion_fixture():
+    """Build a small fixture with About links for graph expansion tests."""
+    from memorable.core.application import (
+        AboutLinker,
+        RememberDecisionService,
+        RememberEntityService,
+        RememberObservationService,
+        RememberTaskService,
+    )
+    from memorable.core.profile import load_profile_from_yaml
+    from memorable.core.repositories import (
+        InMemoryAboutRepository,
+        InMemoryDecisionRepository,
+        InMemoryEntityRepository,
+        InMemoryObservationRepository,
+        InMemoryRelationRepository,
+        InMemoryTaskRepository,
+    )
+    from memorable.retrieval.embeddings import FakeEmbeddingProvider
+    from memorable.retrieval.service import HybridRetrievalService
+
+    entity_repo = InMemoryEntityRepository()
+    decision_repo = InMemoryDecisionRepository()
+    task_repo = InMemoryTaskRepository()
+    observation_repo = InMemoryObservationRepository()
+    relation_repo = InMemoryRelationRepository()
+    about_repo = InMemoryAboutRepository()
+    profile = load_profile_from_yaml(OBSERVATION_PROFILE_YAML)
+    about_linker = AboutLinker(entity_repo=entity_repo, about_repo=about_repo)
+
+    entity_svc = RememberEntityService(repository=entity_repo, profile=profile)
+    entity_svc.remember(
+        space="memorable",
+        entity_id="entity:build-2",
+        entity_type="Project",
+        name="Build 2",
+        source_id=SOURCE_ID,
+        at=OBSERVATION_TIMESTAMPS["entity"],
+    )
+    entity_svc.remember(
+        space="memorable",
+        entity_id="entity:unrelated",
+        entity_type="Component",
+        name="Unrelated Device",
+        source_id=SOURCE_ID,
+        at=OBSERVATION_TIMESTAMPS["entity"],
+    )
+
+    decision_svc = RememberDecisionService(
+        repository=decision_repo,
+        profile=profile,
+        about_linker=about_linker,
+    )
+    decision_svc.remember(
+        space="memorable",
+        decision_id="decision:build-2",
+        statement="Build 2 uses the quiet GraphRAG expansion path.",
+        source_id=SOURCE_ID,
+        at=OBSERVATION_TIMESTAMPS["obs_v1"],
+        about=["entity:build-2"],
+    )
+
+    task_svc = RememberTaskService(
+        repository=task_repo,
+        profile=profile,
+        about_linker=about_linker,
+    )
+    task_svc.remember(
+        space="memorable",
+        task_id="task:build-2",
+        title="Follow up on Build 2 telemetry",
+        source_id=SOURCE_ID,
+        at=OBSERVATION_TIMESTAMPS["obs_v1"],
+        about=["entity:build-2"],
+    )
+
+    observation_svc = RememberObservationService(
+        repository=observation_repo,
+        profile=profile,
+        about_linker=about_linker,
+    )
+    observation_svc.remember(
+        space="memorable",
+        observation_id="observation:unlinked",
+        statement="This standalone observation has no About links.",
+        source_id=SOURCE_ID,
+        at=OBSERVATION_TIMESTAMPS["obs_v1"],
+    )
+
+    service = HybridRetrievalService(
+        entity_repo=entity_repo,
+        decision_repo=decision_repo,
+        task_repo=task_repo,
+        observation_repo=observation_repo,
+        relation_repo=relation_repo,
+        about_repo=about_repo,
+        embedding_provider=FakeEmbeddingProvider(dimensions=32),
+    )
+
+    return service
+
+
+class TestAboutGraphExpansion:
+    """Graph expansion walks About links without all-Entities fallback."""
+
+    def test_record_expands_to_about_entities_only(self) -> None:
+        service = _build_about_expansion_fixture()
+
+        related = service._graph_expand("memorable", "decision:build-2", "Decision")
+
+        assert ("entity:build-2", "Entity") in related
+        assert ("entity:unrelated", "Entity") not in related
+
+    def test_task_expands_to_about_entities_only(self) -> None:
+        service = _build_about_expansion_fixture()
+
+        related = service._graph_expand("memorable", "task:build-2", "Task")
+
+        assert ("entity:build-2", "Entity") in related
+        assert ("entity:unrelated", "Entity") not in related
+
+    def test_entity_expands_to_records_about_it(self) -> None:
+        service = _build_about_expansion_fixture()
+
+        related = service._graph_expand("memorable", "entity:build-2", "Entity")
+
+        assert ("decision:build-2", "Decision") in related
+        assert ("task:build-2", "Task") in related
+        assert ("observation:unlinked", "Observation") not in related
+
+    def test_record_with_no_about_edges_expands_to_no_entities(self) -> None:
+        service = _build_about_expansion_fixture()
+
+        related = service._graph_expand(
+            "memorable",
+            "observation:unlinked",
+            "Observation",
+        )
+
+        assert all(kind != "Entity" for _, kind in related)
 
 
 # =====================================================================
@@ -1379,11 +1531,13 @@ OBS_STATEMENT_STANDALONE = "Code coverage is above 90 percent."
 def _build_observation_fixture():
     """Build a fixture with observations for retrieval tests."""
     from memorable.core.application import (
+        AboutLinker,
         RememberEntityService,
         RememberObservationService,
     )
     from memorable.core.profile import load_profile_from_yaml
     from memorable.core.repositories import (
+        InMemoryAboutRepository,
         InMemoryDecisionRepository,
         InMemoryEntityRepository,
         InMemoryObservationRepository,
@@ -1396,7 +1550,9 @@ def _build_observation_fixture():
     decision_repo = InMemoryDecisionRepository()
     task_repo = InMemoryTaskRepository()
     observation_repo = InMemoryObservationRepository()
+    about_repo = InMemoryAboutRepository()
     profile = load_profile_from_yaml(OBSERVATION_PROFILE_YAML)
+    about_linker = AboutLinker(entity_repo=entity_repo, about_repo=about_repo)
 
     # Entity
     entity_svc = RememberEntityService(repository=entity_repo, profile=profile)
@@ -1410,7 +1566,11 @@ def _build_observation_fixture():
     )
 
     # Observation v1 (will be superseded)
-    obs_svc = RememberObservationService(repository=observation_repo, profile=profile)
+    obs_svc = RememberObservationService(
+        repository=observation_repo,
+        profile=profile,
+        about_linker=about_linker,
+    )
     obs_svc.remember(
         space="memorable",
         observation_id="observation:storage-pref:v1",
@@ -1427,6 +1587,7 @@ def _build_observation_fixture():
         source_id=SOURCE_ID,
         at=OBSERVATION_TIMESTAMPS["obs_v2"],
         supersedes="observation:storage-pref:v1",
+        about=["entity:memorable"],
     )
 
     # Standalone observation (will be invalidated in some tests)
@@ -1445,6 +1606,7 @@ def _build_observation_fixture():
         task_repo=task_repo,
         observation_repo=observation_repo,
         embedding_provider=provider,
+        about_repo=about_repo,
     )
 
     return service, entity_repo, decision_repo, task_repo, observation_repo
@@ -1593,10 +1755,10 @@ class TestObservationTemporalFiltering:
 
 
 class TestObservationGraphExpansion:
-    """Graph expansion for observations includes entity and supersession."""
+    """Graph expansion for observations includes About and supersession."""
 
     def test_graph_expand_observation_to_entities(self) -> None:
-        """Observation graph expansion relates to entities in the same space."""
+        """Observation graph expansion relates to its About Entities."""
         service, *_ = _build_observation_fixture()
 
         results = service.search(
@@ -1624,21 +1786,14 @@ class TestObservationGraphExpansion:
         # Should follow supersedes link back to v1
         assert "observation:storage-pref:v1" in related_ids
 
-    def test_graph_expand_entity_uses_relations_not_all_observations(self) -> None:
-        """Entity graph expansion uses Relations, not the old heuristic
-        of connecting to all observations in the space.
-
-        Without Relations connecting entity:memorable to observations,
-        Entity expansion returns no observation results.
-        """
+    def test_graph_expand_entity_uses_about_not_all_observations(self) -> None:
+        """Entity graph expansion returns About records, not all observations."""
         service, *_ = _build_observation_fixture()
 
         related = service._graph_expand("memorable", "entity:memorable", "Entity")
 
-        related_kinds = {kind for _, kind in related}
-        # Entity expansion now only follows Relations (none here),
-        # so no Observations should appear via graph expansion
-        assert "Observation" not in related_kinds
+        assert ("observation:storage-pref:v2", "Observation") in related
+        assert ("observation:coverage", "Observation") not in related
 
 
 class TestObservationRepoRequired:

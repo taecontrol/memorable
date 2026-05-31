@@ -12,6 +12,7 @@ from typing import TYPE_CHECKING, Literal
 from memorable.core.application import InspectTaskService, PointInTimeTruthService
 from memorable.core.models import Decision, Entity, Observation, Relation, Task
 from memorable.core.ports import (
+    AboutRepository,
     DecisionRepository,
     EntityRepository,
     ObservationRepository,
@@ -53,12 +54,14 @@ class HybridRetrievalService:
         point_in_time_service: PointInTimeTruthService | None = None,
         inspect_task_service: InspectTaskService | None = None,
         relation_repo: RelationRepository | None = None,
+        about_repo: AboutRepository | None = None,
     ) -> None:
         self._entity_repo = entity_repo
         self._decision_repo = decision_repo
         self._task_repo = task_repo
         self._observation_repo = observation_repo
         self._relation_repo = relation_repo
+        self._about_repo = about_repo
         self._embedding_provider = embedding_provider
         self._dimensions = dimensions
         self._index = InMemoryEmbeddingIndex()
@@ -267,11 +270,10 @@ class HybridRetrievalService:
     ) -> list[tuple[str, str]]:
         """Find related records via graph traversal.
 
-        Entity expansion uses Relation-based 1-hop traversal (via
-        ``list_by_entity``), skipping superseded/invalidated relations.
-        Decision, Task, and Observation expansion still uses a heuristic:
-        each relates to all entities in the same space, plus supersession
-        chain neighbours where applicable.
+        Entity expansion uses Relation-based 1-hop traversal plus About links
+        to records about the Entity. Decision, Task, and Observation expansion
+        uses About links to Entities plus supersession chain neighbours where
+        applicable. There is no all-Entities fallback.
         """
         related: list[tuple[str, str]] = []
 
@@ -291,10 +293,14 @@ class HybridRetrievalService:
                         else relation.source_entity_id
                     )
                     related.append((other_entity_id, "Entity"))
+            if self._about_repo is not None:
+                for record_id in self._about_repo.records_for_entity(space, source_id):
+                    record_kind = self._record_kind(space, record_id)
+                    if record_kind is not None:
+                        related.append((record_id, record_kind))
 
         elif source_kind == "Decision":
-            for entity in self._entity_repo.list_by_space(space):
-                related.append((entity.id, "Entity"))
+            related.extend(self._about_entities(space, source_id))
             decision = self._decision_repo.get(space, source_id)
             if decision and decision.supersedes:
                 related.append((decision.supersedes, "Decision"))
@@ -302,12 +308,10 @@ class HybridRetrievalService:
                 related.append((decision.superseded_by, "Decision"))
 
         elif source_kind == "Task":
-            for entity in self._entity_repo.list_by_space(space):
-                related.append((entity.id, "Entity"))
+            related.extend(self._about_entities(space, source_id))
 
         elif source_kind == "Observation":
-            for entity in self._entity_repo.list_by_space(space):
-                related.append((entity.id, "Entity"))
+            related.extend(self._about_entities(space, source_id))
             observation = self._observation_repo.get(space, source_id)
             if observation and observation.supersedes:
                 related.append((observation.supersedes, "Observation"))
@@ -315,6 +319,23 @@ class HybridRetrievalService:
                 related.append((observation.superseded_by, "Observation"))
 
         return related
+
+    def _about_entities(self, space: str, record_id: str) -> list[tuple[str, str]]:
+        if self._about_repo is None:
+            return []
+        return [
+            (entity_id, "Entity")
+            for entity_id in self._about_repo.entities_for_record(space, record_id)
+        ]
+
+    def _record_kind(self, space: str, record_id: str) -> str | None:
+        if self._decision_repo.get(space, record_id) is not None:
+            return "Decision"
+        if self._task_repo.get(space=space, task_id=record_id) is not None:
+            return "Task"
+        if self._observation_repo.get(space, record_id) is not None:
+            return "Observation"
+        return None
 
     def _build_result(
         self,
@@ -796,4 +817,5 @@ def build_retrieval_service(
         embedding_provider=embedding_provider,
         observation_repo=context.observation_repo,
         relation_repo=context.relation_repo,
+        about_repo=context.about_repo,
     )
