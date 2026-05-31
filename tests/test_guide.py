@@ -1,5 +1,7 @@
 from __future__ import annotations
 
+import pytest
+
 from memorable.guide import render, topics
 
 EXPECTED_TOPIC_NAMES = (
@@ -23,5 +25,12 @@ def test_index_lists_every_guide_topic_with_summary() -> None:
         assert f"- `{topic_name}`:" in rendered
 
 
-def test_authored_topic_renders_non_empty_content() -> None:
-    assert render("overview").strip()
+@pytest.mark.parametrize(
+    "topic_name",
+    ("overview", "writing", "retrieval", "temporal"),
+)
+def test_authored_topic_renders_non_empty_content(topic_name: str) -> None:
+    rendered = render(topic_name)
+
+    assert rendered.strip()
+    assert "This guide topic is not authored yet." not in rendered

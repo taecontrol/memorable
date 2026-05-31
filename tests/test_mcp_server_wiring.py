@@ -13,6 +13,8 @@ from __future__ import annotations
 
 import asyncio
 
+import pytest
+
 
 def _list_tool_names() -> set[str]:
     """Return registered tool names from the FastMCP server (sync helper)."""
@@ -237,11 +239,15 @@ class TestCallToolSuccessPath:
 
         assert _call_text_tool("memorable_guide", {}) == render()
 
-    def test_guide_tool_returns_overview_topic(self) -> None:
+    @pytest.mark.parametrize(
+        "topic_name",
+        ("overview", "writing", "retrieval", "temporal"),
+    )
+    def test_guide_tool_returns_authored_topic(self, topic_name: str) -> None:
         from memorable.guide import render
 
-        assert _call_text_tool("memorable_guide", {"topic": "overview"}) == render(
-            "overview"
+        assert _call_text_tool("memorable_guide", {"topic": topic_name}) == render(
+            topic_name
         )
 
     def test_status_tool_returns_diagnostic_payload(self) -> None:
