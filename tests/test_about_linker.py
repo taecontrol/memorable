@@ -419,12 +419,16 @@ class TestMCPRememberToolsAbout:
             "in MemorySpace 'memorable'. Create the Entity before "
             "linking a MemoryRecord to it."
         }
-        assert default_context.about_repo.entities_for_record(
-            "memorable", "decision:partial"
-        ) == []
-        assert default_context.about_repo.records_for_entity(
-            "memorable", "entity:known"
-        ) == []
+        assert (
+            default_context.about_repo.entities_for_record(
+                "memorable", "decision:partial"
+            )
+            == []
+        )
+        assert (
+            default_context.about_repo.records_for_entity("memorable", "entity:known")
+            == []
+        )
         assert (
             default_context.decision_repo.get("memorable", "decision:partial") is None
         )

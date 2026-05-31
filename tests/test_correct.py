@@ -789,9 +789,10 @@ class TestMCPCorrectTool:
         assert default_context.about_repo.entities_for_record(
             "memorable", DECISION_ID
         ) == ["entity:right"]
-        assert default_context.about_repo.records_for_entity(
-            "memorable", "entity:wrong"
-        ) == []
+        assert (
+            default_context.about_repo.records_for_entity("memorable", "entity:wrong")
+            == []
+        )
 
     def test_correct_about_missing_entity_fails_loud_via_mcp(self) -> None:
         from memorable.core.context import default_context
@@ -885,9 +886,10 @@ class TestMCPCorrectTool:
         assert default_context.about_repo.entities_for_record(
             "memorable", "task:about-correction"
         ) == ["entity:right"]
-        assert default_context.about_repo.records_for_entity(
-            "memorable", "entity:wrong"
-        ) == []
+        assert (
+            default_context.about_repo.records_for_entity("memorable", "entity:wrong")
+            == []
+        )
         provenance = default_context.task_repo.get_provenance(
             space="memorable",
             task_id="task:about-correction",

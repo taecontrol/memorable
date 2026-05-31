@@ -61,9 +61,7 @@ def neo4j_about_repo() -> Iterator[object]:
                 f"MATCH (p:Provenance)-[r:PROVENANCE_OF]->(n:{label}) "
                 "WHERE n.space STARTS WITH 'test-' DELETE r, p"
             )
-            session.run(
-                f"MATCH (n:{label}) WHERE n.space STARTS WITH 'test-' DELETE n"
-            )
+            session.run(f"MATCH (n:{label}) WHERE n.space STARTS WITH 'test-' DELETE n")
     driver.close()
 
 
@@ -244,12 +242,8 @@ class TestAboutRepositoryContract:
         _link(repo, space_a, "decision:1", ["entity:build-2"])
         _link(repo, space_b, "decision:1", ["entity:build-2"])
 
-        assert repo.entities_for_record(space_a, "decision:1") == [
-            "entity:build-2"
-        ]
-        assert repo.records_for_entity(space_a, "entity:build-2") == [
-            "decision:1"
-        ]
+        assert repo.entities_for_record(space_a, "decision:1") == ["entity:build-2"]
+        assert repo.records_for_entity(space_a, "entity:build-2") == ["decision:1"]
 
     @pytest.mark.parametrize("repo_fixture", ALL_REPOS)
     def test_unlink_hard_removes_record_edges(self, repo_fixture, request) -> None:
