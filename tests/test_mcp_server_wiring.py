@@ -241,7 +241,15 @@ class TestCallToolSuccessPath:
 
     @pytest.mark.parametrize(
         "topic_name",
-        ("overview", "writing", "retrieval", "temporal", "profiles", "recipes"),
+        (
+            "overview",
+            "writing",
+            "retrieval",
+            "temporal",
+            "profiles",
+            "recipes",
+            "reference",
+        ),
     )
     def test_guide_tool_returns_authored_topic(self, topic_name: str) -> None:
         from memorable.guide import render
