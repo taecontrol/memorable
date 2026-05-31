@@ -27,7 +27,7 @@ def test_index_lists_every_guide_topic_with_summary() -> None:
 
 @pytest.mark.parametrize(
     "topic_name",
-    ("overview", "writing", "retrieval", "temporal"),
+    ("overview", "writing", "retrieval", "temporal", "profiles", "recipes"),
 )
 def test_authored_topic_renders_non_empty_content(topic_name: str) -> None:
     rendered = render(topic_name)
