@@ -159,7 +159,7 @@ About expresses membership or aboutness, not a truth-bearing claim. "This observ
 
 An About edge carries no temporal or lifecycle fields of its own — no validity time, invalidation time, lifecycle state, or supersession links. All temporal weight stays on the record, which already has its own validity time. The edge is membership and nothing more.
 
-About is correctable, not superseded. A wrong edge was wrong from creation; fixing it hard-removes the edge (append-first history is for truth claims, not membership). If a record's subject genuinely changed, that is a new record, not an evolving edge.
+About is correctable, not superseded. A wrong edge was wrong from creation; fixing it hard-removes the edge (append-first history is for truth claims, not membership). If a record's subject genuinely changed, that is a new record, not an evolving edge. Correction works the same for every record kind that carries About — Decision, Observation, and Task. Re-stapling is about-only by default: an agent can fix a mis-stapled edge through the correction operation without also rewriting the record's statement.
 
 About is a parameter on the record write primitives (`remember_decision`, `remember_observation`, `remember_task`), not a primitive of its own. Cardinality is one record to many Entities; direction is record to Entity only. The target Entity must already exist or the write fails loud; there is no edge type to declare.
 

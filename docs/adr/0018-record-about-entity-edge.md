@@ -33,6 +33,8 @@ Add an optional **"about" edge** from a MemoryRecord to one or more Entities. "A
 
 **Correctable, not superseded; hard remove.** A wrong edge was wrong from creation. Fixing it is correction (ADR-0011, in place), not a temporal chain. Correcting a mis-stapled edge hard-removes it — append-first history applies to truth claims whose evolution matters, not to membership. If a record's subject genuinely changed, that is a new record, not an evolving edge.
 
+Correction applies uniformly to every correctable record kind that carries About — Decision, Observation, and Task (Relation has no About edge). Re-staple is **about-only by default**: the new statement is optional when `about` is supplied, because fixing a mis-stapled edge is a membership fix, not a statement correction. Supplying both corrects the statement and re-staples in one call; supplying neither is an error.
+
 **Shape.**
 
 - **Cardinality:** one record → many Entities (`about: [entity_ids]`). One Entity → many records falls out as the completeness query.
@@ -41,7 +43,7 @@ Add an optional **"about" edge** from a MemoryRecord to one or more Entities. "A
 
 **Enforcement: referential integrity only.** The target Entity must already exist or the write fails loud (`ValueError`), consistent with the Entity/Relation enforcement asymmetry and ADR-0017. There is no edge type to declare — governance happened once, when the Entity was created. An agent must `remember_entity` before stapling a record to it; that friction is the cost of the completeness prize.
 
-**Agent surface: parameter, not primitive.** `about` is an optional parameter on `remember_decision`/`remember_observation`/`remember_task`, never its own `remember_about` tool. Correcting edges folds into the existing correction operation. The "what must I declare" contract is unchanged — still only entity types and relation types — and gains one referential rule.
+**Agent surface: parameter, not primitive.** `about` is an optional parameter on `remember_decision`/`remember_observation`/`remember_task`, never its own `remember_about` tool. Correcting edges folds into the existing correction operation — including for Tasks, since the correction service is generic over record kind and needs no per-kind variant. The "what must I declare" contract is unchanged — still only entity types and relation types — and gains one referential rule.
 
 **Retrieval contract — two consumers:**
 
