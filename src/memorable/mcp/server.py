@@ -978,6 +978,8 @@ def invalidate_tool(
         "Correct a temporal record's statement in place in a MemorySpace. "
         "Correction means the old statement was never true — it was a mistake. "
         "Updates the statement and replaces Provenance with Correction source. "
+        "Optional about re-staples the record to existing Entities it concerns; "
+        "create the Entity first. About is membership, not a Relation claim. "
         "Accepts record_type to select the repository "
         "(decision, observation, relation)."
     ),
@@ -991,6 +993,7 @@ def correct_tool(
     at: str,
     reason: str = "",
     writer: str = "agent:memorable",
+    about: list[str] | None = None,
 ) -> dict[str, object]:
     """Correct a temporal record's statement in place.
 
@@ -1003,6 +1006,7 @@ def correct_tool(
         at: ISO timestamp for the correction.
         reason: Optional reason for the correction.
         writer: Identity of the agent or user making the correction.
+        about: Optional Entity ids to replace this record's About links with.
 
     Returns a dict with correction info on success, or an error dict.
     """
@@ -1010,7 +1014,11 @@ def correct_tool(
     if isinstance(resolved, dict):
         return resolved
 
-    service = CorrectService(repository=resolved)
+    about_linker = AboutLinker(
+        entity_repo=_context.entity_repo,
+        about_repo=_context.about_repo,
+    )
+    service = CorrectService(repository=resolved, about_linker=about_linker)
     timestamp = parse_iso_timestamp(at)
 
     try:
@@ -1023,6 +1031,7 @@ def correct_tool(
             writer=writer,
             at=timestamp,
             reason=reason,
+            about=about,
         )
     except ValueError as e:
         return {"error": str(e)}

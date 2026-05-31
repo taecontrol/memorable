@@ -712,8 +712,13 @@ class CorrectService:
     Works with any repository satisfying TemporalRecordRepository.
     """
 
-    def __init__(self, repository: TemporalRecordRepository) -> None:
+    def __init__(
+        self,
+        repository: TemporalRecordRepository,
+        about_linker: AboutLinker | None = None,
+    ) -> None:
         self._repository = repository
+        self._about_linker = about_linker
 
     def correct(
         self,
@@ -726,6 +731,7 @@ class CorrectService:
         writer: str,
         at: datetime,
         reason: str = "",
+        about: list[str] | None = None,
     ) -> CorrectResult:
         """Correct a temporal record's statement in place.
 
@@ -743,6 +749,15 @@ class CorrectService:
             )
 
         old_statement = record.statement
+
+        if about is not None:
+            if self._about_linker is None:
+                raise ValueError("AboutLinker is required to correct About links.")
+            self._about_linker.restaple(
+                space=space,
+                record_id=record_id,
+                entity_ids=about,
+            )
 
         self._repository.correct(
             space=space,
