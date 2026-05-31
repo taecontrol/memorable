@@ -273,7 +273,7 @@ class TestRememberEntityService:
         """Entity type must be declared in the MemoryProfile."""
         service, _repo = self._make_service()
 
-        with pytest.raises(ValueError, match="not declared"):
+        with pytest.raises(ValueError, match="not declared") as exc_info:
             service.remember(
                 space="memorable",
                 entity_id="entity:x",
@@ -282,6 +282,7 @@ class TestRememberEntityService:
                 source_id="source:test",
                 at=FIXTURE_TIMESTAMP,
             )
+        assert "memorable_guide" not in str(exc_info.value)
 
     def test_remember_entity_sets_writer(self) -> None:
         """Provenance writer is set to agent:tracer-fixture by default."""

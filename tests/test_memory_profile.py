@@ -364,6 +364,7 @@ def test_record_extending_non_writable_type_raises_validation_error(
     assert "Decision" in message
     assert "Observation" in message
     assert "Task" in message
+    assert "memorable_guide" not in message
 
 
 def test_validation_errors_contain_no_storage_vocabulary() -> None:
@@ -494,6 +495,7 @@ class TestCLIInit:
         assert exit_code == 1
         captured = capsys.readouterr()
         assert "version" in captured.err.lower()
+        assert "memorable_guide" not in captured.err
 
     def test_init_command_scaffolds_missing_profile_and_initializes(
         self, tmp_path, capsys

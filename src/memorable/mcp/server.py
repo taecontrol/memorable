@@ -24,6 +24,7 @@ from memorable.core.application import (
     RememberObservationService,
     RememberRelationService,
     RememberTaskService,
+    UndeclaredTypeError,
     build_status_payload,
 )
 from memorable.core.context import ApplicationContext, default_context
@@ -35,9 +36,18 @@ from memorable.core.profile import (
     profile_summary,
 )
 from memorable.core.temporal import parse_iso_timestamp
+from memorable.guide import GuideTopicName
+from memorable.guide import render as render_guide
 from memorable.runtime.doctor import DiagnosticResult, run_diagnostics
 
-mcp_server = FastMCP("memorable")
+mcp_server = FastMCP(
+    "memorable",
+    instructions=(
+        "Memorable is project-scoped memory for agents.\n"
+        "Before writing or searching, consult memorable_guide: "
+        "call it bare for the index, or with a topic for details."
+    ),
+)
 
 # Module-level context used by all MCP tool functions.
 # Defaults to the in-memory default_context. The MCP entry point
@@ -52,6 +62,14 @@ def set_mcp_context(ctx: ApplicationContext) -> None:
     """
     global _context  # noqa: PLW0603
     _context = ctx
+
+
+def guide_hint(topic: GuideTopicName) -> str:
+    return f' Call memorable_guide("{topic}") for help.'
+
+
+def _profile_type_error(message: object) -> dict[str, object]:
+    return {"error": f"{message}{guide_hint('profiles')}"}
 
 
 def _resolve_repository(
@@ -74,6 +92,17 @@ def _resolve_repository(
         "error": f"Unknown record_type '{record_type}'. "
         f"Supported types: decision, observation, relation."
     }
+
+
+@mcp_server.tool(
+    name="memorable_guide",
+    description=(
+        "Read the in-band Memorable guide. Call with no topic for the index, "
+        "or pass a topic before writing to a MemorySpace or choosing retrieval."
+    ),
+)
+def guide_tool(topic: GuideTopicName | None = None) -> str:
+    return render_guide(topic)
 
 
 @mcp_server.tool(
@@ -128,7 +157,7 @@ def init_space_tool(base_path: str) -> dict[str, object]:
     try:
         result = service.initialize(yaml_text)
     except ProfileValidationError as e:
-        return {"error": str(e)}
+        return _profile_type_error(e)
 
     return {
         "space": result.space.name,
@@ -162,7 +191,7 @@ def inspect_space_tool(base_path: str) -> dict[str, object]:
     try:
         profile = load_profile_from_yaml(yaml_text)
     except ProfileValidationError as e:
-        return {"error": str(e)}
+        return _profile_type_error(e)
 
     return profile_summary(profile)
 
@@ -192,7 +221,7 @@ def remember_entity_tool(
     try:
         profile = _context.load_profile(space)
     except ProfileValidationError as e:
-        return {"error": str(e)}
+        return _profile_type_error(e)
 
     service = RememberEntityService(repository=_context.entity_repo, profile=profile)
 
@@ -210,6 +239,8 @@ def remember_entity_tool(
             reason=reason,
         )
     except ValueError as e:
+        if isinstance(e, UndeclaredTypeError):
+            return _profile_type_error(e)
         return {"error": str(e)}
 
     return {
@@ -255,7 +286,7 @@ def remember_decision_tool(
     try:
         profile = _context.load_profile(space)
     except ProfileValidationError as e:
-        return {"error": str(e)}
+        return _profile_type_error(e)
 
     about_linker = AboutLinker(
         entity_repo=_context.entity_repo,
@@ -327,7 +358,7 @@ def remember_observation_tool(
     try:
         profile = _context.load_profile(space)
     except ProfileValidationError as e:
-        return {"error": str(e)}
+        return _profile_type_error(e)
 
     about_linker = AboutLinker(
         entity_repo=_context.entity_repo,
@@ -399,7 +430,7 @@ def remember_relation_tool(
     try:
         profile = _context.load_profile(space)
     except ProfileValidationError as e:
-        return {"error": str(e)}
+        return _profile_type_error(e)
 
     service = RememberRelationService(
         relation_repo=_context.relation_repo,
@@ -424,6 +455,8 @@ def remember_relation_tool(
             supersedes=supersedes,
         )
     except ValueError as e:
+        if isinstance(e, UndeclaredTypeError):
+            return _profile_type_error(e)
         return {"error": str(e)}
 
     return {
@@ -651,7 +684,7 @@ def remember_task_tool(
     try:
         profile = _context.load_profile(space)
     except ProfileValidationError as e:
-        return {"error": str(e)}
+        return _profile_type_error(e)
 
     about_linker = AboutLinker(
         entity_repo=_context.entity_repo,

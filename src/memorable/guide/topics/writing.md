@@ -1,0 +1,17 @@
+# Writing
+
+Pick the record type by what the memory means, not by convenience.
+
+Use a Decision for a choice that should guide future behavior, design, product direction, or workflow. Write it with `memorable_remember_decision`, naming `space`, `decision_id`, `statement`, `source`, and `at`; set `supersedes` only when this Decision replaces an earlier one.
+
+Use an Observation for an assertion worth remembering that is not a Decision, Task, or Relation. Write it with `memorable_remember_observation`, naming `space`, `observation_id`, `statement`, `source`, and `at`. Observation is the flexible fallback, not the default for everything.
+
+Use a Task for a commitment, follow-up, or piece of work with a lifecycle. Write it with `memorable_remember_task`, naming `space`, `task_id`, `title`, `source`, and `at`; later use `memorable_complete_task` instead of deleting it.
+
+Use an Entity for a remembered thing with identity inside the MemorySpace. Create it first with `memorable_remember_entity`, using `space`, `entity_id`, `entity_type`, `name`, `source`, and `at`. `entity_type` must be declared in the MemoryProfile.
+
+Use a Relation for a directed, truth-bearing connection between two Entities. Write it with `memorable_remember_relation`, naming `space`, `relation_id`, `source_entity_id`, `target_entity_id`, `relation_type`, `statement`, `source`, and `at`. A Relation connects Entity to Entity and can be superseded, corrected, or invalidated.
+
+Use About when a record concerns one or more Entities. Pass existing Entity ids in `about` on `memorable_remember_decision`, `memorable_remember_observation`, or `memorable_remember_task`. About staples a record to Entities for retrieval and Memory Review; it is membership, not a truth-bearing Relation.
+
+Do not try to write Evidence, Measurement, Event, or DerivedMemory yet. They are kernel vocabulary, not Writable Record Types in the current build, and are not valid `extends` targets. Use Observation as the fallback until those types gain write paths.

@@ -13,6 +13,8 @@ from __future__ import annotations
 
 import asyncio
 
+import pytest
+
 
 def _list_tool_names() -> set[str]:
     """Return registered tool names from the FastMCP server (sync helper)."""
@@ -47,8 +49,21 @@ class TestFastMCPServerInstance:
 
         assert mcp_server.name == "memorable"
 
+    def test_server_instructions_point_agents_to_guide(self) -> None:
+        from memorable.mcp.server import mcp_server
+
+        instructions = mcp_server.instructions
+
+        assert instructions
+        normalized = instructions.lower()
+        assert "project-scoped memory" in normalized
+        assert "memorable_guide" in normalized
+        assert "before writing or searching" in normalized
+        assert len(instructions.splitlines()) <= 4
+
 
 EXPECTED_TOOL_NAMES = {
+    "memorable_guide",
     "memorable_status",
     "memorable_doctor",
     "memorable_init_space",
@@ -70,11 +85,21 @@ EXPECTED_TOOL_NAMES = {
     "memorable_list_records",
 }
 
+EXPECTED_GUIDE_TOPICS = [
+    "overview",
+    "writing",
+    "retrieval",
+    "temporal",
+    "profiles",
+    "recipes",
+    "reference",
+]
+
 
 class TestToolRegistration:
-    def test_all_19_tools_registered(self) -> None:
+    def test_all_20_tools_registered(self) -> None:
         tool_names = _list_tool_names()
-        assert len(tool_names) == 19
+        assert len(tool_names) == 20
 
     def test_all_expected_tool_names_present(self) -> None:
         tool_names = _list_tool_names()
@@ -126,6 +151,17 @@ class TestToolRegistration:
             "title": "list_records_toolArguments",
             "type": "object",
         }
+
+    def test_guide_topic_schema_is_closed_set(self) -> None:
+        tools = {tool.name: tool for tool in _list_tools()}
+        tool = tools["memorable_guide"]
+
+        topic_schema = tool.inputSchema["properties"]["topic"]
+        assert {"type": "null"} in topic_schema["anyOf"]
+        assert {
+            "enum": EXPECTED_GUIDE_TOPICS,
+            "type": "string",
+        } in topic_schema["anyOf"]
 
 
 # Core domain terms that must appear in at least one tool description.
@@ -201,7 +237,39 @@ def _call_tool(name: str, arguments: dict) -> object:
     return asyncio.run(mcp_server.call_tool(name, arguments))
 
 
+def _call_text_tool(name: str, arguments: dict) -> str:
+    content, structured = _call_tool(name, arguments)
+    if isinstance(structured, str):
+        return structured
+    assert len(content) == 1
+    return content[0].text
+
+
 class TestCallToolSuccessPath:
+    def test_guide_tool_returns_index_when_called_bare(self) -> None:
+        from memorable.guide import render
+
+        assert _call_text_tool("memorable_guide", {}) == render()
+
+    @pytest.mark.parametrize(
+        "topic_name",
+        (
+            "overview",
+            "writing",
+            "retrieval",
+            "temporal",
+            "profiles",
+            "recipes",
+            "reference",
+        ),
+    )
+    def test_guide_tool_returns_authored_topic(self, topic_name: str) -> None:
+        from memorable.guide import render
+
+        assert _call_text_tool("memorable_guide", {"topic": topic_name}) == render(
+            topic_name
+        )
+
     def test_status_tool_returns_diagnostic_payload(self) -> None:
         result = _call_tool("memorable_status", {})
         # call_tool returns a tuple of (content_blocks, structured_result)
@@ -301,8 +369,10 @@ class TestCallToolSuccessPath:
 class TestCallToolErrorPath:
     def setup_method(self) -> None:
         from memorable.core.context import default_context
+        from memorable.mcp.server import set_mcp_context
 
         default_context.reset()
+        set_mcp_context(default_context)
 
     def test_current_truth_returns_error_for_missing_decision(self) -> None:
         result = _call_tool(
@@ -343,6 +413,94 @@ class TestCallToolErrorPath:
             "in MemorySpace 'memorable'. Create the Entity before "
             "linking a MemoryRecord to it."
         }
+
+    def test_unknown_entity_type_error_points_to_profiles_guide(self) -> None:
+        result = _call_tool(
+            "memorable_remember_entity",
+            {
+                "space": "memorable",
+                "entity_id": "entity:person",
+                "entity_type": "Person",
+                "name": "Ada",
+                "source": "source:test",
+                "at": "2026-05-31T09:00:00Z",
+            },
+        )
+
+        _, structured = result
+        assert "Entity type 'Person'" in structured["error"]
+        assert 'memorable_guide("profiles")' in structured["error"]
+
+    def test_unknown_relation_type_error_points_to_profiles_guide(self) -> None:
+        result = _call_tool(
+            "memorable_remember_relation",
+            {
+                "space": "memorable",
+                "relation_id": "relation:unknown",
+                "source_entity_id": "entity:source",
+                "target_entity_id": "entity:target",
+                "relation_type": "blocks",
+                "statement": "Source blocks target.",
+                "source": "source:test",
+                "at": "2026-05-31T09:00:00Z",
+            },
+        )
+
+        _, structured = result
+        assert "Relation type 'blocks'" in structured["error"]
+        assert 'memorable_guide("profiles")' in structured["error"]
+
+    def test_unknown_record_type_error_is_self_sufficient(self) -> None:
+        result = _call_tool(
+            "memorable_current_truth",
+            {
+                "space": "memorable",
+                "record_id": "anything",
+                "record_type": "evidence",
+            },
+        )
+
+        _, structured = result
+        assert "Unknown record_type 'evidence'" in structured["error"]
+        assert "memorable_guide" not in structured["error"]
+
+    def test_non_writable_extends_error_points_to_profiles_guide(
+        self, tmp_path
+    ) -> None:
+        profile_dir = tmp_path / ".memorable"
+        profile_dir.mkdir()
+        (profile_dir / "memory.yaml").write_text(
+            "version: 1\n"
+            "space:\n"
+            "  name: memorable\n"
+            "records:\n"
+            "  - name: Measured\n"
+            "    extends: Measurement\n",
+            encoding="utf-8",
+        )
+
+        result = _call_tool("memorable_init_space", {"base_path": str(tmp_path)})
+
+        _, structured = result
+        assert "extends 'Measurement'" in structured["error"]
+        assert 'memorable_guide("profiles")' in structured["error"]
+
+    def test_successful_write_carries_no_guide_hint(self) -> None:
+        result = _call_tool(
+            "memorable_remember_entity",
+            {
+                "space": "memorable",
+                "entity_id": "entity:project",
+                "entity_type": "Project",
+                "name": "Memorable",
+                "source": "source:test",
+                "at": "2026-05-31T09:00:00Z",
+            },
+        )
+
+        _, structured = result
+        assert "error" not in structured
+        assert "memorable_guide" not in str(structured)
 
 
 class TestEntryPointWiring:
