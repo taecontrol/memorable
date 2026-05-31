@@ -53,6 +53,8 @@ The durable decision is the existence of a project memory profile. The exact YAM
 
 ## Initial Profile Shape
 
+> **Superseded for parsing (ADR-0017, 2026-05-30).** The sketches below predate the implemented parser and the fail-loud rule. Under ADR-0017 they would now fail validation: `write_policy`, `metrics`, `workflows`, and `common_queries` are rejected unknown keys; `extends: MemoryRecord`, `extends: Evidence`, `extends: DerivedMemory`, and `extends: Event` are rejected because `extends` must name a Writable Record Type (Decision, Observation, or Task). The sketches are kept as historical illustration of the *target design*; for the parsed schema that ships today see ADR-0017 and the MemoryProfile entry in the ubiquitous language. The durable decision of this ADR — a profile specializes the kernel, and the YAML schema evolves by version — is unchanged.
+
 This is a provisional sketch, not a final schema:
 
 ```yaml
