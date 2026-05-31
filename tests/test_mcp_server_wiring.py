@@ -49,6 +49,18 @@ class TestFastMCPServerInstance:
 
         assert mcp_server.name == "memorable"
 
+    def test_server_instructions_point_agents_to_guide(self) -> None:
+        from memorable.mcp.server import mcp_server
+
+        instructions = mcp_server.instructions
+
+        assert instructions
+        normalized = instructions.lower()
+        assert "project-scoped memory" in normalized
+        assert "memorable_guide" in normalized
+        assert "before writing or searching" in normalized
+        assert len(instructions.splitlines()) <= 4
+
 
 EXPECTED_TOOL_NAMES = {
     "memorable_guide",

@@ -39,7 +39,14 @@ from memorable.guide import GuideTopicName
 from memorable.guide import render as render_guide
 from memorable.runtime.doctor import DiagnosticResult, run_diagnostics
 
-mcp_server = FastMCP("memorable")
+mcp_server = FastMCP(
+    "memorable",
+    instructions=(
+        "Memorable is project-scoped memory for agents.\n"
+        "Before writing or searching, consult memorable_guide: "
+        "call it bare for the index, or with a topic for details."
+    ),
+)
 
 # Module-level context used by all MCP tool functions.
 # Defaults to the in-memory default_context. The MCP entry point
