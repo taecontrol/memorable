@@ -49,6 +49,7 @@ class TestFastMCPServerInstance:
 
 
 EXPECTED_TOOL_NAMES = {
+    "memorable_guide",
     "memorable_status",
     "memorable_doctor",
     "memorable_init_space",
@@ -70,11 +71,21 @@ EXPECTED_TOOL_NAMES = {
     "memorable_list_records",
 }
 
+EXPECTED_GUIDE_TOPICS = [
+    "overview",
+    "writing",
+    "retrieval",
+    "temporal",
+    "profiles",
+    "recipes",
+    "reference",
+]
+
 
 class TestToolRegistration:
-    def test_all_19_tools_registered(self) -> None:
+    def test_all_20_tools_registered(self) -> None:
         tool_names = _list_tool_names()
-        assert len(tool_names) == 19
+        assert len(tool_names) == 20
 
     def test_all_expected_tool_names_present(self) -> None:
         tool_names = _list_tool_names()
@@ -126,6 +137,17 @@ class TestToolRegistration:
             "title": "list_records_toolArguments",
             "type": "object",
         }
+
+    def test_guide_topic_schema_is_closed_set(self) -> None:
+        tools = {tool.name: tool for tool in _list_tools()}
+        tool = tools["memorable_guide"]
+
+        topic_schema = tool.inputSchema["properties"]["topic"]
+        assert {"type": "null"} in topic_schema["anyOf"]
+        assert {
+            "enum": EXPECTED_GUIDE_TOPICS,
+            "type": "string",
+        } in topic_schema["anyOf"]
 
 
 # Core domain terms that must appear in at least one tool description.
@@ -201,7 +223,27 @@ def _call_tool(name: str, arguments: dict) -> object:
     return asyncio.run(mcp_server.call_tool(name, arguments))
 
 
+def _call_text_tool(name: str, arguments: dict) -> str:
+    content, structured = _call_tool(name, arguments)
+    if isinstance(structured, str):
+        return structured
+    assert len(content) == 1
+    return content[0].text
+
+
 class TestCallToolSuccessPath:
+    def test_guide_tool_returns_index_when_called_bare(self) -> None:
+        from memorable.guide import render
+
+        assert _call_text_tool("memorable_guide", {}) == render()
+
+    def test_guide_tool_returns_overview_topic(self) -> None:
+        from memorable.guide import render
+
+        assert _call_text_tool("memorable_guide", {"topic": "overview"}) == render(
+            "overview"
+        )
+
     def test_status_tool_returns_diagnostic_payload(self) -> None:
         result = _call_tool("memorable_status", {})
         # call_tool returns a tuple of (content_blocks, structured_result)

@@ -35,6 +35,8 @@ from memorable.core.profile import (
     profile_summary,
 )
 from memorable.core.temporal import parse_iso_timestamp
+from memorable.guide import GuideTopicName
+from memorable.guide import render as render_guide
 from memorable.runtime.doctor import DiagnosticResult, run_diagnostics
 
 mcp_server = FastMCP("memorable")
@@ -74,6 +76,17 @@ def _resolve_repository(
         "error": f"Unknown record_type '{record_type}'. "
         f"Supported types: decision, observation, relation."
     }
+
+
+@mcp_server.tool(
+    name="memorable_guide",
+    description=(
+        "Read the in-band Memorable guide. Call with no topic for the index, "
+        "or pass a topic before writing to a MemorySpace or choosing retrieval."
+    ),
+)
+def guide_tool(topic: GuideTopicName | None = None) -> str:
+    return render_guide(topic)
 
 
 @mcp_server.tool(
