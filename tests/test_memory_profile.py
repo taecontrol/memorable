@@ -21,7 +21,7 @@ VALID_PROFILE_YAML = textwrap.dedent("""\
       - name: ArchitectureDecision
         extends: Decision
       - name: OpenQuestion
-        extends: MemoryRecord
+        extends: Observation
 """)
 
 PROFILE_WITH_STRAY_WRITE_POLICY_YAML = textwrap.dedent("""\
@@ -225,8 +225,65 @@ def test_record_with_invalid_extends_raises_validation_error() -> None:
         "version: 1\nspace:\n  name: test\n"
         "records:\n  - name: Bad\n    extends: NonExistentType\n"
     )
-    with pytest.raises(ProfileValidationError, match="not a recognized kernel type"):
+    with pytest.raises(ProfileValidationError):
         load_profile_from_yaml(yaml_text)
+
+
+def test_record_without_extends_raises_validation_error() -> None:
+    """A record declaration must name the Writable Record Type it extends."""
+    from memorable.core.profile import ProfileValidationError, load_profile_from_yaml
+
+    yaml_text = "version: 1\nspace:\n  name: test\nrecords:\n  - name: MissingBase\n"
+
+    with pytest.raises(ProfileValidationError):
+        load_profile_from_yaml(yaml_text)
+
+
+@pytest.mark.parametrize("extends", ["Decision", "Observation", "Task"])
+def test_record_extending_writable_record_type_loads(extends: str) -> None:
+    """A record may extend any Writable Record Type."""
+    from memorable.core.profile import load_profile_from_yaml
+
+    yaml_text = textwrap.dedent(f"""\
+        version: 1
+        space:
+          name: test
+        records:
+          - name: Custom{extends}
+            extends: {extends}
+    """)
+
+    profile = load_profile_from_yaml(yaml_text)
+
+    assert profile.records[0].extends == extends
+
+
+@pytest.mark.parametrize(
+    "extends",
+    ["Measurement", "Event", "Evidence", "DerivedMemory", "Relation", "MemoryRecord"],
+)
+def test_record_extending_non_writable_type_raises_validation_error(
+    extends: str,
+) -> None:
+    """A record may not extend a kernel term without a record write path."""
+    from memorable.core.profile import ProfileValidationError, load_profile_from_yaml
+
+    yaml_text = textwrap.dedent(f"""\
+        version: 1
+        space:
+          name: test
+        records:
+          - name: DeadSchemaRecord
+            extends: {extends}
+    """)
+
+    with pytest.raises(ProfileValidationError) as exc_info:
+        load_profile_from_yaml(yaml_text)
+
+    message = str(exc_info.value)
+    assert "Decision" in message
+    assert "Observation" in message
+    assert "Task" in message
 
 
 def test_validation_errors_contain_no_storage_vocabulary() -> None:

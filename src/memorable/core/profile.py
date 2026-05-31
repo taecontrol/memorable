@@ -18,23 +18,7 @@ RELATION_KEYS = frozenset({"name", "description"})
 RECORD_KEYS = frozenset({"name", "extends", "description"})
 TARGET_DESIGN_KEYS = frozenset({"metrics", "workflows", "common_queries"})
 
-# Kernel types that record declarations may extend
-KERNEL_RECORD_TYPES = frozenset(
-    {
-        "MemoryRecord",
-        "Decision",
-        "Task",
-        "Evidence",
-        "Observation",
-        "Measurement",
-        "Event",
-        "DerivedMemory",
-        # Relation is here so profiles can declare records extending it,
-        # even though Relations are normally declared via the 'relations'
-        # section. This keeps the kernel type set complete.
-        "Relation",
-    }
-)
+WRITABLE_RECORD_TYPES = frozenset({"Decision", "Observation", "Task"})
 
 
 class ProfileValidationError(Exception):
@@ -71,7 +55,7 @@ class RecordDeclaration:
     """A project-specific record type that extends a kernel type."""
 
     name: str
-    extends: str = "MemoryRecord"
+    extends: str
 
 
 @dataclass(frozen=True)
@@ -123,7 +107,7 @@ def load_profile_from_yaml(yaml_text: str) -> MemoryProfile:
     )
 
     records = tuple(
-        RecordDeclaration(name=r["name"], extends=r.get("extends", "MemoryRecord"))
+        RecordDeclaration(name=r["name"], extends=r["extends"])
         for r in data.get("records", [])
     )
 
@@ -218,10 +202,14 @@ def _validate_records(data: dict) -> None:
         _validate_allowed_keys(
             record, RECORD_KEYS, f"Record declaration at position {i}"
         )
-        extends = record.get("extends", "MemoryRecord")
-        if extends not in KERNEL_RECORD_TYPES:
+        if "extends" not in record:
+            raise ProfileValidationError(
+                f"Record '{record['name']}' must declare 'extends' as one of "
+                f"{sorted(WRITABLE_RECORD_TYPES)}."
+            )
+        extends = record["extends"]
+        if extends not in WRITABLE_RECORD_TYPES:
             raise ProfileValidationError(
                 f"Record '{record['name']}' extends '{extends}', "
-                f"which is not a recognized kernel type. "
-                f"Valid types: {sorted(KERNEL_RECORD_TYPES)}."
+                f"but records may only extend one of: {sorted(WRITABLE_RECORD_TYPES)}."
             )
