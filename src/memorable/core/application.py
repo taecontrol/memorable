@@ -198,16 +198,17 @@ class AboutLinker:
         Raises ValueError if any target Entity is missing. No About links are
         written unless every target exists.
         """
-        self._verify_entities_exist(space=space, entity_ids=entity_ids)
+        self.verify_targets(space=space, entity_ids=entity_ids)
         self._about_repo.link(space, record_id, entity_ids)
 
     def restaple(self, *, space: str, record_id: str, entity_ids: list[str]) -> None:
         """Replace all About links for a MemoryRecord after verification."""
-        self._verify_entities_exist(space=space, entity_ids=entity_ids)
+        self.verify_targets(space=space, entity_ids=entity_ids)
         self._about_repo.unlink(space, record_id)
         self._about_repo.link(space, record_id, entity_ids)
 
-    def _verify_entities_exist(self, *, space: str, entity_ids: list[str]) -> None:
+    def verify_targets(self, *, space: str, entity_ids: list[str]) -> None:
+        """Raise if any About target Entity does not exist."""
         for entity_id in entity_ids:
             if self._entity_repo.get(space, entity_id) is None:
                 raise ValueError(
@@ -229,6 +230,19 @@ def _link_about(
     if about_linker is None:
         raise ValueError("AboutLinker is required to write About links.")
     about_linker.link(space=space, record_id=record_id, entity_ids=about)
+
+
+def _verify_about_targets(
+    about_linker: AboutLinker | None,
+    *,
+    space: str,
+    about: list[str] | None,
+) -> None:
+    if not about:
+        return
+    if about_linker is None:
+        raise ValueError("AboutLinker is required to write About links.")
+    about_linker.verify_targets(space=space, entity_ids=about)
 
 
 @dataclass(frozen=True)
@@ -282,6 +296,8 @@ class RememberDecisionService:
 
         Decision is a kernel record type, so no profile declaration is required.
         """
+        _verify_about_targets(self._about_linker, space=space, about=about)
+
         decision = Decision(
             id=decision_id,
             statement=statement,
@@ -375,6 +391,8 @@ class RememberObservationService:
 
         Observation is a kernel record type, so no profile declaration is required.
         """
+        _verify_about_targets(self._about_linker, space=space, about=about)
+
         observation = Observation(
             id=observation_id,
             statement=statement,
@@ -796,6 +814,74 @@ class CorrectService:
         )
 
 
+class CorrectTaskService:
+    """Application service for correcting Task About membership."""
+
+    def __init__(
+        self,
+        *,
+        repository: TaskRepository,
+        about_linker: AboutLinker,
+    ) -> None:
+        self._repository = repository
+        self._about_linker = about_linker
+
+    def correct(
+        self,
+        *,
+        space: str,
+        task_id: str,
+        new_statement: str,
+        source: str,
+        writer: str,
+        at: datetime,
+        reason: str = "",
+        about: list[str] | None = None,
+    ) -> CorrectResult:
+        task = self._repository.get(space=space, task_id=task_id)
+        if task is None:
+            raise ValueError(f"Task '{task_id}' not found in MemorySpace '{space}'.")
+        if about is None:
+            raise ValueError(
+                "Task correction through memorable_correct currently supports "
+                "About re-staple only; pass about to replace Task About links."
+            )
+        if new_statement != task.title:
+            raise ValueError(
+                "Task title correction is not supported by memorable_correct; "
+                "pass the existing Task title as new_statement when re-stapling About."
+            )
+
+        self._about_linker.restaple(space=space, record_id=task_id, entity_ids=about)
+
+        episode_id = make_episode_id(source, at)
+        if reason:
+            provenance_reason = f"Corrected from: '{task.title}'. Reason: {reason}."
+        else:
+            provenance_reason = f"Corrected from: '{task.title}'."
+        self._repository.save_provenance(
+            space=space,
+            task_id=task_id,
+            provenance=Provenance(
+                record_id=task_id,
+                record_kind="task",
+                source_id=source,
+                episode_id=episode_id,
+                writer=writer,
+                reason=provenance_reason,
+                creation_time=at,
+                validity_time=at,
+            ),
+        )
+
+        return CorrectResult(
+            record_id=task_id,
+            space=space,
+            old_statement=task.title,
+            new_statement=task.title,
+        )
+
+
 class InspectProvenanceService:
     """Application service that retrieves provenance for an Entity.
 
@@ -856,6 +942,8 @@ class RememberTaskService:
 
         Task is a kernel record type, so no profile declaration is required.
         """
+        _verify_about_targets(self._about_linker, space=space, about=about)
+
         task = Task(
             id=task_id,
             title=title,

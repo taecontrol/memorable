@@ -43,6 +43,7 @@ def test_task_repository_protocol_methods() -> None:
         "save",
         "get",
         "get_provenance",
+        "save_provenance",
         "list_by_space",
         "list_projections_by_space",
         "complete",

@@ -979,6 +979,38 @@ class Neo4jTaskRepository:
                 validity_time=_from_iso(record["validity_time"]),
             )
 
+    def save_provenance(
+        self,
+        *,
+        space: str,
+        task_id: str,
+        provenance: Provenance,
+    ) -> None:
+        """Replace the provenance for a Task."""
+        with self._driver.session() as session:
+            session.run(
+                "MATCH (p:Provenance)-[:PROVENANCE_OF]"
+                "->(t:Task {space: $space, id: $id}) "
+                "SET p.record_id = $record_id, "
+                "    p.record_kind = $record_kind, "
+                "    p.source_id = $source_id, "
+                "    p.episode_id = $episode_id, "
+                "    p.writer = $writer, "
+                "    p.reason = $reason, "
+                "    p.creation_time = $creation_time, "
+                "    p.validity_time = $validity_time",
+                space=space,
+                id=task_id,
+                record_id=provenance.record_id,
+                record_kind=provenance.record_kind,
+                source_id=provenance.source_id,
+                episode_id=provenance.episode_id,
+                writer=provenance.writer,
+                reason=provenance.reason,
+                creation_time=_to_iso(provenance.creation_time),
+                validity_time=_to_iso(provenance.validity_time),
+            )
+
     def complete(
         self,
         *,

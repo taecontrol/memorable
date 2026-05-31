@@ -837,6 +837,111 @@ class TestMCPCorrectTool:
             "memorable", DECISION_ID
         ) == ["entity:wrong"]
 
+    def test_correct_restaples_task_about_edges_via_mcp(self) -> None:
+        from memorable.core.context import default_context
+        from memorable.mcp.server import (
+            correct_tool,
+            remember_entity_tool,
+            remember_task_tool,
+        )
+
+        remember_entity_tool(
+            space="memorable",
+            entity_id="entity:wrong",
+            entity_type="Project",
+            name="Wrong",
+            source=SOURCE_ID,
+            at="2026-05-25T09:00:00Z",
+        )
+        remember_entity_tool(
+            space="memorable",
+            entity_id="entity:right",
+            entity_type="Project",
+            name="Right",
+            source=SOURCE_ID,
+            at="2026-05-25T09:01:00Z",
+        )
+        remember_task_tool(
+            space="memorable",
+            task_id="task:about-correction",
+            title="Verify About correction.",
+            source=SOURCE_ID,
+            at="2026-05-25T09:02:00Z",
+            about=["entity:wrong"],
+        )
+
+        result = correct_tool(
+            space="memorable",
+            record_id="task:about-correction",
+            record_type="task",
+            new_statement="Verify About correction.",
+            source=CORRECTION_SOURCE_ID,
+            at="2026-05-25T10:00:00Z",
+            writer="human:reviewer",
+            about=["entity:right"],
+        )
+
+        assert "error" not in result
+        assert default_context.about_repo.entities_for_record(
+            "memorable", "task:about-correction"
+        ) == ["entity:right"]
+        assert default_context.about_repo.records_for_entity(
+            "memorable", "entity:wrong"
+        ) == []
+        provenance = default_context.task_repo.get_provenance(
+            space="memorable",
+            task_id="task:about-correction",
+        )
+        assert provenance is not None
+        assert provenance.record_kind == "task"
+        assert provenance.source_id == CORRECTION_SOURCE_ID
+        assert provenance.writer == "human:reviewer"
+        assert provenance.creation_time == CORRECTION_TIMESTAMP
+
+    def test_correct_task_about_missing_entity_fails_loud_via_mcp(self) -> None:
+        from memorable.core.context import default_context
+        from memorable.mcp.server import (
+            correct_tool,
+            remember_entity_tool,
+            remember_task_tool,
+        )
+
+        remember_entity_tool(
+            space="memorable",
+            entity_id="entity:wrong",
+            entity_type="Project",
+            name="Wrong",
+            source=SOURCE_ID,
+            at="2026-05-25T09:00:00Z",
+        )
+        remember_task_tool(
+            space="memorable",
+            task_id="task:about-correction",
+            title="Verify About correction.",
+            source=SOURCE_ID,
+            at="2026-05-25T09:01:00Z",
+            about=["entity:wrong"],
+        )
+
+        result = correct_tool(
+            space="memorable",
+            record_id="task:about-correction",
+            record_type="task",
+            new_statement="Verify About correction.",
+            source=CORRECTION_SOURCE_ID,
+            at="2026-05-25T10:00:00Z",
+            about=["entity:missing"],
+        )
+
+        assert result == {
+            "error": "About target Entity 'entity:missing' not found "
+            "in MemorySpace 'memorable'. Create the Entity before "
+            "linking a MemoryRecord to it."
+        }
+        assert default_context.about_repo.entities_for_record(
+            "memorable", "task:about-correction"
+        ) == ["entity:wrong"]
+
     def test_correct_unknown_record_type(self) -> None:
         from memorable.mcp.server import correct_tool
 

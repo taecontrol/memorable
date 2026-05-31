@@ -149,6 +149,32 @@ class TestRememberServicesAbout:
             "memorable", "decision:about-build-2"
         ) == ["entity:build-2"]
 
+    def test_remember_decision_missing_about_entity_writes_no_record(self) -> None:
+        from memorable.core.application import RememberDecisionService
+        from memorable.core.repositories import InMemoryDecisionRepository
+
+        linker, about_repo, entity_service, profile = _about_linker()
+        _remember_entity(entity_service, "entity:known")
+        decision_repo = InMemoryDecisionRepository()
+        service = RememberDecisionService(
+            repository=decision_repo,
+            profile=profile,
+            about_linker=linker,
+        )
+
+        with pytest.raises(ValueError, match="Entity 'entity:missing' not found"):
+            service.remember(
+                space="memorable",
+                decision_id="decision:partial",
+                statement="About a missing Entity.",
+                source_id="source:test",
+                at=AT,
+                about=["entity:known", "entity:missing"],
+            )
+
+        assert decision_repo.get("memorable", "decision:partial") is None
+        assert about_repo.entities_for_record("memorable", "decision:partial") == []
+
     def test_remember_observation_writes_about_edges(self) -> None:
         from memorable.core.application import RememberObservationService
         from memorable.core.repositories import InMemoryObservationRepository
@@ -176,6 +202,32 @@ class TestRememberServicesAbout:
             "entity:device"
         ]
 
+    def test_remember_observation_missing_about_entity_writes_no_record(self) -> None:
+        from memorable.core.application import RememberObservationService
+        from memorable.core.repositories import InMemoryObservationRepository
+
+        linker, about_repo, entity_service, profile = _about_linker()
+        _remember_entity(entity_service, "entity:known")
+        observation_repo = InMemoryObservationRepository()
+        service = RememberObservationService(
+            repository=observation_repo,
+            profile=profile,
+            about_linker=linker,
+        )
+
+        with pytest.raises(ValueError, match="Entity 'entity:missing' not found"):
+            service.remember(
+                space="memorable",
+                observation_id="observation:partial",
+                statement="About a missing Entity.",
+                source_id="source:test",
+                at=AT,
+                about=["entity:known", "entity:missing"],
+            )
+
+        assert observation_repo.get("memorable", "observation:partial") is None
+        assert about_repo.entities_for_record("memorable", "observation:partial") == []
+
     def test_remember_task_writes_about_edges(self) -> None:
         from memorable.core.application import RememberTaskService
         from memorable.core.repositories import InMemoryTaskRepository
@@ -202,6 +254,32 @@ class TestRememberServicesAbout:
         assert about_repo.entities_for_record("memorable", "task:build-2") == [
             "entity:build-2"
         ]
+
+    def test_remember_task_missing_about_entity_writes_no_record(self) -> None:
+        from memorable.core.application import RememberTaskService
+        from memorable.core.repositories import InMemoryTaskRepository
+
+        linker, about_repo, entity_service, profile = _about_linker()
+        _remember_entity(entity_service, "entity:known")
+        task_repo = InMemoryTaskRepository()
+        service = RememberTaskService(
+            repository=task_repo,
+            profile=profile,
+            about_linker=linker,
+        )
+
+        with pytest.raises(ValueError, match="Entity 'entity:missing' not found"):
+            service.remember(
+                space="memorable",
+                task_id="task:partial",
+                title="About a missing Entity.",
+                source_id="source:test",
+                at=AT,
+                about=["entity:known", "entity:missing"],
+            )
+
+        assert task_repo.get(space="memorable", task_id="task:partial") is None
+        assert about_repo.entities_for_record("memorable", "task:partial") == []
 
     def test_omitting_about_writes_no_edges(self) -> None:
         from memorable.core.application import RememberDecisionService
@@ -347,3 +425,6 @@ class TestMCPRememberToolsAbout:
         assert default_context.about_repo.records_for_entity(
             "memorable", "entity:known"
         ) == []
+        assert (
+            default_context.decision_repo.get("memorable", "decision:partial") is None
+        )

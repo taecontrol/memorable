@@ -239,6 +239,23 @@ class FakeSession:
                 }
             return FakeResult()
 
+        # --- Task save_provenance (Provenance + Task + SET) ---
+        if "Provenance" in query and "Task" in query and "SET" in query:
+            space = str(params.get("space", ""))
+            task_id = str(params.get("id", ""))
+            provs = self._store.setdefault("Provenance", {})
+            provs[("task", space, task_id)] = {
+                "record_id": params.get("record_id", ""),
+                "record_kind": params.get("record_kind", ""),
+                "source_id": params.get("source_id", ""),
+                "episode_id": params.get("episode_id", ""),
+                "writer": params.get("writer", ""),
+                "reason": params.get("reason", ""),
+                "creation_time": params.get("creation_time", ""),
+                "validity_time": params.get("validity_time", ""),
+            }
+            return FakeResult()
+
         # --- Task complete (MATCH + SET) ---
         if "Task" in query and "SET" in query:
             space = str(params.get("space", ""))
@@ -961,6 +978,7 @@ class TestNeo4jTaskRepository:
         assert hasattr(Neo4jTaskRepository, "save")
         assert hasattr(Neo4jTaskRepository, "get")
         assert hasattr(Neo4jTaskRepository, "get_provenance")
+        assert hasattr(Neo4jTaskRepository, "save_provenance")
         assert hasattr(Neo4jTaskRepository, "list_by_space")
         assert hasattr(Neo4jTaskRepository, "list_projections_by_space")
         assert hasattr(Neo4jTaskRepository, "complete")
@@ -1110,6 +1128,41 @@ class TestNeo4jTaskRepository:
         assert result.record_kind == "task"
         assert result.source_id == "src-20"
         assert result.writer == "agent-z"
+
+    def test_save_provenance_replaces_task_provenance(self) -> None:
+        """save_provenance replaces provenance for an existing Task."""
+        from memorable.storage.neo4j.repository import Neo4jTaskRepository
+
+        repo = Neo4jTaskRepository(driver=FakeDriver())
+        ts = datetime(2025, 4, 1, 8, 0, 0, tzinfo=UTC)
+        task = Task(
+            id="task-1",
+            title="Do thing",
+            space="proj-a",
+            lifecycle_state="open",
+            validity_time=ts,
+            completion_time=None,
+            completion_event_id=None,
+        )
+        repo.save(task, _make_provenance("task-1", "task"))
+        replacement = Provenance(
+            record_id="task-1",
+            record_kind="task",
+            source_id="src-correction",
+            episode_id="ep-correction",
+            writer="human:reviewer",
+            reason="corrected About membership",
+            creation_time=ts,
+            validity_time=ts,
+        )
+
+        repo.save_provenance(space="proj-a", task_id="task-1", provenance=replacement)
+
+        result = repo.get_provenance(space="proj-a", task_id="task-1")
+        assert result is not None
+        assert result.source_id == "src-correction"
+        assert result.writer == "human:reviewer"
+        assert result.reason == "corrected About membership"
 
     def test_get_provenance_returns_none_for_missing(self) -> None:
         """get_provenance returns None when task has no provenance."""

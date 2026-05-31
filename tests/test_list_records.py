@@ -1218,6 +1218,59 @@ class TestMCPListRecords:
         assert [r["id"] for r in records] == ["decision:1"]
         assert all(r["type"] == "decision" for r in records)
 
+    def test_list_records_tool_filters_by_about(self) -> None:
+        from memorable.mcp.server import (
+            list_records_tool,
+            remember_decision_tool,
+            remember_entity_tool,
+            remember_task_tool,
+        )
+
+        remember_entity_tool(
+            space=SPACE,
+            entity_id="entity:build-2",
+            entity_type="Project",
+            name="Build 2",
+            source=SOURCE_ID,
+            at="2026-05-23T09:00:00Z",
+        )
+        remember_entity_tool(
+            space=SPACE,
+            entity_id="entity:other",
+            entity_type="Project",
+            name="Other",
+            source=SOURCE_ID,
+            at="2026-05-23T09:01:00Z",
+        )
+        remember_decision_tool(
+            space=SPACE,
+            decision_id="decision:build-2",
+            statement="Adopt Build 2.",
+            source=SOURCE_ID,
+            at="2026-05-23T10:00:00Z",
+            about=["entity:build-2"],
+        )
+        remember_task_tool(
+            space=SPACE,
+            task_id="task:other",
+            title="Inspect the other build.",
+            source=SOURCE_ID,
+            at="2026-05-23T11:00:00Z",
+            about=["entity:other"],
+        )
+        remember_task_tool(
+            space=SPACE,
+            task_id="task:unlinked",
+            title="Unlinked task.",
+            source=SOURCE_ID,
+            at="2026-05-23T12:00:00Z",
+        )
+
+        result = list_records_tool(space=SPACE, about="entity:build-2")
+
+        assert "error" not in result
+        assert [r["id"] for r in result["records"]] == ["decision:build-2"]
+
     def test_list_records_tool_rejects_entity_type(self) -> None:
         from memorable.mcp.server import list_records_tool
 

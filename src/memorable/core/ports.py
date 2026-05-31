@@ -316,6 +316,16 @@ class TaskRepository(Protocol):
         """Retrieve the provenance for a Task, or None if not found."""
         ...
 
+    def save_provenance(
+        self,
+        *,
+        space: str,
+        task_id: str,
+        provenance: Provenance,
+    ) -> None:
+        """Replace the provenance for a Task."""
+        ...
+
     def complete(
         self,
         *,

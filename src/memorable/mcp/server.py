@@ -10,6 +10,7 @@ from memorable.core.application import (
     AboutLinker,
     CompleteTaskService,
     CorrectService,
+    CorrectTaskService,
     CurrentTruthService,
     InitService,
     InspectHistoryService,
@@ -232,7 +233,7 @@ def remember_entity_tool(
         "Supports Supersession to replace an earlier Decision. "
         "Optional about links staple the Decision to existing Entities it "
         "concerns; create the Entity first. About is membership, not a "
-        "Relation claim."
+        "Relation claim, and correctable via memorable_correct."
     ),
 )
 def remember_decision_tool(
@@ -304,7 +305,7 @@ def remember_decision_tool(
         "Supports Supersession to replace an earlier Observation. "
         "Optional about links staple the Observation to existing Entities it "
         "concerns; create the Entity first. About is membership, not a "
-        "Relation claim."
+        "Relation claim, and correctable via memorable_correct."
     ),
 )
 def remember_observation_tool(
@@ -629,7 +630,7 @@ def inspect_provenance_tool(
         "Tasks have a Lifecycle State and support completion transitions. "
         "Optional about links staple the Task to existing Entities it "
         "concerns; create the Entity first. About is membership, not a "
-        "Relation claim."
+        "Relation claim, and correctable via memorable_correct."
     ),
 )
 def remember_task_tool(
@@ -855,7 +856,10 @@ def inspect_task_tool(
         "'superseded', 'invalidated'); omit it to list any state. Pass since "
         "and/or until (ISO timestamps) to bound Provenance Creation Time as a "
         "half-open window [since, until): since is inclusive, until is "
-        "exclusive; either may be omitted. All filters combine with AND. Use "
+        "exclusive; either may be omitted. Pass about to restrict to records "
+        "about one Entity; create the Entity first. About is membership, not a "
+        "Relation claim, and correctable via memorable_correct. All filters "
+        "combine with AND. Use "
         "this to answer state questions like 'what is open?', 'what decisions "
         "did we make today?', or 'what did we do this week?'."
     ),
@@ -866,6 +870,7 @@ def list_records_tool(
     state: str | None = None,
     since: str | None = None,
     until: str | None = None,
+    about: str | None = None,
     limit: int = 50,
 ) -> dict[str, object]:
     """List MemoryRecords in a MemorySpace as a Memory Review projection.
@@ -875,7 +880,8 @@ def list_records_tool(
     Lifecycle State matches are listed; omit it to list any state. ``since`` and
     ``until`` (ISO timestamps) bound Provenance Creation Time as a half-open
     window ``[since, until)`` — ``since`` inclusive, ``until`` exclusive; either
-    may be omitted. All filters combine with AND. Returns a dict with a
+    may be omitted. When ``about`` is given, only records linked to that Entity
+    by About are listed. All filters combine with AND. Returns a dict with a
     ``records`` list on success, or an error dict (e.g. an unknown ``type`` or
     ``entity``).
     """
@@ -884,6 +890,7 @@ def list_records_tool(
         observation_repo=_context.observation_repo,
         relation_repo=_context.relation_repo,
         task_repo=_context.task_repo,
+        about_repo=_context.about_repo,
     )
 
     since_dt = parse_iso_timestamp(since) if since is not None else None
@@ -896,6 +903,7 @@ def list_records_tool(
             state=state,
             since=since_dt,
             until=until_dt,
+            about=about,
             limit=limit,
         )
     except ValueError as e:
@@ -980,8 +988,10 @@ def invalidate_tool(
         "Updates the statement and replaces Provenance with Correction source. "
         "Optional about re-staples the record to existing Entities it concerns; "
         "create the Entity first. About is membership, not a Relation claim. "
+        "About is correctable through this tool. "
         "Accepts record_type to select the repository "
-        "(decision, observation, relation)."
+        "(decision, observation, relation). Use record_type='task' only to "
+        "correct About membership on a Task."
     ),
 )
 def correct_tool(
@@ -1010,16 +1020,42 @@ def correct_tool(
 
     Returns a dict with correction info on success, or an error dict.
     """
-    resolved = _resolve_repository(record_type)
-    if isinstance(resolved, dict):
-        return resolved
-
     about_linker = AboutLinker(
         entity_repo=_context.entity_repo,
         about_repo=_context.about_repo,
     )
-    service = CorrectService(repository=resolved, about_linker=about_linker)
     timestamp = parse_iso_timestamp(at)
+
+    if record_type == "task":
+        task_service = CorrectTaskService(
+            repository=_context.task_repo,
+            about_linker=about_linker,
+        )
+        try:
+            result = task_service.correct(
+                space=space,
+                task_id=record_id,
+                new_statement=new_statement,
+                source=source,
+                writer=writer,
+                at=timestamp,
+                reason=reason,
+                about=about,
+            )
+        except ValueError as e:
+            return {"error": str(e)}
+        return {
+            "record_id": result.record_id,
+            "space": result.space,
+            "old_statement": result.old_statement,
+            "new_statement": result.new_statement,
+        }
+
+    resolved = _resolve_repository(record_type)
+    if isinstance(resolved, dict):
+        return resolved
+
+    service = CorrectService(repository=resolved, about_linker=about_linker)
 
     try:
         result = service.correct(

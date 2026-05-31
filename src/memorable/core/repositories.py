@@ -457,6 +457,15 @@ class InMemoryTaskRepository:
     def get_provenance(self, *, space: str, task_id: str) -> Provenance | None:
         return self._provenance.get((space, task_id))
 
+    def save_provenance(
+        self,
+        *,
+        space: str,
+        task_id: str,
+        provenance: Provenance,
+    ) -> None:
+        self._provenance[(space, task_id)] = provenance
+
     def complete(
         self,
         *,
