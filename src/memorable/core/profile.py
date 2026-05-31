@@ -11,6 +11,12 @@ from dataclasses import dataclass
 import yaml
 
 SUPPORTED_VERSIONS = (1,)
+TOP_LEVEL_KEYS = frozenset({"version", "space", "entities", "relations", "records"})
+SPACE_KEYS = frozenset({"name", "description"})
+ENTITY_KEYS = frozenset({"name", "description"})
+RELATION_KEYS = frozenset({"name", "description"})
+RECORD_KEYS = frozenset({"name", "extends", "description"})
+TARGET_DESIGN_KEYS = frozenset({"metrics", "workflows", "common_queries"})
 
 # Kernel types that record declarations may extend
 KERNEL_RECORD_TYPES = frozenset(
@@ -96,6 +102,7 @@ def load_profile_from_yaml(yaml_text: str) -> MemoryProfile:
         )
 
     _validate_version(data)
+    _validate_top_level_keys(data)
     _validate_space(data)
     _validate_entities(data)
     _validate_relations(data)
@@ -142,12 +149,42 @@ def _validate_version(data: dict) -> None:
         )
 
 
+def _validate_top_level_keys(data: dict) -> None:
+    _validate_allowed_keys(data, TOP_LEVEL_KEYS, "MemoryProfile")
+
+
+def _validate_allowed_keys(
+    data: dict, allowed_keys: frozenset[str], location: str
+) -> None:
+    for key in data:
+        if key in allowed_keys:
+            continue
+        _raise_unknown_key(key, location)
+
+
+def _raise_unknown_key(key: object, location: str) -> None:
+    if key == "write_policy":
+        raise ProfileValidationError(
+            "Write Policy was removed from MemoryProfile v1 by ADR-0014; "
+            "delete 'write_policy' from the profile."
+        )
+    if key in TARGET_DESIGN_KEYS:
+        raise ProfileValidationError(
+            f"'{key}' is a target-design key from the ADR-0002 sketch, "
+            "but it is not yet parsed by MemoryProfile v1."
+        )
+    raise ProfileValidationError(
+        f"{location} has unrecognized key '{key}' for MemoryProfile v1."
+    )
+
+
 def _validate_space(data: dict) -> None:
     space_data = data.get("space")
     if not isinstance(space_data, dict) or not space_data.get("name"):
         raise ProfileValidationError(
             "MemoryProfile requires 'space.name' to identify the MemorySpace."
         )
+    _validate_allowed_keys(space_data, SPACE_KEYS, "MemoryProfile space")
 
 
 def _validate_entities(data: dict) -> None:
@@ -156,6 +193,9 @@ def _validate_entities(data: dict) -> None:
             raise ProfileValidationError(
                 f"Entity at position {i} must have a non-empty 'name'."
             )
+        _validate_allowed_keys(
+            entity, ENTITY_KEYS, f"Entity declaration at position {i}"
+        )
 
 
 def _validate_relations(data: dict) -> None:
@@ -164,6 +204,9 @@ def _validate_relations(data: dict) -> None:
             raise ProfileValidationError(
                 f"Relation at position {i} must have a non-empty 'name'."
             )
+        _validate_allowed_keys(
+            relation, RELATION_KEYS, f"Relation declaration at position {i}"
+        )
 
 
 def _validate_records(data: dict) -> None:
@@ -172,6 +215,9 @@ def _validate_records(data: dict) -> None:
             raise ProfileValidationError(
                 f"Record at position {i} must have a non-empty 'name'."
             )
+        _validate_allowed_keys(
+            record, RECORD_KEYS, f"Record declaration at position {i}"
+        )
         extends = record.get("extends", "MemoryRecord")
         if extends not in KERNEL_RECORD_TYPES:
             raise ProfileValidationError(

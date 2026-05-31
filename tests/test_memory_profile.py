@@ -57,14 +57,129 @@ def test_load_valid_profile_from_yaml() -> None:
     assert profile.records[0].extends == "Decision"
 
 
-def test_profile_with_stray_write_policy_loads_without_surface() -> None:
-    """A hand-written write_policy block is ignored as an unknown key."""
+def test_profile_with_stray_write_policy_raises_validation_error() -> None:
+    """A hand-written write_policy block is rejected as removed v1 config."""
+    from memorable.core.profile import ProfileValidationError, load_profile_from_yaml
+
+    with pytest.raises(ProfileValidationError) as exc_info:
+        load_profile_from_yaml(PROFILE_WITH_STRAY_WRITE_POLICY_YAML)
+
+    assert "ADR-0014" in str(exc_info.value)
+    assert "removed" in str(exc_info.value)
+
+
+def test_profile_with_unknown_top_level_key_raises_validation_error() -> None:
+    """A profile with an unsupported top-level key is rejected."""
+    from memorable.core.profile import ProfileValidationError, load_profile_from_yaml
+
+    yaml_text = textwrap.dedent("""\
+        version: 1
+        space:
+          name: memorable
+        imaginary: true
+    """)
+
+    with pytest.raises(ProfileValidationError) as exc_info:
+        load_profile_from_yaml(yaml_text)
+
+    assert "unrecognized key" in str(exc_info.value)
+
+
+@pytest.mark.parametrize("key", ["metrics", "workflows", "common_queries"])
+def test_profile_with_target_design_key_raises_validation_error(key: str) -> None:
+    """Target-design profile keys are rejected until MemoryProfile parses them."""
+    from memorable.core.profile import ProfileValidationError, load_profile_from_yaml
+
+    yaml_text = textwrap.dedent(f"""\
+        version: 1
+        space:
+          name: memorable
+        {key}: []
+    """)
+
+    with pytest.raises(ProfileValidationError) as exc_info:
+        load_profile_from_yaml(yaml_text)
+
+    message = str(exc_info.value)
+    assert key in message
+    assert "target-design" in message
+
+
+def test_profile_with_unknown_space_key_raises_validation_error() -> None:
+    """A profile with an unsupported space key is rejected."""
+    from memorable.core.profile import ProfileValidationError, load_profile_from_yaml
+
+    yaml_text = textwrap.dedent("""\
+        version: 1
+        space:
+          name: memorable
+          owner: human
+    """)
+
+    with pytest.raises(ProfileValidationError) as exc_info:
+        load_profile_from_yaml(yaml_text)
+
+    assert "unrecognized key" in str(exc_info.value)
+
+
+@pytest.mark.parametrize(
+    ("section", "extra"),
+    [
+        ("entities", "aliases: []"),
+        ("relations", "inverse: blocks"),
+        ("records", "retention: durable"),
+    ],
+)
+def test_profile_with_unknown_declaration_key_raises_validation_error(
+    section: str, extra: str
+) -> None:
+    """Entity, relation, and record declarations reject unsupported keys."""
+    from memorable.core.profile import ProfileValidationError, load_profile_from_yaml
+
+    entry_lines = ["  - name: ProjectArtifact"]
+    if section == "records":
+        entry_lines.append("    extends: Decision")
+    entry_lines.append(f"    {extra}")
+    yaml_text = textwrap.dedent(f"""\
+        version: 1
+        space:
+          name: memorable
+        {section}:
+    """) + "\n".join(entry_lines)
+
+    with pytest.raises(ProfileValidationError) as exc_info:
+        load_profile_from_yaml(yaml_text)
+
+    assert "unrecognized key" in str(exc_info.value)
+
+
+def test_profile_with_supported_description_keys_loads() -> None:
+    """Descriptions are accepted everywhere the v1 profile schema allows them."""
     from memorable.core.profile import load_profile_from_yaml
 
-    profile = load_profile_from_yaml(PROFILE_WITH_STRAY_WRITE_POLICY_YAML)
+    yaml_text = textwrap.dedent("""\
+        version: 1
+        space:
+          name: memorable
+          description: Agent memory system design
+        entities:
+          - name: Project
+            description: A remembered project
+        relations:
+          - name: depends_on
+            description: Dependency between entities
+        records:
+          - name: ArchitectureDecision
+            extends: Decision
+            description: Chosen architecture direction
+    """)
+
+    profile = load_profile_from_yaml(yaml_text)
 
     assert profile.space.name == "memorable"
-    assert not hasattr(profile, "write_policy")
+    assert profile.entities[0].name == "Project"
+    assert profile.relations[0].name == "depends_on"
+    assert profile.records[0].name == "ArchitectureDecision"
 
 
 def test_missing_version_raises_validation_error() -> None:
