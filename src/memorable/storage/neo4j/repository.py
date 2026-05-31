@@ -298,6 +298,71 @@ class Neo4jEntityRepository:
             ]
 
 
+# --- About adapter ---
+
+
+class Neo4jAboutRepository:
+    """Storage adapter that persists About links in Neo4j.
+
+    Implements the AboutRepository protocol defined in core.ports. About is
+    stored as a structural relationship from a MemoryRecord to an Entity; the
+    relationship intentionally carries no properties.
+    """
+
+    def __init__(self, driver: Neo4jDriver) -> None:
+        self._driver = driver
+
+    def link(self, space: str, record_id: str, entity_ids: list[str]) -> None:
+        """Link a MemoryRecord to the Entities it is about."""
+        with self._driver.session() as session:
+            session.run(
+                "MATCH (record:Record {space: $space, id: $record_id}) "
+                "UNWIND $entity_ids AS entity_id "
+                "MATCH (entity:Entity {space: $space, id: entity_id}) "
+                "MERGE (record)-[:ABOUT]->(entity)",
+                space=space,
+                record_id=record_id,
+                entity_ids=entity_ids,
+            )
+
+    def unlink(self, space: str, record_id: str) -> None:
+        """Hard-remove all About links for a MemoryRecord."""
+        with self._driver.session() as session:
+            session.run(
+                "MATCH (:Record {space: $space, id: $record_id})"
+                "-[about:ABOUT]->(:Entity {space: $space}) "
+                "DELETE about",
+                space=space,
+                record_id=record_id,
+            )
+
+    def entities_for_record(self, space: str, record_id: str) -> list[str]:
+        """Return Entity ids linked from the MemoryRecord."""
+        with self._driver.session() as session:
+            result = session.run(
+                "MATCH (:Record {space: $space, id: $record_id})"
+                "-[:ABOUT]->(entity:Entity {space: $space}) "
+                "RETURN entity.id AS entity_id "
+                "ORDER BY entity.id ASC",
+                space=space,
+                record_id=record_id,
+            )
+            return [record["entity_id"] for record in result]
+
+    def records_for_entity(self, space: str, entity_id: str) -> list[str]:
+        """Return MemoryRecord ids linked to the Entity."""
+        with self._driver.session() as session:
+            result = session.run(
+                "MATCH (record:Record {space: $space})"
+                "-[:ABOUT]->(:Entity {space: $space, id: $entity_id}) "
+                "RETURN record.id AS record_id "
+                "ORDER BY record.id ASC",
+                space=space,
+                entity_id=entity_id,
+            )
+            return [record["record_id"] for record in result]
+
+
 # --- Decision adapter ---
 
 
@@ -319,7 +384,7 @@ class Neo4jDecisionRepository:
         """
         with self._driver.session() as session:
             session.run(
-                "CREATE (d:Decision {"
+                "CREATE (d:Record:Decision {"
                 "  space: $space, id: $id, statement: $statement, "
                 "  validity_time: $validity_time, "
                 "  invalidation_time: $invalidation_time, "
@@ -569,7 +634,7 @@ class Neo4jObservationRepository:
         """
         with self._driver.session() as session:
             session.run(
-                "CREATE (o:Observation {"
+                "CREATE (o:Record:Observation {"
                 "  space: $space, id: $id, statement: $statement, "
                 "  validity_time: $validity_time, "
                 "  invalidation_time: $invalidation_time, "
@@ -819,7 +884,7 @@ class Neo4jTaskRepository:
         """
         with self._driver.session() as session:
             session.run(
-                "CREATE (t:Task {"
+                "CREATE (t:Record:Task {"
                 "  space: $space, id: $id, title: $title, "
                 "  lifecycle_state: $lifecycle_state, "
                 "  validity_time: $validity_time, "

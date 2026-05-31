@@ -20,6 +20,7 @@ class VectorIndex:
 EXPECTED_UNIQUENESS_CONSTRAINTS: tuple[UniquenessConstraint, ...] = (
     UniquenessConstraint("memory_space_name_unique", "MemorySpace", ("name",)),
     UniquenessConstraint("entity_space_id_unique", "Entity", ("space", "id")),
+    UniquenessConstraint("record_space_id_unique", "Record", ("space", "id")),
     UniquenessConstraint("decision_space_id_unique", "Decision", ("space", "id")),
     UniquenessConstraint("task_space_id_unique", "Task", ("space", "id")),
     UniquenessConstraint("observation_space_id_unique", "Observation", ("space", "id")),
