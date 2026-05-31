@@ -726,11 +726,31 @@ async function ensureCheckedOutWorktreeClean(cwd: string, branch: string) {
     }
     const status = await gitStatus(worktree.path);
     if (status.trim()) {
-      throw new Error(
-        `Branch ${branch} is already checked out with uncommitted changes at ${worktree.path}.`,
+      // A managed worktree with leftover changes is the signature of an
+      // interrupted run. Commit the work-in-progress so the worktree is clean
+      // and this run can resume from where the last one stopped, instead of
+      // refusing to start.
+      console.log(
+        `Resuming: committing leftover work-in-progress in ${worktree.path}`,
       );
+      await commitWorktreeWip(worktree.path, branch);
     }
   }
+}
+
+async function commitWorktreeWip(worktreePath: string, branch: string) {
+  const status = await gitStatus(worktreePath);
+  if (!status.trim()) {
+    return null;
+  }
+  await runCommand("git", ["add", "-A"], { cwd: worktreePath });
+  await runCommand(
+    "git",
+    ["commit", "--no-gpg-sign", "-m", `wip: resume ${branch}`],
+    { cwd: worktreePath, stream: true },
+  );
+  return (await runCommand("git", ["rev-parse", "HEAD"], { cwd: worktreePath }))
+    .stdout.trim();
 }
 
 function parseWorktrees(output: string) {
