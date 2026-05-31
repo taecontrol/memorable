@@ -66,14 +66,13 @@ def _resolve_repository(
         "decision": lambda: _context.decision_repo,
         "observation": lambda: _context.observation_repo,
         "relation": lambda: _context.relation_repo,
-        "task": lambda: _context.task_repo,
     }
     accessor = repos.get(record_type)
     if accessor is not None:
         return accessor()
     return {
         "error": f"Unknown record_type '{record_type}'. "
-        f"Supported types: decision, observation, relation, task."
+        f"Supported types: decision, observation, relation."
     }
 
 

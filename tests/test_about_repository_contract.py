@@ -305,3 +305,15 @@ def test_neo4j_schema_rejects_duplicate_memoryrecord_ids(neo4j_about_repo) -> No
             space=space,
             record_id="record:duplicate",
         )
+
+    # Relation now carries the MemoryRecord-wide :Record label, so it
+    # participates in the same space+id uniqueness constraint.
+    relation_space = _unique_space()
+    with pytest.raises(Neo4jError):
+        _run_query(
+            repo,
+            "CREATE (:Record:Relation {space: $space, id: $record_id}), "
+            "(:Record:Decision {space: $space, id: $record_id})",
+            space=relation_space,
+            record_id="record:duplicate-relation",
+        )

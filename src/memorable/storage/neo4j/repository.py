@@ -1111,7 +1111,7 @@ class Neo4jRelationRepository:
             session.run(
                 "MATCH (src:Entity {space: $space, id: $source_entity_id}) "
                 "MATCH (tgt:Entity {space: $space, id: $target_entity_id}) "
-                "CREATE (r:Relation {"
+                "CREATE (r:Record:Relation {"
                 "  space: $space, id: $id, "
                 "  source_entity_id: $source_entity_id, "
                 "  target_entity_id: $target_entity_id, "
