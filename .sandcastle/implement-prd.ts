@@ -61,7 +61,8 @@ type SlicePlan = {
 type ReviewStatus =
   | "clean"
   | "non_blocking_findings"
-  | "blocking_findings";
+  | "blocking_findings"
+  | "blocked_on_upstream";
 
 type ReviewFinding = {
   severity: string;
@@ -80,6 +81,42 @@ type CompletedSlice = {
   commitSha: string;
   review: ReviewResult;
 };
+
+type EscalatedReason = "needs-human" | "blocked-by-upstream-failure";
+
+type EscalatedSlice = {
+  issue: Issue;
+  reason: EscalatedReason;
+  detail: string;
+  findings: ReviewFinding[];
+  attempts: number;
+};
+
+type PriorAttempt = {
+  attempt: number;
+  status: ReviewStatus;
+  findings: ReviewFinding[];
+  direction: string;
+};
+
+type SliceState = {
+  status: "done" | "needs-human" | "blocked-upstream" | "pending";
+  commitSha?: string;
+  attempts: number;
+  lastFindings?: ReviewFinding[];
+  reason?: string;
+};
+
+type RunState = {
+  prd: number;
+  branch: string;
+  updatedAt: string;
+  slices: Record<number, SliceState>;
+};
+
+type SliceOutcome =
+  | { kind: "completed"; completed: CompletedSlice }
+  | { kind: "escalated"; escalated: EscalatedSlice };
 
 type CommandResult = {
   command: string;
@@ -215,8 +252,22 @@ async function main() {
       sandbox.worktreePath,
       plan.ordered,
     );
+    const priorState = await loadRunState(repoRoot, branch);
+    const runState: RunState = {
+      prd: prd.number,
+      branch,
+      updatedAt: new Date().toISOString(),
+      slices: {},
+    };
+
     const completed: CompletedSlice[] = [];
+    const escalated: EscalatedSlice[] = [];
+    const tainted = new Set<number>();
+
     for (const slice of plan.ordered) {
+      const blockers = plan.blockersBySlice.get(slice.number) ?? [];
+      const priorSliceState = priorState?.slices[slice.number];
+
       const existingCommit = committedBySlice.get(slice.number);
       if (existingCommit) {
         console.log(
@@ -225,22 +276,96 @@ async function main() {
         completed.push({
           issue: slice,
           commitSha: existingCommit,
-          review: { status: "clean", findings: [] },
+          review: {
+            status: "clean",
+            findings: priorSliceState?.lastFindings ?? [],
+          },
         });
+        runState.slices[slice.number] = {
+          status: "done",
+          commitSha: existingCommit,
+          attempts: priorSliceState?.attempts ?? 0,
+          lastFindings: priorSliceState?.lastFindings,
+        };
+        await persistRunState(repoRoot, branch, runState);
         continue;
       }
 
-      const completedSlice = await implementSlice({
+      if (
+        priorSliceState &&
+        (priorSliceState.status === "needs-human" ||
+          priorSliceState.status === "blocked-upstream")
+      ) {
+        console.log(
+          `Skipping #${slice.number}; previously escalated as ${priorSliceState.status} (not retrying).`,
+        );
+        const reason: EscalatedReason =
+          priorSliceState.status === "blocked-upstream"
+            ? "blocked-by-upstream-failure"
+            : "needs-human";
+        escalated.push({
+          issue: slice,
+          reason,
+          detail: priorSliceState.reason ?? "Previously escalated; not retried.",
+          findings: priorSliceState.lastFindings ?? [],
+          attempts: priorSliceState.attempts,
+        });
+        tainted.add(slice.number);
+        runState.slices[slice.number] = priorSliceState;
+        await persistRunState(repoRoot, branch, runState);
+        continue;
+      }
+
+      const taintedBlocker = blockers.find((blocker) => tainted.has(blocker));
+      if (taintedBlocker !== undefined) {
+        const detail = `Blocked by upstream failure: depends on escalated slice #${taintedBlocker}.`;
+        console.log(`Skipping #${slice.number}; ${detail}`);
+        escalated.push({
+          issue: slice,
+          reason: "blocked-by-upstream-failure",
+          detail,
+          findings: [],
+          attempts: 0,
+        });
+        tainted.add(slice.number);
+        runState.slices[slice.number] = {
+          status: "blocked-upstream",
+          attempts: 0,
+          reason: detail,
+        };
+        await persistRunState(repoRoot, branch, runState);
+        continue;
+      }
+
+      const outcome = await implementSlice({
         sandbox,
         repoRoot,
         branch,
         prd,
         slice,
-        blockers: plan.blockersBySlice.get(slice.number) ?? [],
+        blockers,
         priorCompleted: completed,
         neo4j,
       });
-      completed.push(completedSlice);
+      if (outcome.kind === "completed") {
+        completed.push(outcome.completed);
+        runState.slices[slice.number] = {
+          status: "done",
+          commitSha: outcome.completed.commitSha,
+          attempts: 1,
+          lastFindings: outcome.completed.review.findings,
+        };
+      } else {
+        escalated.push(outcome.escalated);
+        tainted.add(slice.number);
+        runState.slices[slice.number] = {
+          status: "needs-human",
+          attempts: outcome.escalated.attempts,
+          lastFindings: outcome.escalated.findings,
+          reason: outcome.escalated.detail,
+        };
+      }
+      await persistRunState(repoRoot, branch, runState);
     }
 
     let finalVerification = await runFinalVerification(sandbox.worktreePath, neo4j);
@@ -263,6 +388,7 @@ async function main() {
       prd,
       completed,
       skipped: plan.skipped,
+      escalated,
       finalVerification,
     });
 
@@ -272,11 +398,13 @@ async function main() {
       cwd: sandbox.worktreePath,
     });
 
-    const draft = architectReview.status === "blocking_findings";
+    const draft =
+      architectReview.status === "blocking_findings" || escalated.length > 0;
     const prBody = buildPullRequestBody({
       prd,
       completed,
       skipped: plan.skipped,
+      escalated,
       finalVerification,
       architectReview,
     });
@@ -297,6 +425,7 @@ async function main() {
       pr,
       completed,
       skipped: plan.skipped,
+      escalated,
       cwd: repoRoot,
     });
 
@@ -796,6 +925,71 @@ async function cleanupNeo4j(neo4j: Neo4jRuntime, cwd: string) {
   });
 }
 
+function stateFilePath(repoRoot: string, branch: string) {
+  return join(
+    repoRoot,
+    ".sandcastle",
+    "state",
+    `${sanitizeLogBranch(branch)}.json`,
+  );
+}
+
+async function loadRunState(
+  repoRoot: string,
+  branch: string,
+): Promise<RunState | undefined> {
+  try {
+    const raw = await readFile(stateFilePath(repoRoot, branch), "utf8");
+    const parsed = JSON.parse(raw) as unknown;
+    if (!isRecord(parsed) || !isRecord(parsed.slices)) {
+      return undefined;
+    }
+    const slices: Record<number, SliceState> = {};
+    for (const [key, value] of Object.entries(parsed.slices)) {
+      if (!isRecord(value)) {
+        continue;
+      }
+      const status = value.status;
+      if (
+        status !== "done" &&
+        status !== "needs-human" &&
+        status !== "blocked-upstream" &&
+        status !== "pending"
+      ) {
+        continue;
+      }
+      slices[Number(key)] = {
+        status,
+        commitSha: typeof value.commitSha === "string" ? value.commitSha : undefined,
+        attempts: typeof value.attempts === "number" ? value.attempts : 0,
+        lastFindings: Array.isArray(value.lastFindings)
+          ? value.lastFindings.map(normalizeFinding)
+          : undefined,
+        reason: typeof value.reason === "string" ? value.reason : undefined,
+      };
+    }
+    return {
+      prd: typeof parsed.prd === "number" ? parsed.prd : 0,
+      branch: typeof parsed.branch === "string" ? parsed.branch : branch,
+      updatedAt: typeof parsed.updatedAt === "string" ? parsed.updatedAt : "",
+      slices,
+    };
+  } catch {
+    return undefined;
+  }
+}
+
+async function persistRunState(
+  repoRoot: string,
+  branch: string,
+  state: RunState,
+) {
+  state.updatedAt = new Date().toISOString();
+  const path = stateFilePath(repoRoot, branch);
+  await mkdir(join(repoRoot, ".sandcastle", "state"), { recursive: true });
+  await writeFile(path, `${JSON.stringify(state, null, 2)}\n`);
+}
+
 async function implementSlice(args: {
   sandbox: Sandbox;
   repoRoot: string;
@@ -805,12 +999,15 @@ async function implementSlice(args: {
   blockers: number[];
   priorCompleted: CompletedSlice[];
   neo4j: Neo4jRuntime;
-}): Promise<CompletedSlice> {
+}): Promise<SliceOutcome> {
   const { sandbox, repoRoot, branch, prd, slice, blockers, priorCompleted, neo4j } = args;
   let feedback = "";
   let lastReview: ReviewResult | undefined;
+  const priorAttempts: PriorAttempt[] = [];
+  let attempts = 0;
 
   for (let attempt = 1; attempt <= 3; attempt += 1) {
+    attempts = attempt;
     console.log(`Implementing #${slice.number} attempt ${attempt}/3`);
     const implementRunName = `implement-${slice.number}-${attempt}`;
     const implementResult = await sandbox.run({
@@ -835,7 +1032,7 @@ async function implementSlice(args: {
     const reviewRunName = `review-${slice.number}-${attempt}`;
     const reviewResult = await sandbox.run({
       agent: opencode(MODEL, { variant: REVIEWER_VARIANT }),
-      prompt: buildSliceReviewPrompt(prd, slice),
+      prompt: buildSliceReviewPrompt(prd, slice, priorAttempts),
       name: reviewRunName,
       logging: agentLogging(repoRoot, branch, reviewRunName),
       completionSignal: COMPLETION_SIGNAL,
@@ -851,37 +1048,96 @@ async function implementSlice(args: {
     }
 
     lastReview = parseReviewOutput(reviewResult.stdout, "review_json");
-    if (lastReview.status === "blocking_findings") {
-      if (attempt === 3) {
-        throw new Error(
-          `Blocking review findings remain for #${slice.number}:\n${formatFindings(
+
+    if (lastReview.status === "blocked_on_upstream") {
+      console.log(
+        `Reviewer marked #${slice.number} blocked_on_upstream; escalating without further retries.`,
+      );
+      await commitBlockedSlice(sandbox.worktreePath, slice);
+      return {
+        kind: "escalated",
+        escalated: {
+          issue: slice,
+          reason: "needs-human",
+          detail: `Reviewer returned blocked_on_upstream:\n${formatFindings(
             lastReview.findings,
           )}`,
-        );
-      }
-      feedback = `Previous review found blocking issues:\n${formatFindings(
+          findings: lastReview.findings,
+          attempts,
+        },
+      };
+    }
+
+    if (lastReview.status === "blocking_findings") {
+      const direction = `Previous review found blocking issues:\n${formatFindings(
         lastReview.findings,
       )}`;
+      priorAttempts.push({
+        attempt,
+        status: lastReview.status,
+        findings: lastReview.findings,
+        direction,
+      });
+      if (attempt === 3) {
+        console.log(
+          `Blocking review findings remain for #${slice.number} after 3 attempts; escalating.`,
+        );
+        await commitBlockedSlice(sandbox.worktreePath, slice);
+        return {
+          kind: "escalated",
+          escalated: {
+            issue: slice,
+            reason: "needs-human",
+            detail: `Blocking review findings remain after 3 attempts:\n${formatFindings(
+              lastReview.findings,
+            )}`,
+            findings: lastReview.findings,
+            attempts,
+          },
+        };
+      }
+      feedback = direction;
       continue;
     }
 
     const verification = await runPerSliceVerification(sandbox.worktreePath, neo4j);
     if (!verification.passed) {
-      if (attempt === 3) {
-        throw new Error(
-          `Per-slice verification failed for #${slice.number}:\n${formatVerificationFailure(
-            verification,
-          )}`,
-        );
-      }
-      feedback = `Previous verification failed:\n${formatVerificationFailure(
+      const direction = `Previous verification failed:\n${formatVerificationFailure(
         verification,
       )}`;
+      priorAttempts.push({
+        attempt,
+        status: lastReview.status,
+        findings: lastReview.findings,
+        direction,
+      });
+      if (attempt === 3) {
+        console.log(
+          `Per-slice verification failed for #${slice.number} after 3 attempts; escalating.`,
+        );
+        await commitBlockedSlice(sandbox.worktreePath, slice);
+        return {
+          kind: "escalated",
+          escalated: {
+            issue: slice,
+            reason: "needs-human",
+            detail: `Per-slice verification failed after 3 attempts:\n${formatVerificationFailure(
+              verification,
+            )}`,
+            findings: lastReview.findings,
+            attempts,
+          },
+        };
+      }
+      feedback = direction;
       continue;
     }
 
     const commitSha = await commitSlice(sandbox.worktreePath, slice);
-    return { issue: slice, commitSha, review: lastReview };
+    return {
+      kind: "completed",
+      completed: { issue: slice, commitSha, review: lastReview },
+    };
   }
 
   throw new Error(`Unexpected implementation loop exit for #${slice.number}.`);
@@ -935,6 +1191,9 @@ ${feedback || "None"}
 - Implement only slice #${slice.number}; do not inspect or anticipate future slices.
 - Do not commit. The host orchestrator owns all commits.
 - Do not use gh or mutate GitHub issues, PRs, labels, or comments.
+- When a review finding offers a fork ("do X OR remove Y"), pick the MINIMAL in-scope fix. Prefer removing/narrowing over adding.
+- NEVER expand scope to satisfy a review: do not add new core services, ports, storage methods, or subsystems. Stay inside slice #${slice.number}.
+- If a finding can only be resolved by upstream or out-of-slice work, do the minimal in-scope thing and state clearly in your summary that the finding requires an upstream slice / spec fix (so the reviewer can return blocked_on_upstream instead of blocking it).
 - Follow the TDD philosophy in .claude/skills/tdd/SKILL.md: behavior through public interfaces, vertical tracer bullets, minimal implementation.
 - For this AFK PRD factory, skip RED/GREEN commit discipline because you must not commit.
 - If you touch Memorable product model or domain language, read docs/product.md, docs/ubiquitous-language.md, and relevant ADRs first.
@@ -949,7 +1208,11 @@ ${AGENT_PROGRESS_INSTRUCTIONS}
 When finished, summarize changed behavior and print ${COMPLETION_SIGNAL}.`;
 }
 
-function buildSliceReviewPrompt(prd: Issue, slice: Issue) {
+function buildSliceReviewPrompt(
+  prd: Issue,
+  slice: Issue,
+  priorAttempts: PriorAttempt[],
+) {
   return `You are reviewing the current worktree diff for Memorable slice #${slice.number}.
 
 ## Parent PRD
@@ -962,6 +1225,10 @@ function buildSliceReviewPrompt(prd: Issue, slice: Issue) {
 
 ${issueBody(slice)}
 
+## Prior Review Attempts For This Slice
+
+${formatPriorAttempts(priorAttempts)}
+
 ## Instructions
 
 - Review only. Do not modify files. Do not commit. Do not use gh.
@@ -970,6 +1237,9 @@ ${issueBody(slice)}
 - Do not report a file as blocking solely because it is untracked; review its contents instead.
 - Apply Memorable review rules from .claude/skills/project-code-review/RULES.md.
 - Treat missing behavior tests, domain-language leaks, boundary duplication, or failing verification risks as blocking when they can break the slice.
+- Do NOT reverse a direction the implementer followed on your previous advice. Do NOT introduce a new, contradictory blocking direction on a late attempt. If your concern is that earlier advice was wrong, say so explicitly and prefer escalation over whipsawing.
+- Do NOT propose "build a new subsystem" or "add a new core service/port/storage method" as an in-scope fix. Scope-expanding fixes are an upstream gap, not a slice defect.
+- If this slice cannot be satisfied as specified without upstream work or a spec fix (i.e. retrying the implementer cannot help), return status "blocked_on_upstream" instead of "blocking_findings". Reserve "blocking_findings" for problems the implementer can fix inside slice #${slice.number}.
 - Use uv run --extra dev ... for ruff and pytest commands because dev tools live in the dev extra.
 - Keep the terminal informative using the progress output rules below.
 - Return structured JSON inside <review_json> tags, then print ${COMPLETION_SIGNAL}.
@@ -981,12 +1251,28 @@ ${AGENT_PROGRESS_INSTRUCTIONS}
 Schema:
 <review_json>
 {
-  "status": "clean" | "non_blocking_findings" | "blocking_findings",
+  "status": "clean" | "non_blocking_findings" | "blocking_findings" | "blocked_on_upstream",
   "findings": [
     { "severity": "blocking" | "non_blocking", "file": "path or null", "line": 1, "fix": "specific fix" }
   ]
 }
-</review_json>`;
+</review_json>
+
+Use "blocked_on_upstream" when the slice as specified requires upstream/out-of-slice work or a spec correction and no in-slice change by the implementer can resolve it.`;
+}
+
+function formatPriorAttempts(priorAttempts: PriorAttempt[]) {
+  if (priorAttempts.length === 0) {
+    return "None. This is the first review attempt.";
+  }
+  return priorAttempts
+    .map(
+      (prior) =>
+        `### Attempt ${prior.attempt} (status: ${prior.status})\nFindings:\n${formatFindings(
+          prior.findings,
+        )}\nDirection the implementer was told to follow:\n${prior.direction}`,
+    )
+    .join("\n\n");
 }
 
 async function runPerSliceVerification(
@@ -1122,6 +1408,7 @@ async function runArchitectReview(args: {
   prd: Issue;
   completed: CompletedSlice[];
   skipped: SkippedSlice[];
+  escalated: EscalatedSlice[];
   finalVerification: VerificationSummary;
 }) {
   console.log("Running final architect review");
@@ -1169,6 +1456,7 @@ function buildArchitectPrompt(args: {
   prd: Issue;
   completed: CompletedSlice[];
   skipped: SkippedSlice[];
+  escalated: EscalatedSlice[];
   finalVerification: VerificationSummary;
   architectGuide: string;
 }) {
@@ -1200,12 +1488,17 @@ ${
     : "None"
 }
 
+## Escalated Slices (needs-human / blocked-upstream)
+
+${formatEscalatedForPrompt(args.escalated)}
+
 ## Verification
 
 ${formatVerificationSummary(args.finalVerification)}
 
 ## Instructions
 
+- This is a PARTIAL run if any slices were escalated. Review the completed work as-is; do not block solely because escalated slices are missing.
 - Review the whole branch diff against origin/main.
 - Focus on architecture, product semantics, temporal semantics, domain language, tests, and maintainability.
 - Do not auto-fix anything.
@@ -1346,6 +1639,26 @@ async function commitSlice(worktreePath: string, slice: Issue) {
   );
   return (await runCommand("git", ["rev-parse", "HEAD"], { cwd: worktreePath }))
     .stdout.trim();
+}
+
+async function commitBlockedSlice(worktreePath: string, slice: Issue) {
+  const status = await gitStatus(worktreePath);
+  if (!status.trim()) {
+    return;
+  }
+  await runCommand("git", ["add", "-A"], { cwd: worktreePath });
+  await runCommand(
+    "git",
+    [
+      "commit",
+      "--no-gpg-sign",
+      "-m",
+      `wip: blocked #${slice.number} (needs-human)`,
+      "-m",
+      `Refs #${slice.number}`,
+    ],
+    { cwd: worktreePath, stream: true },
+  );
 }
 
 async function committedSliceCommits(
@@ -1536,11 +1849,24 @@ async function commentOnPrdIssue(args: {
   pr: PullRequest;
   completed: CompletedSlice[];
   skipped: SkippedSlice[];
+  escalated: EscalatedSlice[];
   cwd: string;
 }) {
   const implemented = args.completed.map((done) => `#${done.issue.number}`).join(", ");
   const skipped = args.skipped.map((item) => `#${item.issue.number}`).join(", ");
-  const body = `Opened PR ${args.pr.url} implementing ${implemented || "none"}. Skipped: ${skipped || "none"}.`;
+  const needsHuman = args.escalated
+    .filter((item) => item.reason === "needs-human")
+    .map((item) => `#${item.issue.number}`)
+    .join(", ");
+  const blockedUpstream = args.escalated
+    .filter((item) => item.reason === "blocked-by-upstream-failure")
+    .map((item) => `#${item.issue.number}`)
+    .join(", ");
+  const body =
+    `Opened PR ${args.pr.url} implementing ${implemented || "none"}. ` +
+    `Skipped (labels): ${skipped || "none"}. ` +
+    `Escalated needs-human: ${needsHuman || "none"}. ` +
+    `Blocked by upstream failure: ${blockedUpstream || "none"}.`;
   await runCommand(
     "gh",
     ["issue", "comment", String(args.prd.number), "-R", args.repo, "--body-file", "-"],
@@ -1548,14 +1874,63 @@ async function commentOnPrdIssue(args: {
   );
 }
 
+function formatEscalatedForPrompt(escalated: EscalatedSlice[]) {
+  if (escalated.length === 0) {
+    return "None";
+  }
+  return escalated
+    .map(
+      (item) =>
+        `- #${item.issue.number} ${item.issue.title} (${item.reason}): ${oneLine(item.detail)}`,
+    )
+    .join("\n");
+}
+
+function formatEscalatedForBody(escalated: EscalatedSlice[]) {
+  const needsHuman = escalated.filter((item) => item.reason === "needs-human");
+  const blockedUpstream = escalated.filter(
+    (item) => item.reason === "blocked-by-upstream-failure",
+  );
+  const sections: string[] = [];
+  sections.push(
+    `### Needs Human\n\n${
+      needsHuman.length > 0
+        ? needsHuman
+            .map(
+              (item) =>
+                `- #${item.issue.number} ${item.issue.title} (after ${item.attempts} attempt(s)): ${oneLine(
+                  item.detail,
+                )}`,
+            )
+            .join("\n")
+        : "None"
+    }`,
+  );
+  sections.push(
+    `### Blocked By Upstream Failure\n\n${
+      blockedUpstream.length > 0
+        ? blockedUpstream
+            .map(
+              (item) =>
+                `- #${item.issue.number} ${item.issue.title}: ${oneLine(item.detail)}`,
+            )
+            .join("\n")
+        : "None"
+    }`,
+  );
+  return sections.join("\n\n");
+}
+
 function buildPullRequestBody(args: {
   prd: Issue;
   completed: CompletedSlice[];
   skipped: SkippedSlice[];
+  escalated: EscalatedSlice[];
   finalVerification: VerificationSummary;
   architectReview: ReviewResult;
 }) {
-  const prdKeyword = args.skipped.length === 0 ? "Closes" : "Refs";
+  const prdKeyword =
+    args.skipped.length === 0 && args.escalated.length === 0 ? "Closes" : "Refs";
   const nonBlocking = args.completed.flatMap((done) =>
     done.review.status === "non_blocking_findings"
       ? done.review.findings.map((finding) => ({ slice: done.issue, finding }))
@@ -1584,6 +1959,10 @@ ${
         .join("\n")
     : "None"
 }
+
+## Escalated Slices
+
+${formatEscalatedForBody(args.escalated)}
 
 ## Verification
 
@@ -1628,7 +2007,8 @@ function parseReviewOutput(stdout: string, tag: string): ReviewResult {
   if (
     status !== "clean" &&
     status !== "non_blocking_findings" &&
-    status !== "blocking_findings"
+    status !== "blocking_findings" &&
+    status !== "blocked_on_upstream"
   ) {
     throw new Error(`Invalid review status: ${String(status)}`);
   }
