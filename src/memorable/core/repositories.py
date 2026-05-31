@@ -259,6 +259,38 @@ class InMemoryEntityRepository:
         return [entity for (s, _), entity in self._entities.items() if s == space]
 
 
+class InMemoryAboutRepository:
+    """In-memory implementation of AboutRepository."""
+
+    def __init__(self) -> None:
+        self._links: set[tuple[str, str, str]] = set()
+
+    def link(self, space: str, record_id: str, entity_ids: list[str]) -> None:
+        for entity_id in entity_ids:
+            self._links.add((space, record_id, entity_id))
+
+    def unlink(self, space: str, record_id: str) -> None:
+        self._links = {
+            link
+            for link in self._links
+            if not (link[0] == space and link[1] == record_id)
+        }
+
+    def entities_for_record(self, space: str, record_id: str) -> list[str]:
+        return sorted(
+            entity_id
+            for link_space, link_record_id, entity_id in self._links
+            if link_space == space and link_record_id == record_id
+        )
+
+    def records_for_entity(self, space: str, entity_id: str) -> list[str]:
+        return sorted(
+            record_id
+            for link_space, record_id, link_entity_id in self._links
+            if link_space == space and link_entity_id == entity_id
+        )
+
+
 class InMemoryDecisionRepository(InMemoryTemporalRepository[Decision]):
     """In-memory implementation of DecisionRepository.
 

@@ -136,6 +136,26 @@ class EntityRepository(Protocol):
         ...
 
 
+class AboutRepository(Protocol):
+    """Port for About links between MemoryRecords and Entities."""
+
+    def link(self, space: str, record_id: str, entity_ids: list[str]) -> None:
+        """Link a MemoryRecord to the Entities it is about."""
+        ...
+
+    def unlink(self, space: str, record_id: str) -> None:
+        """Hard-remove all About links for a MemoryRecord."""
+        ...
+
+    def entities_for_record(self, space: str, record_id: str) -> list[str]:
+        """Return Entity ids linked from the MemoryRecord."""
+        ...
+
+    def records_for_entity(self, space: str, entity_id: str) -> list[str]:
+        """Return MemoryRecord ids linked to the Entity."""
+        ...
+
+
 class DecisionRepository(Protocol):
     """Port for Decision persistence with provenance.
 
