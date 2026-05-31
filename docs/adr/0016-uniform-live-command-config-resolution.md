@@ -81,27 +81,24 @@ policy now extends to the **MemoryProfile** (`.memorable/memory.yaml`).
 ### Context
 
 The CLI already resolves the profile live: each command is a fresh process that
-reads `memory.yaml` on startup. The MCP server does not. It builds one
-long-lived `ApplicationContext` whose `load_profile(space)` caches the parsed
-profile per space and never re-reads the file (`core/context.py`). So the two
-config files in the same `.memorable/` directory behave inconsistently over MCP:
-`runtime.yaml` is honoured per call (e.g. `doctor` resolves it live), while
-`memory.yaml` is frozen at server start.
+reads `memory.yaml` on startup. The MCP server does not — it is long-lived and
+caches the parsed profile per MemorySpace for the life of the process, so it
+never sees later edits to the file. The two config files in the same
+`.memorable/` directory therefore behave inconsistently over MCP: `runtime.yaml`
+is honoured per call (e.g. `doctor` resolves it live), while `memory.yaml` is
+frozen at server start.
 
 The visible failure: a Human/Agent declares a new Entity or Relation type in
 `memory.yaml`, then asks the Agent to remember that type, and the write keeps
-failing with `... is not declared in the MemoryProfile ... Declared types: [...]`
-until the server restarts. This breaks the documented evolve loop (ADR-0002
-amendment: edit YAML → undeclared-type error invites evolution → retry
-succeeds); over MCP the retry never succeeds.
+failing with an undeclared-type error until the server restarts. This breaks the
+documented evolve loop (ADR-0002 amendment: edit YAML → undeclared-type error
+invites evolution → retry succeeds); over MCP the retry never succeeds.
 
 ### Decision
 
 The MemoryProfile is resolved **live per operation**, in parity with runtime
-config. `ApplicationContext.load_profile(space)` reads and validates
-`memory.yaml` (or the built-in default) on every call; the per-space profile
-cache is removed. The method signature is unchanged — this is an internal
-freshness-policy change, so no caller in the CLI, MCP server, or services moves.
+config. Every MCP tool call reads and validates `memory.yaml` (or the built-in
+default) fresh; no profile is cached across operations.
 
 - **No reload/force surface.** No `profile reload`, no `init --force`, no MCP
   reload tool. With live read there is nothing to reload, and `init` /
@@ -126,9 +123,10 @@ immediately.
 Negative: a tiny read + parse on every tool call — negligible at agent/human
 interaction pace.
 
-The durable risk this guards against is reintroduction: a later session-scoped
-context that reuses the Neo4j driver must **not** cache the profile alongside it.
-The regression tests in the implementation slice enforce this executably.
+The durable risk this guards against is reintroduction: any future caching of
+the profile across operations — for instance alongside a reused storage
+connection — would silently restore the stale-profile footgun and must be
+treated as a regression.
 
 ### Reconsideration Trigger
 
