@@ -149,7 +149,23 @@ Relation types are declared in the MemoryProfile. An agent cannot create a Relat
 
 Use Relation for domain connections between Entities that Memorable should reason over and that semantic search alone cannot reliably recover: dependencies, ownership, succession, and other structural relationships.
 
-Do not use Relation as a synonym for every storage edge. Do not use Relation to connect Entities to Records (Decisions, Tasks, Observations); those connections are handled by semantic retrieval and shared MemorySpace membership.
+Do not use Relation as a synonym for every storage edge. Do not use Relation to connect Records (Decisions, Tasks, Observations) to the Entities they are about; that connection is the **About** edge (see below), which is membership, not a truth-bearing claim. Relation is reserved for truth-bearing claims between two Entities.
+
+### About
+
+An About edge is an optional, untyped link from a MemoryRecord to one or more Entities it concerns.
+
+About expresses membership or aboutness, not a truth-bearing claim. "This observation is about Build 2" asserts nothing that can become false over time; it simply records which Entities the record concerns. This is the distinction from Relation: a Relation is a claim between two Entities that can be superseded as the claim evolves; an About edge cannot be superseded, only corrected.
+
+An About edge carries no temporal or lifecycle fields of its own — no validity time, invalidation time, lifecycle state, or supersession links. All temporal weight stays on the record, which already has its own validity time. The edge is membership and nothing more.
+
+About is correctable, not superseded. A wrong edge was wrong from creation; fixing it hard-removes the edge (append-first history is for truth claims, not membership). If a record's subject genuinely changed, that is a new record, not an evolving edge.
+
+About is a parameter on the record write primitives (`remember_decision`, `remember_observation`, `remember_task`), not a primitive of its own. Cardinality is one record to many Entities; direction is record to Entity only. The target Entity must already exist or the write fails loud; there is no edge type to declare.
+
+Use About to attach records to the Entities they concern so retrieval can expand from a record to its Entities (and from an Entity to its records) and so Memory Review can list every record about an Entity. Do not use About for connections between two Entities; use Relation. Do not give About a type or a lifecycle; if a connection needs either, it is a Relation, not an About edge.
+
+See ADR-0018 (records link to the entities they are about).
 
 ### Observation
 
@@ -365,7 +381,7 @@ Generated Views are outputs or views of memory. They are not the canonical memor
 
 Memory Review is the inspection workflow that lets a Human Owner answer "what is open?" and "what did we do recently?" inside a MemorySpace by asking an Agent, which calls a deterministic listing primitive on Memorable.
 
-Memory Review is a first-class product workflow, not a UI surface. The first version exposes one MCP primitive that the Agent composes through multiple calls with different filters (record type, lifecycle state, time window). Memory Review is not a family of question-specific tools.
+Memory Review is a first-class product workflow, not a UI surface. The first version exposes one MCP primitive that the Agent composes through multiple calls with different filters (record type, lifecycle state, time window, and the Entity a record is about — see About). Memory Review is not a family of question-specific tools; "every record about an Entity" is a filter on the listing primitive, not a standalone tool.
 
 The Human Owner is not expected to browse Memorable directly. Memory Review is exposed primarily through the MCP interface so Agents can answer state questions reliably without falling back to semantic search. A CLI surface for Memory Review may exist later but is not required for the first version.
 
