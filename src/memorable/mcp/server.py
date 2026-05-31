@@ -63,6 +63,14 @@ def set_mcp_context(ctx: ApplicationContext) -> None:
     _context = ctx
 
 
+def guide_hint(topic: GuideTopicName) -> str:
+    return f' Call memorable_guide("{topic}") for help.'
+
+
+def _profile_type_error(message: object) -> dict[str, object]:
+    return {"error": f"{message}{guide_hint('profiles')}"}
+
+
 def _resolve_repository(
     record_type: str,
 ) -> TemporalRecordRepository | dict[str, object]:
@@ -148,7 +156,7 @@ def init_space_tool(base_path: str) -> dict[str, object]:
     try:
         result = service.initialize(yaml_text)
     except ProfileValidationError as e:
-        return {"error": str(e)}
+        return _profile_type_error(e)
 
     return {
         "space": result.space.name,
@@ -182,7 +190,7 @@ def inspect_space_tool(base_path: str) -> dict[str, object]:
     try:
         profile = load_profile_from_yaml(yaml_text)
     except ProfileValidationError as e:
-        return {"error": str(e)}
+        return _profile_type_error(e)
 
     return profile_summary(profile)
 
@@ -212,7 +220,7 @@ def remember_entity_tool(
     try:
         profile = _context.load_profile(space)
     except ProfileValidationError as e:
-        return {"error": str(e)}
+        return _profile_type_error(e)
 
     service = RememberEntityService(repository=_context.entity_repo, profile=profile)
 
@@ -230,7 +238,7 @@ def remember_entity_tool(
             reason=reason,
         )
     except ValueError as e:
-        return {"error": str(e)}
+        return _profile_type_error(e)
 
     return {
         "entity_id": result.entity.id,
@@ -275,7 +283,7 @@ def remember_decision_tool(
     try:
         profile = _context.load_profile(space)
     except ProfileValidationError as e:
-        return {"error": str(e)}
+        return _profile_type_error(e)
 
     about_linker = AboutLinker(
         entity_repo=_context.entity_repo,
@@ -347,7 +355,7 @@ def remember_observation_tool(
     try:
         profile = _context.load_profile(space)
     except ProfileValidationError as e:
-        return {"error": str(e)}
+        return _profile_type_error(e)
 
     about_linker = AboutLinker(
         entity_repo=_context.entity_repo,
@@ -419,7 +427,7 @@ def remember_relation_tool(
     try:
         profile = _context.load_profile(space)
     except ProfileValidationError as e:
-        return {"error": str(e)}
+        return _profile_type_error(e)
 
     service = RememberRelationService(
         relation_repo=_context.relation_repo,
@@ -444,6 +452,8 @@ def remember_relation_tool(
             supersedes=supersedes,
         )
     except ValueError as e:
+        if str(e).startswith("Relation type "):
+            return _profile_type_error(e)
         return {"error": str(e)}
 
     return {
@@ -486,7 +496,7 @@ def current_truth_tool(
     """
     resolved = _resolve_repository(record_type)
     if isinstance(resolved, dict):
-        return resolved
+        return _profile_type_error(resolved["error"])
 
     service = CurrentTruthService(repository=resolved)
     record = service.current(space=space, record_id=record_id)
@@ -533,7 +543,7 @@ def point_in_time_truth_tool(
     """
     resolved = _resolve_repository(record_type)
     if isinstance(resolved, dict):
-        return resolved
+        return _profile_type_error(resolved["error"])
 
     service = PointInTimeTruthService(repository=resolved)
     timestamp = parse_iso_timestamp(at)
@@ -580,7 +590,7 @@ def inspect_history_tool(
     """
     resolved = _resolve_repository(record_type)
     if isinstance(resolved, dict):
-        return resolved
+        return _profile_type_error(resolved["error"])
 
     service = InspectHistoryService(repository=resolved)
     history = service.history(space=space, record_id=record_id)
@@ -671,7 +681,7 @@ def remember_task_tool(
     try:
         profile = _context.load_profile(space)
     except ProfileValidationError as e:
-        return {"error": str(e)}
+        return _profile_type_error(e)
 
     about_linker = AboutLinker(
         entity_repo=_context.entity_repo,
@@ -978,7 +988,7 @@ def invalidate_tool(
     """
     resolved = _resolve_repository(record_type)
     if isinstance(resolved, dict):
-        return resolved
+        return _profile_type_error(resolved["error"])
 
     service = InvalidateService(repository=resolved)
     timestamp = parse_iso_timestamp(at)
@@ -1082,7 +1092,7 @@ def correct_tool(
 
     resolved = _resolve_repository(record_type)
     if isinstance(resolved, dict):
-        return resolved
+        return _profile_type_error(resolved["error"])
 
     service = CorrectService(repository=resolved, about_linker=about_linker)
 
