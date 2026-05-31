@@ -82,12 +82,22 @@ specific domain:
 - **`relations`** — how those things connect, like "service A depends on
   service B."
 - **`records`** — your own kinds of memory, when the built-in ones aren't
-  specific enough.
+  specific enough. Each custom record `extends` a writable type — `Decision`,
+  `Observation`, or `Task`.
+
+Memorable validates this file strictly and fails loud: unknown keys are
+rejected (so a typo surfaces immediately instead of being silently ignored), and
+an `extends` must name one of those writable types.
 
 You don't need any of that to get going. Memorable already understands a few
 universal kinds of memory — **Decisions**, **Observations**, and **Tasks** — so
 you can start saving and searching memory right away, then add project-specific
 types later as you need them.
+
+When your agent writes through the MCP server, it can also link a Decision,
+Observation, or Task to the Entities it is *about*. Stapling records to the thing
+they concern lets you later pull up *every* record about a given Entity — a
+complete enumeration that semantic search alone can't guarantee.
 
 Check the runtime before writing memory:
 
@@ -296,6 +306,11 @@ Run any command with `--help` for its full option list.
 This is the main way to use Memorable: the MCP server connects it to your AI
 agent (Claude, Cursor, and other MCP clients), so the agent can save and recall
 memory on its own — no manual CLI commands.
+
+Once connected, the agent can call **`memorable_guide`** to learn the system
+in-band — call it with no topic for an index, or pass a topic (`overview`,
+`writing`, `retrieval`, `temporal`, `profiles`, `recipes`, `reference`) before
+writing memory or choosing how to retrieve.
 
 Start it manually to test:
 
