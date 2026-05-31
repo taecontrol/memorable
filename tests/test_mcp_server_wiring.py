@@ -450,7 +450,7 @@ class TestCallToolErrorPath:
         assert "Relation type 'blocks'" in structured["error"]
         assert 'memorable_guide("profiles")' in structured["error"]
 
-    def test_unknown_record_type_error_points_to_profiles_guide(self) -> None:
+    def test_unknown_record_type_error_is_self_sufficient(self) -> None:
         result = _call_tool(
             "memorable_current_truth",
             {
@@ -462,7 +462,7 @@ class TestCallToolErrorPath:
 
         _, structured = result
         assert "Unknown record_type 'evidence'" in structured["error"]
-        assert 'memorable_guide("profiles")' in structured["error"]
+        assert "memorable_guide" not in structured["error"]
 
     def test_non_writable_extends_error_points_to_profiles_guide(
         self, tmp_path

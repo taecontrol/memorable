@@ -24,6 +24,7 @@ from memorable.core.application import (
     RememberObservationService,
     RememberRelationService,
     RememberTaskService,
+    UndeclaredTypeError,
     build_status_payload,
 )
 from memorable.core.context import ApplicationContext, default_context
@@ -238,7 +239,9 @@ def remember_entity_tool(
             reason=reason,
         )
     except ValueError as e:
-        return _profile_type_error(e)
+        if isinstance(e, UndeclaredTypeError):
+            return _profile_type_error(e)
+        return {"error": str(e)}
 
     return {
         "entity_id": result.entity.id,
@@ -452,7 +455,7 @@ def remember_relation_tool(
             supersedes=supersedes,
         )
     except ValueError as e:
-        if str(e).startswith("Relation type "):
+        if isinstance(e, UndeclaredTypeError):
             return _profile_type_error(e)
         return {"error": str(e)}
 
@@ -496,7 +499,7 @@ def current_truth_tool(
     """
     resolved = _resolve_repository(record_type)
     if isinstance(resolved, dict):
-        return _profile_type_error(resolved["error"])
+        return resolved
 
     service = CurrentTruthService(repository=resolved)
     record = service.current(space=space, record_id=record_id)
@@ -543,7 +546,7 @@ def point_in_time_truth_tool(
     """
     resolved = _resolve_repository(record_type)
     if isinstance(resolved, dict):
-        return _profile_type_error(resolved["error"])
+        return resolved
 
     service = PointInTimeTruthService(repository=resolved)
     timestamp = parse_iso_timestamp(at)
@@ -590,7 +593,7 @@ def inspect_history_tool(
     """
     resolved = _resolve_repository(record_type)
     if isinstance(resolved, dict):
-        return _profile_type_error(resolved["error"])
+        return resolved
 
     service = InspectHistoryService(repository=resolved)
     history = service.history(space=space, record_id=record_id)
@@ -988,7 +991,7 @@ def invalidate_tool(
     """
     resolved = _resolve_repository(record_type)
     if isinstance(resolved, dict):
-        return _profile_type_error(resolved["error"])
+        return resolved
 
     service = InvalidateService(repository=resolved)
     timestamp = parse_iso_timestamp(at)
@@ -1092,7 +1095,7 @@ def correct_tool(
 
     resolved = _resolve_repository(record_type)
     if isinstance(resolved, dict):
-        return _profile_type_error(resolved["error"])
+        return resolved
 
     service = CorrectService(repository=resolved, about_linker=about_linker)
 

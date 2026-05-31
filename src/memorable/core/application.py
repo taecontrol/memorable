@@ -30,6 +30,17 @@ from memorable.core.profile import MemoryProfile, load_profile_from_yaml
 from memorable.core.temporal import make_episode_id
 
 
+class UndeclaredTypeError(ValueError):
+    """Raised when a write names an Entity or Relation type the MemoryProfile
+    does not declare.
+
+    Subclasses ``ValueError`` so existing ``except ValueError`` handlers and
+    message-matching tests keep working. The MCP boundary uses the type (rather
+    than the message wording) to decide that this error is fixable by evolving
+    the MemoryProfile, and so should carry the memorable_guide("profiles") hint.
+    """
+
+
 @dataclass(frozen=True)
 class DiagnosticStatus:
     product: str
@@ -148,7 +159,7 @@ class RememberEntityService:
         """
         declared_names = {e.name for e in self._profile.entities}
         if entity_type not in declared_names:
-            raise ValueError(
+            raise UndeclaredTypeError(
                 f"Entity type '{entity_type}' is not declared in the "
                 f"MemoryProfile for space '{self._profile.space.name}'. "
                 f"Declared types: {sorted(declared_names)}. "
@@ -489,7 +500,7 @@ class RememberRelationService:
         # Validate relation type
         declared_names = {r.name for r in self._profile.relations}
         if relation_type not in declared_names:
-            raise ValueError(
+            raise UndeclaredTypeError(
                 f"Relation type '{relation_type}' is not declared in the "
                 f"MemoryProfile for space '{self._profile.space.name}'. "
                 f"Declared types: {sorted(declared_names)}. "

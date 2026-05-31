@@ -1,6 +1,6 @@
 # Overview
 
-Memorable is project-scoped temporal memory for agents. Use it when a decision, fact, task, relation, or durable context should survive the current chat and be retrievable later with provenance and time semantics.
+Memorable is project-scoped temporal memory for agents. Use it when a decision, observation, task, relation, or durable context should survive the current chat and be retrievable later with provenance and time semantics.
 
 Write intentionally. Agents decide what is worth remembering, then call Memorable tools to store structured memory in the current MemorySpace. Memorable is not a passive workspace ingester, hidden extraction pipeline, or general note app.
 

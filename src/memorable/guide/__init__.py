@@ -58,9 +58,4 @@ def _render_index() -> str:
 
 def _read_topic_markdown(topic: GuideTopicName) -> str:
     resource = files("memorable.guide").joinpath("topics", f"{topic}.md")
-    try:
-        text = resource.read_text(encoding="utf-8")
-    except FileNotFoundError:
-        title = topic.replace("_", " ").title()
-        return f"# {title}\n\nThis guide topic is not authored yet.\n"
-    return text.strip() + "\n"
+    return resource.read_text(encoding="utf-8").strip() + "\n"
