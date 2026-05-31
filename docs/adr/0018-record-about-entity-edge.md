@@ -83,3 +83,11 @@ Revisit if:
 - a need emerges for *typed* record→Entity connections (e.g. "measures" vs "mentions"), which would mean "about" was too flat;
 - aboutness is found to genuinely change over time in a way correction cannot express, reopening the temporal-fields question;
 - the referential-integrity-only rule proves too weak and `about` targets need profile-declared constraints.
+
+## Implementation Notes
+
+Added 2026-05-31 during #127 implementation (PR #142). These clarify consequences that surfaced while building; they do not change the decision.
+
+- **`:Record` supertype label.** Every MemoryRecord (Decision, Observation, Task, Relation) is stored with a shared `:Record` label in addition to its type label, under a MemoryRecord-wide `record_space_id_unique` (space, id) constraint. The About edge and the `about` filter query the `:Record` supertype, so all record types are treated uniformly and record ids cannot collide across types. This is the storage realization of "MemoryRecord" as the supertype of the four record kinds.
+- **Correcting an About edge rewrites the record's provenance.** Consistent with "fixing it is correction (ADR-0011, in place)": the edge carries no provenance of its own, so the correction trail lives on the record. An About-only correction (membership changed, statement unchanged) still replaces the record's provenance with the correction source, and reports equal old/new statements. This is intended, not a leak of Relation-style semantics onto the edge.
+- **Pre-existing records are not back-labelled (known gap).** Records written before the `:Record` label landed carry only their type label, so they are invisible to About writes and queries — a re-staple `MATCH (record:Record …)` matches nothing and silently no-ops, which is a fail-loud violation (ADR-0017) reachable only on graphs that predate the feature. A one-shot `:Record` backfill migration (explicit, idempotent, outside the schema-DDL bootstrap) is required before About works on such a graph; deferred as a follow-up rather than smuggled into `ensure_all_constraints`. New records are unaffected.
