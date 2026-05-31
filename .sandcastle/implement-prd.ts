@@ -21,6 +21,7 @@ const IMPLEMENTER_VARIANT = "high";
 const REVIEWER_VARIANT = "xhigh";
 const IMAGE_NAME = "memorable-sandcastle-opencode:latest";
 const COMPLETION_SIGNAL = "<promise>COMPLETE</promise>";
+const MAX_SLICE_ATTEMPTS = 5;
 const NEO4J_USER = "neo4j";
 const NEO4J_PASSWORD = "memorable";
 const AGENT_PROGRESS_INSTRUCTIONS = `- Print a short progress line before each major phase, before running tests, and after test results.
@@ -1006,9 +1007,11 @@ async function implementSlice(args: {
   const priorAttempts: PriorAttempt[] = [];
   let attempts = 0;
 
-  for (let attempt = 1; attempt <= 3; attempt += 1) {
+  for (let attempt = 1; attempt <= MAX_SLICE_ATTEMPTS; attempt += 1) {
     attempts = attempt;
-    console.log(`Implementing #${slice.number} attempt ${attempt}/3`);
+    console.log(
+      `Implementing #${slice.number} attempt ${attempt}/${MAX_SLICE_ATTEMPTS}`,
+    );
     const implementRunName = `implement-${slice.number}-${attempt}`;
     const implementResult = await sandbox.run({
       agent: opencode(MODEL, { variant: IMPLEMENTER_VARIANT }),
@@ -1078,9 +1081,9 @@ async function implementSlice(args: {
         findings: lastReview.findings,
         direction,
       });
-      if (attempt === 3) {
+      if (attempt === MAX_SLICE_ATTEMPTS) {
         console.log(
-          `Blocking review findings remain for #${slice.number} after 3 attempts; escalating.`,
+          `Blocking review findings remain for #${slice.number} after ${MAX_SLICE_ATTEMPTS} attempts; escalating.`,
         );
         await commitBlockedSlice(sandbox.worktreePath, slice);
         return {
@@ -1088,7 +1091,7 @@ async function implementSlice(args: {
           escalated: {
             issue: slice,
             reason: "needs-human",
-            detail: `Blocking review findings remain after 3 attempts:\n${formatFindings(
+            detail: `Blocking review findings remain after ${MAX_SLICE_ATTEMPTS} attempts:\n${formatFindings(
               lastReview.findings,
             )}`,
             findings: lastReview.findings,
@@ -1111,9 +1114,9 @@ async function implementSlice(args: {
         findings: lastReview.findings,
         direction,
       });
-      if (attempt === 3) {
+      if (attempt === MAX_SLICE_ATTEMPTS) {
         console.log(
-          `Per-slice verification failed for #${slice.number} after 3 attempts; escalating.`,
+          `Per-slice verification failed for #${slice.number} after ${MAX_SLICE_ATTEMPTS} attempts; escalating.`,
         );
         await commitBlockedSlice(sandbox.worktreePath, slice);
         return {
@@ -1121,7 +1124,7 @@ async function implementSlice(args: {
           escalated: {
             issue: slice,
             reason: "needs-human",
-            detail: `Per-slice verification failed after 3 attempts:\n${formatVerificationFailure(
+            detail: `Per-slice verification failed after ${MAX_SLICE_ATTEMPTS} attempts:\n${formatVerificationFailure(
               verification,
             )}`,
             findings: lastReview.findings,
