@@ -28,7 +28,7 @@ Specifically:
 3. Remove its parsing from `load_profile_from_yaml`.
 4. Remove `write_policy_default` / `write_policy_sensitive` from the profile-inspect CLI output and the MCP profile output.
 
-A `write_policy:` key in a hand-written profile becomes an unrecognized key: tolerated and silently ignored on load (no parse failure), and shown nowhere.
+A `write_policy:` key in a hand-written profile becomes an unrecognized key: tolerated and silently ignored on load (no parse failure), and shown nowhere. **(Amended — see below.)**
 
 Write policy returns only as a real feature — with a defined vocabulary, write-time enforcement, and Sensitive Category detection — designed in a future ADR. It will not return as a config-only knob.
 
@@ -53,3 +53,7 @@ Negative:
 **Advisory contract the Agent honors**: surface the policy to the Agent via MCP and document that the Agent is expected to honor it, with the kernel not enforcing and compliance unverified. Rejected for V1: an unverified "contract" that nothing checks is the same false guarantee in a different costume. A genuine agent contract needs at least a way to observe compliance, which V1 does not have.
 
 **Scaffold-only removal**: strip the block from the scaffold but keep the dataclass, parsing, and surfacing. Rejected: half-delivers the honesty goal — the misleading value simply moves from the scaffold to inspect/MCP output, and leaves dead parsing code a future contributor must puzzle over.
+
+## Amendment (2026-05-30): write_policy is rejected, not silently tolerated
+
+ADR-0017 (fail-loud profile validation) reverses the "tolerated and silently ignored on load" clause of this ADR. Under ADR-0017 the profile parser rejects unknown keys, so a `write_policy:` block now fails validation with an actionable message ("removed in v1 (ADR-0014); remove this block") instead of loading silently. The removal of the dataclass, parsing, and inspect/MCP surfaces decided here is unchanged; only the disposition of a stray key changes — from silent drop to loud rejection. Rationale: a silent no-op gives an agent no signal to self-correct, which is the precise footgun fail-loud exists to remove.

@@ -87,9 +87,9 @@ Example: the `memorable` workspace has its own MemorySpace.
 
 A MemoryProfile is the project-specific schema and policy that specializes the universal memory kernel for one MemorySpace.
 
-It defines domain-specific entity types, record types, relation types, metric keys, workflows, write policies, sensitive categories, lifecycle rules, and common queries.
+As a target design it defines domain-specific entity types, record types, relation types, metric keys, workflows, write policies, sensitive categories, lifecycle rules, and common queries. **The current build parses only a subset:** `version`, `space.{name,description}`, `entity/relation/record` declarations (each `name` plus `description`, and `extends` on records). Every other key is rejected at load time rather than silently ignored (ADR-0017). Metric keys, workflows, write policies (removed by ADR-0014), sensitive categories, lifecycle rules, and common queries are not yet part of the parsed schema.
 
-The first planned representation is `.memorable/memory.yaml`.
+The first representation is `.memorable/memory.yaml`.
 
 Do not use MemoryProfile as a generic user preference file.
 
@@ -101,6 +101,14 @@ It includes concepts such as MemorySpace, MemoryProfile, Source, Episode, Entity
 
 Project memory profiles specialize the kernel; they do not replace it.
 
+The kernel names a vocabulary, not all of which is writable yet. Distinguish:
+
+- **Writable Record Types** — kernel record types that have a write path today: Decision, Observation, and Task. A MemoryProfile `records:` declaration may only extend a Writable Record Type.
+- **Structural kernel types** — Entity and Relation, written through their own primitives and enforced against the MemoryProfile.
+- **Kernel Vocabulary (not yet writable)** — Evidence, Measurement, Event, and DerivedMemory. These are accepted language and part of the kernel concept set, but have no model, repository, or write path in the current build. They are not valid `extends` targets. Each is marked below.
+
+See ADR-0017 (fail-loud profile validation) for the rule that profiles fail to load when they extend a non-writable type or declare unknown keys.
+
 ### MemoryRecord
 
 A MemoryRecord is a structured, truth-bearing unit of memory.
@@ -108,6 +116,16 @@ A MemoryRecord is a structured, truth-bearing unit of memory.
 Use MemoryRecord for records that carry shared temporal and provenance semantics. Decisions, observations, evidence, relations, rules, derived summaries, and project-specific records can all be MemoryRecords or specializations of MemoryRecord.
 
 Do not use MemoryRecord for every database row, graph node, or generated Markdown paragraph.
+
+### Writable Record Type
+
+A Writable Record Type is a kernel record type that has a write path in the current build: Decision, Observation, and Task.
+
+Use Writable Record Type when stating the contract for MemoryProfile `records:` declarations. A custom record type may only `extends` a Writable Record Type; extending a non-writable Kernel Vocabulary term (Evidence, Measurement, Event, DerivedMemory) or a structural type (Entity, Relation) fails profile validation.
+
+This term names a moving line, not a permanent one. When a Kernel Vocabulary term gains a write path, it becomes a Writable Record Type and a valid `extends` target. The distinction exists so the language and the build stay honest about what an agent can actually write today.
+
+Do not confuse a Writable Record Type with the broader Universal Memory Kernel vocabulary, which also names concepts that are accepted language but not yet writable.
 
 ### Entity
 
@@ -145,6 +163,8 @@ Do not turn every memory into an Observation when a clearer accepted term exists
 
 Evidence is a memory record or source-backed claim that supports why something is believed.
 
+**Kernel Vocabulary, not yet writable.** Evidence has no model, repository, or write path in the current build and is not a valid `extends` target. Use Observation as the fallback until Evidence becomes a Writable Record Type.
+
 Use Evidence when the important thing is support, substantiation, or the basis for belief. Evidence should preserve provenance.
 
 Do not use Evidence for a decision itself. A decision may be supported by Evidence.
@@ -169,6 +189,8 @@ Do not erase a completed task. Completion is a lifecycle transition, not deletio
 
 An Event is something that happened at a point or interval in time and matters to memory.
 
+**Kernel Vocabulary, not yet writable.** Event has no model, repository, or write path in the current build and is not a valid `extends` target (see ADR-0015, which defers Event-as-record). Lifecycle transitions remain mutations on existing records in V1.
+
 Use Event for happenings such as a meeting, tool result, workflow run, task completion, correction, or lifecycle transition.
 
 Do not use Event for a durable state that remains true over time; use a temporal MemoryRecord with validity semantics.
@@ -177,6 +199,8 @@ Do not use Event for a durable state that remains true over time; use a temporal
 
 A Measurement is a recorded value with a metric key, unit, scale when relevant, provenance, and time.
 
+**Kernel Vocabulary, not yet writable.** Measurement has no model, repository, or write path in the current build and is not a valid `extends` target. Do not steer numeric memory toward Measurement yet; record it as an Observation until Measurement becomes a Writable Record Type.
+
 Use Measurement for quantitative memory such as benchmark results, training metrics, or ratings.
 
 Corrections to measurements should preserve the original sample and record the correction.
@@ -184,6 +208,8 @@ Corrections to measurements should preserve the original sample and record the c
 ### DerivedMemory
 
 DerivedMemory is memory produced by summarizing, analyzing, or transforming other memory.
+
+**Kernel Vocabulary, not yet writable.** DerivedMemory has no model, repository, or write path in the current build and is not a valid `extends` target. Use Observation as the fallback until DerivedMemory becomes a Writable Record Type.
 
 Use DerivedMemory for generated summaries, weekly reviews, project briefs, architecture logs, or other records whose basis should be traceable to source records.
 
