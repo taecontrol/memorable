@@ -182,8 +182,9 @@ class TestRelationDeclaration:
         assert profile.relations == ()
         assert len(profile.entities) == 1
 
-    def test_relation_is_in_kernel_record_types(self) -> None:
-        """'Relation' is a recognized kernel type for record declarations."""
-        from memorable.core.profile import KERNEL_RECORD_TYPES
+    def test_relation_is_not_a_writable_record_type(self) -> None:
+        """'Relation' is structural kernel vocabulary, not a record extends target."""
+        from memorable.core.profile import WRITABLE_RECORD_TYPES
 
-        assert "Relation" in KERNEL_RECORD_TYPES
+        assert WRITABLE_RECORD_TYPES == frozenset({"Decision", "Observation", "Task"})
+        assert "Relation" not in WRITABLE_RECORD_TYPES

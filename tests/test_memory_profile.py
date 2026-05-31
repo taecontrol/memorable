@@ -21,7 +21,7 @@ VALID_PROFILE_YAML = textwrap.dedent("""\
       - name: ArchitectureDecision
         extends: Decision
       - name: OpenQuestion
-        extends: MemoryRecord
+        extends: Observation
 """)
 
 PROFILE_WITH_STRAY_WRITE_POLICY_YAML = textwrap.dedent("""\
@@ -57,14 +57,209 @@ def test_load_valid_profile_from_yaml() -> None:
     assert profile.records[0].extends == "Decision"
 
 
-def test_profile_with_stray_write_policy_loads_without_surface() -> None:
-    """A hand-written write_policy block is ignored as an unknown key."""
+def test_profile_with_stray_write_policy_raises_validation_error() -> None:
+    """A hand-written write_policy block is rejected as removed v1 config."""
+    from memorable.core.profile import ProfileValidationError, load_profile_from_yaml
+
+    with pytest.raises(ProfileValidationError) as exc_info:
+        load_profile_from_yaml(PROFILE_WITH_STRAY_WRITE_POLICY_YAML)
+
+    assert "ADR-0014" in str(exc_info.value)
+    assert "removed" in str(exc_info.value)
+
+
+def test_profile_with_unknown_top_level_key_raises_validation_error() -> None:
+    """A profile with an unsupported top-level key is rejected."""
+    from memorable.core.profile import ProfileValidationError, load_profile_from_yaml
+
+    yaml_text = textwrap.dedent("""\
+        version: 1
+        space:
+          name: memorable
+        imaginary: true
+    """)
+
+    with pytest.raises(ProfileValidationError) as exc_info:
+        load_profile_from_yaml(yaml_text)
+
+    assert "unrecognized key" in str(exc_info.value)
+
+
+@pytest.mark.parametrize("key", ["metrics", "workflows", "common_queries"])
+def test_profile_with_target_design_key_raises_validation_error(key: str) -> None:
+    """Target-design profile keys are rejected until MemoryProfile parses them."""
+    from memorable.core.profile import ProfileValidationError, load_profile_from_yaml
+
+    yaml_text = textwrap.dedent(f"""\
+        version: 1
+        space:
+          name: memorable
+        {key}: []
+    """)
+
+    with pytest.raises(ProfileValidationError) as exc_info:
+        load_profile_from_yaml(yaml_text)
+
+    message = str(exc_info.value)
+    assert key in message
+    assert "target-design" in message
+
+
+def test_profile_with_unknown_space_key_raises_validation_error() -> None:
+    """A profile with an unsupported space key is rejected."""
+    from memorable.core.profile import ProfileValidationError, load_profile_from_yaml
+
+    yaml_text = textwrap.dedent("""\
+        version: 1
+        space:
+          name: memorable
+          owner: human
+    """)
+
+    with pytest.raises(ProfileValidationError) as exc_info:
+        load_profile_from_yaml(yaml_text)
+
+    assert "unrecognized key" in str(exc_info.value)
+
+
+@pytest.mark.parametrize(
+    ("section", "extra"),
+    [
+        ("entities", "aliases: []"),
+        ("relations", "inverse: blocks"),
+        ("records", "retention: durable"),
+    ],
+)
+def test_profile_with_unknown_declaration_key_raises_validation_error(
+    section: str, extra: str
+) -> None:
+    """Entity, relation, and record declarations reject unsupported keys."""
+    from memorable.core.profile import ProfileValidationError, load_profile_from_yaml
+
+    entry_lines = ["  - name: ProjectArtifact"]
+    if section == "records":
+        entry_lines.append("    extends: Decision")
+    entry_lines.append(f"    {extra}")
+    yaml_text = textwrap.dedent(f"""\
+        version: 1
+        space:
+          name: memorable
+        {section}:
+    """) + "\n".join(entry_lines)
+
+    with pytest.raises(ProfileValidationError) as exc_info:
+        load_profile_from_yaml(yaml_text)
+
+    assert "unrecognized key" in str(exc_info.value)
+
+
+def test_profile_with_supported_description_keys_loads() -> None:
+    """Descriptions are accepted everywhere the v1 profile schema allows them."""
     from memorable.core.profile import load_profile_from_yaml
 
-    profile = load_profile_from_yaml(PROFILE_WITH_STRAY_WRITE_POLICY_YAML)
+    yaml_text = textwrap.dedent("""\
+        version: 1
+        space:
+          name: memorable
+          description: Agent memory system design
+        entities:
+          - name: Project
+            description: A remembered project
+        relations:
+          - name: depends_on
+            description: Dependency between entities
+        records:
+          - name: ArchitectureDecision
+            extends: Decision
+            description: Chosen architecture direction
+    """)
+
+    profile = load_profile_from_yaml(yaml_text)
 
     assert profile.space.name == "memorable"
-    assert not hasattr(profile, "write_policy")
+    assert profile.entities[0].name == "Project"
+    assert profile.entities[0].description == "A remembered project"
+    assert profile.relations[0].name == "depends_on"
+    assert profile.relations[0].description == "Dependency between entities"
+    assert profile.records[0].name == "ArchitectureDecision"
+    assert profile.records[0].description == "Chosen architecture direction"
+
+
+def test_profile_summary_includes_type_descriptions() -> None:
+    """The shared profile summary surfaces type documentation."""
+    from memorable.core.profile import load_profile_from_yaml, profile_summary
+
+    yaml_text = textwrap.dedent("""\
+        version: 1
+        space:
+          name: memorable
+          description: Agent memory system design
+        entities:
+          - name: Project
+            description: A remembered project
+        relations:
+          - name: depends_on
+            description: Dependency between entities
+        records:
+          - name: ArchitectureDecision
+            extends: Decision
+            description: Chosen architecture direction
+    """)
+
+    profile = load_profile_from_yaml(yaml_text)
+
+    assert profile_summary(profile) == {
+        "space_name": "memorable",
+        "description": "Agent memory system design",
+        "entity_count": 1,
+        "record_count": 1,
+        "relation_count": 1,
+        "entities": [
+            {"name": "Project", "description": "A remembered project"},
+        ],
+        "relations": [
+            {"name": "depends_on", "description": "Dependency between entities"},
+        ],
+        "records": [
+            {
+                "name": "ArchitectureDecision",
+                "extends": "Decision",
+                "description": "Chosen architecture direction",
+            },
+        ],
+    }
+
+
+def test_profile_summary_defaults_missing_type_descriptions_to_empty_string() -> None:
+    """Profiles without type descriptions still summarize with empty descriptions."""
+    from memorable.core.profile import load_profile_from_yaml, profile_summary
+
+    yaml_text = textwrap.dedent("""\
+        version: 1
+        space:
+          name: memorable
+        entities:
+          - name: Project
+        relations:
+          - name: depends_on
+        records:
+          - name: ArchitectureDecision
+            extends: Decision
+    """)
+
+    profile = load_profile_from_yaml(yaml_text)
+
+    summary = profile_summary(profile)
+
+    assert summary["entities"] == [
+        {"name": "Project", "description": ""},
+    ]
+    assert summary["relations"] == [
+        {"name": "depends_on", "description": ""},
+    ]
+    assert summary["records"] == [
+        {"name": "ArchitectureDecision", "extends": "Decision", "description": ""},
+    ]
 
 
 def test_missing_version_raises_validation_error() -> None:
@@ -110,8 +305,65 @@ def test_record_with_invalid_extends_raises_validation_error() -> None:
         "version: 1\nspace:\n  name: test\n"
         "records:\n  - name: Bad\n    extends: NonExistentType\n"
     )
-    with pytest.raises(ProfileValidationError, match="not a recognized kernel type"):
+    with pytest.raises(ProfileValidationError):
         load_profile_from_yaml(yaml_text)
+
+
+def test_record_without_extends_raises_validation_error() -> None:
+    """A record declaration must name the Writable Record Type it extends."""
+    from memorable.core.profile import ProfileValidationError, load_profile_from_yaml
+
+    yaml_text = "version: 1\nspace:\n  name: test\nrecords:\n  - name: MissingBase\n"
+
+    with pytest.raises(ProfileValidationError):
+        load_profile_from_yaml(yaml_text)
+
+
+@pytest.mark.parametrize("extends", ["Decision", "Observation", "Task"])
+def test_record_extending_writable_record_type_loads(extends: str) -> None:
+    """A record may extend any Writable Record Type."""
+    from memorable.core.profile import load_profile_from_yaml
+
+    yaml_text = textwrap.dedent(f"""\
+        version: 1
+        space:
+          name: test
+        records:
+          - name: Custom{extends}
+            extends: {extends}
+    """)
+
+    profile = load_profile_from_yaml(yaml_text)
+
+    assert profile.records[0].extends == extends
+
+
+@pytest.mark.parametrize(
+    "extends",
+    ["Measurement", "Event", "Evidence", "DerivedMemory", "Relation", "MemoryRecord"],
+)
+def test_record_extending_non_writable_type_raises_validation_error(
+    extends: str,
+) -> None:
+    """A record may not extend a kernel term without a record write path."""
+    from memorable.core.profile import ProfileValidationError, load_profile_from_yaml
+
+    yaml_text = textwrap.dedent(f"""\
+        version: 1
+        space:
+          name: test
+        records:
+          - name: DeadSchemaRecord
+            extends: {extends}
+    """)
+
+    with pytest.raises(ProfileValidationError) as exc_info:
+        load_profile_from_yaml(yaml_text)
+
+    message = str(exc_info.value)
+    assert "Decision" in message
+    assert "Observation" in message
+    assert "Task" in message
 
 
 def test_validation_errors_contain_no_storage_vocabulary() -> None:
@@ -410,5 +662,13 @@ class TestMCPInit:
         assert result["space_name"] == "memorable"
         assert result["entity_count"] == 2
         assert result["record_count"] == 2
+        assert result["entities"] == [
+            {"name": "Project", "description": ""},
+            {"name": "Component", "description": ""},
+        ]
+        assert result["records"] == [
+            {"name": "ArchitectureDecision", "extends": "Decision", "description": ""},
+            {"name": "OpenQuestion", "extends": "Observation", "description": ""},
+        ]
         assert "write_policy_default" not in result
         assert "write_policy_sensitive" not in result

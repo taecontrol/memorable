@@ -26,7 +26,11 @@ from memorable.core.application import (
     build_status_payload,
 )
 from memorable.core.context import ApplicationContext, default_context
-from memorable.core.profile import ProfileValidationError, load_profile_from_yaml
+from memorable.core.profile import (
+    ProfileValidationError,
+    load_profile_from_yaml,
+    profile_summary,
+)
 from memorable.core.profile_scaffold import render_minimal_profile_scaffold
 from memorable.core.temporal import parse_iso_timestamp
 from memorable.core.tracer import TracerService
@@ -261,18 +265,7 @@ def _cmd_profile_show(args: argparse.Namespace) -> int:
         print(f"Error: {e}", file=sys.stderr)
         return 1
 
-    output = {
-        "space_name": profile.space.name,
-        "description": profile.space.description,
-        "entity_count": len(profile.entities),
-        "record_count": len(profile.records),
-        "relation_count": len(profile.relations),
-        "entities": [e.name for e in profile.entities],
-        "relations": [r.name for r in profile.relations],
-        "records": [{"name": r.name, "extends": r.extends} for r in profile.records],
-    }
-
-    print(json.dumps(output, sort_keys=True, indent=2))
+    print(json.dumps(profile_summary(profile), sort_keys=True, indent=2))
     return 0
 
 

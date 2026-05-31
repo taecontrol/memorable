@@ -11,24 +11,14 @@ from dataclasses import dataclass
 import yaml
 
 SUPPORTED_VERSIONS = (1,)
+TOP_LEVEL_KEYS = frozenset({"version", "space", "entities", "relations", "records"})
+SPACE_KEYS = frozenset({"name", "description"})
+ENTITY_KEYS = frozenset({"name", "description"})
+RELATION_KEYS = frozenset({"name", "description"})
+RECORD_KEYS = frozenset({"name", "extends", "description"})
+TARGET_DESIGN_KEYS = frozenset({"metrics", "workflows", "common_queries"})
 
-# Kernel types that record declarations may extend
-KERNEL_RECORD_TYPES = frozenset(
-    {
-        "MemoryRecord",
-        "Decision",
-        "Task",
-        "Evidence",
-        "Observation",
-        "Measurement",
-        "Event",
-        "DerivedMemory",
-        # Relation is here so profiles can declare records extending it,
-        # even though Relations are normally declared via the 'relations'
-        # section. This keeps the kernel type set complete.
-        "Relation",
-    }
-)
+WRITABLE_RECORD_TYPES = frozenset({"Decision", "Observation", "Task"})
 
 
 class ProfileValidationError(Exception):
@@ -51,6 +41,7 @@ class EntityDeclaration:
     """A project-specific entity type declared in a MemoryProfile."""
 
     name: str
+    description: str = ""
 
 
 @dataclass(frozen=True)
@@ -58,6 +49,7 @@ class RelationDeclaration:
     """A project-specific relation type declared in a MemoryProfile."""
 
     name: str
+    description: str = ""
 
 
 @dataclass(frozen=True)
@@ -65,7 +57,8 @@ class RecordDeclaration:
     """A project-specific record type that extends a kernel type."""
 
     name: str
-    extends: str = "MemoryRecord"
+    extends: str
+    description: str = ""
 
 
 @dataclass(frozen=True)
@@ -96,6 +89,7 @@ def load_profile_from_yaml(yaml_text: str) -> MemoryProfile:
         )
 
     _validate_version(data)
+    _validate_top_level_keys(data)
     _validate_space(data)
     _validate_entities(data)
     _validate_relations(data)
@@ -108,15 +102,21 @@ def load_profile_from_yaml(yaml_text: str) -> MemoryProfile:
     )
 
     entities = tuple(
-        EntityDeclaration(name=e["name"]) for e in data.get("entities", [])
+        EntityDeclaration(name=e["name"], description=e.get("description", ""))
+        for e in data.get("entities", [])
     )
 
     relations = tuple(
-        RelationDeclaration(name=r["name"]) for r in data.get("relations", [])
+        RelationDeclaration(name=r["name"], description=r.get("description", ""))
+        for r in data.get("relations", [])
     )
 
     records = tuple(
-        RecordDeclaration(name=r["name"], extends=r.get("extends", "MemoryRecord"))
+        RecordDeclaration(
+            name=r["name"],
+            extends=r["extends"],
+            description=r.get("description", ""),
+        )
         for r in data.get("records", [])
     )
 
@@ -127,6 +127,33 @@ def load_profile_from_yaml(yaml_text: str) -> MemoryProfile:
         relations=relations,
         records=records,
     )
+
+
+def profile_summary(profile: MemoryProfile) -> dict[str, object]:
+    """Return the shared inspect/MCP summary for a MemoryProfile."""
+    return {
+        "space_name": profile.space.name,
+        "description": profile.space.description,
+        "entity_count": len(profile.entities),
+        "record_count": len(profile.records),
+        "relation_count": len(profile.relations),
+        "entities": [
+            {"name": entity.name, "description": entity.description}
+            for entity in profile.entities
+        ],
+        "relations": [
+            {"name": relation.name, "description": relation.description}
+            for relation in profile.relations
+        ],
+        "records": [
+            {
+                "name": record.name,
+                "extends": record.extends,
+                "description": record.description,
+            }
+            for record in profile.records
+        ],
+    }
 
 
 def _validate_version(data: dict) -> None:
@@ -142,12 +169,42 @@ def _validate_version(data: dict) -> None:
         )
 
 
+def _validate_top_level_keys(data: dict) -> None:
+    _validate_allowed_keys(data, TOP_LEVEL_KEYS, "MemoryProfile")
+
+
+def _validate_allowed_keys(
+    data: dict, allowed_keys: frozenset[str], location: str
+) -> None:
+    for key in data:
+        if key in allowed_keys:
+            continue
+        _raise_unknown_key(key, location)
+
+
+def _raise_unknown_key(key: object, location: str) -> None:
+    if key == "write_policy":
+        raise ProfileValidationError(
+            "Write Policy was removed from MemoryProfile v1 by ADR-0014; "
+            "delete 'write_policy' from the profile."
+        )
+    if key in TARGET_DESIGN_KEYS:
+        raise ProfileValidationError(
+            f"'{key}' is a target-design key from the ADR-0002 sketch, "
+            "but it is not yet parsed by MemoryProfile v1."
+        )
+    raise ProfileValidationError(
+        f"{location} has unrecognized key '{key}' for MemoryProfile v1."
+    )
+
+
 def _validate_space(data: dict) -> None:
     space_data = data.get("space")
     if not isinstance(space_data, dict) or not space_data.get("name"):
         raise ProfileValidationError(
             "MemoryProfile requires 'space.name' to identify the MemorySpace."
         )
+    _validate_allowed_keys(space_data, SPACE_KEYS, "MemoryProfile space")
 
 
 def _validate_entities(data: dict) -> None:
@@ -156,6 +213,9 @@ def _validate_entities(data: dict) -> None:
             raise ProfileValidationError(
                 f"Entity at position {i} must have a non-empty 'name'."
             )
+        _validate_allowed_keys(
+            entity, ENTITY_KEYS, f"Entity declaration at position {i}"
+        )
 
 
 def _validate_relations(data: dict) -> None:
@@ -164,6 +224,9 @@ def _validate_relations(data: dict) -> None:
             raise ProfileValidationError(
                 f"Relation at position {i} must have a non-empty 'name'."
             )
+        _validate_allowed_keys(
+            relation, RELATION_KEYS, f"Relation declaration at position {i}"
+        )
 
 
 def _validate_records(data: dict) -> None:
@@ -172,10 +235,17 @@ def _validate_records(data: dict) -> None:
             raise ProfileValidationError(
                 f"Record at position {i} must have a non-empty 'name'."
             )
-        extends = record.get("extends", "MemoryRecord")
-        if extends not in KERNEL_RECORD_TYPES:
+        _validate_allowed_keys(
+            record, RECORD_KEYS, f"Record declaration at position {i}"
+        )
+        if "extends" not in record:
+            raise ProfileValidationError(
+                f"Record '{record['name']}' must declare 'extends' as one of "
+                f"{sorted(WRITABLE_RECORD_TYPES)}."
+            )
+        extends = record["extends"]
+        if extends not in WRITABLE_RECORD_TYPES:
             raise ProfileValidationError(
                 f"Record '{record['name']}' extends '{extends}', "
-                f"which is not a recognized kernel type. "
-                f"Valid types: {sorted(KERNEL_RECORD_TYPES)}."
+                f"but records may only extend one of: {sorted(WRITABLE_RECORD_TYPES)}."
             )
