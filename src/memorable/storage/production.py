@@ -40,6 +40,10 @@ def build_production_context(
     driver = GraphDatabase.driver(
         config.neo4j.uri,
         auth=(config.neo4j.user, config.neo4j.password),
+        # Sparse graphs legitimately lack some labels/properties/relationships.
+        # If a real query typo slips through because this hides UNRECOGNIZED,
+        # revisit with a narrower filter or debug-level notification sink.
+        notifications_disabled_classifications=["UNRECOGNIZED"],
     )
 
     try:

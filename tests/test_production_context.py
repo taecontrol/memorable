@@ -144,7 +144,26 @@ def test_build_production_context_passes_config_to_driver() -> None:
     mock_gdb.driver.assert_called_once_with(
         "bolt://custom-host:9999",
         auth=("custom-user", "custom-pass"),
+        notifications_disabled_classifications=["UNRECOGNIZED"],
     )
+
+
+def test_build_production_context_suppresses_sparse_graph_notifications() -> None:
+    """Production driver suppresses only sparse-graph UNRECOGNIZED notices."""
+    from memorable.storage.production import build_production_context
+
+    config = RuntimeConfig()
+
+    with patch("memorable.storage.production.GraphDatabase") as mock_gdb:
+        mock_driver = _make_mock_driver()
+        mock_gdb.driver.return_value = mock_driver
+
+        build_production_context(config)
+
+    call_kwargs = mock_gdb.driver.call_args.kwargs
+    assert call_kwargs["notifications_disabled_classifications"] == ["UNRECOGNIZED"]
+    assert "PERFORMANCE" not in call_kwargs["notifications_disabled_classifications"]
+    assert "notifications_min_severity" not in call_kwargs
 
 
 def test_cli_init_bootstraps_constraints_with_production_context(
