@@ -9,7 +9,7 @@ import hashlib
 import math
 import struct
 import warnings
-from typing import TYPE_CHECKING, Protocol, runtime_checkable
+from typing import TYPE_CHECKING, Any, Protocol, runtime_checkable
 
 from openai import OpenAI
 
@@ -153,13 +153,15 @@ class OpenRouterEmbeddingProvider:
         api_key: str,
         model: str = "google/gemini-embedding-2-preview",
         dimensions: int = 768,
+        client: Any | None = None,
     ) -> None:
         self._api_key = api_key
         self._model = model
         self._dimensions = dimensions
-        self._client = OpenAI(
-            base_url="https://openrouter.ai/api/v1",
-            api_key=api_key,
+        self._client = (
+            client
+            if client is not None
+            else OpenAI(base_url="https://openrouter.ai/api/v1", api_key=api_key)
         )
 
     @property
@@ -174,13 +176,46 @@ class OpenRouterEmbeddingProvider:
     def dimensions(self) -> int:
         return self._dimensions
 
-    def embed(self, text: str) -> list[float]:
-        response = self._client.embeddings.create(
-            model=self._model,
-            input=text,
-            dimensions=self._dimensions,
+    def _missing_embedding_error(self) -> RuntimeError:
+        msg = (
+            "Embedding Provider 'openrouter' with model "
+            f"{self._model!r} returned no Embedding for the requested "
+            "encoding. Probable cause: the model returned no embedding for "
+            "float encoding through this provider. Set embeddings.model to a "
+            "known-good model such as 'google/gemini-embedding-001'."
         )
+        return RuntimeError(msg)
+
+    def embed(self, text: str) -> list[float]:
+        try:
+            response = self._client.embeddings.create(
+                model=self._model,
+                input=text,
+                dimensions=self._dimensions,
+                encoding_format="float",
+            )
+        except ValueError as exc:
+            if "No embedding data received" not in str(exc):
+                raise
+            raise self._missing_embedding_error() from None
+
+        if not response.data:
+            raise self._missing_embedding_error()
+
         raw = response.data[0].embedding
+        if raw is None:
+            raise self._missing_embedding_error()
+
+        if len(raw) != self._dimensions:
+            msg = (
+                "Embedding Provider 'openrouter' with model "
+                f"{self._model!r} returned {len(raw)} dimensions, but runtime "
+                f"configured {self._dimensions} dimensions. Set "
+                "embeddings.dimensions to the model's native size or choose "
+                "a model that returns the configured dimensions."
+            )
+            raise RuntimeError(msg)
+
         magnitude = math.sqrt(sum(v * v for v in raw))
         if magnitude > 0:
             return [v / magnitude for v in raw]
