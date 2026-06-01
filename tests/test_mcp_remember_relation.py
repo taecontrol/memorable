@@ -14,23 +14,7 @@ from __future__ import annotations
 import asyncio
 
 from memorable.core.context import ApplicationContext
-from memorable.core.profile import load_profile_from_yaml
 from memorable.mcp.server import set_mcp_context
-
-PROFILE_YAML = """\
-version: 1
-space:
-  name: test-space
-  description: Test space for relation tools
-entities:
-  - name: Component
-records:
-  - name: GeneralObservation
-    extends: Observation
-relations:
-  - name: depends-on
-  - name: owns
-"""
 
 
 def _call_tool(name: str, arguments: dict) -> object:
@@ -41,16 +25,12 @@ def _call_tool(name: str, arguments: dict) -> object:
 
 
 def _setup_space_with_entities() -> ApplicationContext:
-    """Create a context with a space, profile, and two entities.
+    """Create a context with a space and two entities.
 
     Returns the context so tests can inspect repos if needed.
     """
     ctx = ApplicationContext()
     set_mcp_context(ctx)
-
-    # Load and cache the profile for test-space
-    profile = load_profile_from_yaml(PROFILE_YAML)
-    ctx._profiles["test-space"] = profile
 
     # Initialize the space
     ctx.memory_space_repo.create_space("test-space")

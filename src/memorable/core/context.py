@@ -1,8 +1,8 @@
 """Application context shared by CLI and MCP adapters.
 
-Provides a single place for profile loading/caching, entity repository
-access, and the default profile YAML. Both adapters receive the same
-context instance instead of constructing their own module-level singletons.
+Provides a single place for live profile loading, repository access, and the
+default profile YAML. Both adapters receive the same context instance instead
+of constructing their own module-level singletons.
 """
 
 from __future__ import annotations
@@ -56,9 +56,9 @@ records:
 class ApplicationContext:
     """Shared application-level state for adapter processes.
 
-    Holds the entity repository and profile cache so that CLI and MCP
-    adapters share the same instances within a process, and tests can
-    get clean instances by constructing a fresh context.
+    Holds repositories so that CLI and MCP adapters share the same instances
+    within a process, and tests can get clean instances by constructing a fresh
+    context.
     """
 
     def __init__(
@@ -78,26 +78,20 @@ class ApplicationContext:
         self.relation_repo = relation_repo or InMemoryRelationRepository()
         self.about_repo = about_repo or InMemoryAboutRepository()
         self.memory_space_repo = memory_space_repo or InMemoryMemorySpaceRepository()
-        self._profiles: dict[str, MemoryProfile] = {}
 
     def load_profile(self, space: str) -> MemoryProfile:
-        """Load and cache a MemoryProfile for the given space.
+        """Load a MemoryProfile for the given space.
 
         Looks for ``.memorable/memory.yaml`` in the current working directory.
         Falls back to the built-in default profile when none is found.
         """
-        if space in self._profiles:
-            return self._profiles[space]
-
         profile_path = Path.cwd() / ".memorable" / "memory.yaml"
         if profile_path.exists():
             yaml_text = profile_path.read_text(encoding="utf-8")
         else:
             yaml_text = DEFAULT_PROFILE_YAML
 
-        profile = load_profile_from_yaml(yaml_text)
-        self._profiles[space] = profile
-        return profile
+        return load_profile_from_yaml(yaml_text)
 
     def reset(self) -> None:
         """Clear all cached state. Useful for test isolation."""
@@ -108,7 +102,6 @@ class ApplicationContext:
         self.relation_repo = InMemoryRelationRepository()
         self.about_repo = InMemoryAboutRepository()
         self.memory_space_repo = InMemoryMemorySpaceRepository()
-        self._profiles.clear()
 
 
 # Process-wide default context. Both CLI and MCP import this.
