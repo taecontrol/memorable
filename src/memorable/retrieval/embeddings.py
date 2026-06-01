@@ -158,8 +158,10 @@ class OpenRouterEmbeddingProvider:
         self._api_key = api_key
         self._model = model
         self._dimensions = dimensions
-        self._client = client if client is not None else OpenAI(
-            base_url="https://openrouter.ai/api/v1", api_key=api_key
+        self._client = (
+            client
+            if client is not None
+            else OpenAI(base_url="https://openrouter.ai/api/v1", api_key=api_key)
         )
 
     @property
