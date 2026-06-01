@@ -83,10 +83,13 @@ class ApplicationContext:
         about_repo: AboutRepository | None = None,
         memory_space_repo: MemorySpaceRepository | None = None,
     ) -> None:
+        record_keys: set[tuple[str, str]] = set()
         self.entity_repo = entity_repo or InMemoryEntityRepository()
-        self.decision_repo = decision_repo or InMemoryDecisionRepository()
-        self.task_repo = task_repo or InMemoryTaskRepository()
-        self.observation_repo = observation_repo or InMemoryObservationRepository()
+        self.decision_repo = decision_repo or InMemoryDecisionRepository(record_keys)
+        self.task_repo = task_repo or InMemoryTaskRepository(record_keys)
+        self.observation_repo = observation_repo or InMemoryObservationRepository(
+            record_keys
+        )
         self.relation_repo = relation_repo or InMemoryRelationRepository()
         self.about_repo = about_repo or InMemoryAboutRepository()
         self.memory_space_repo = memory_space_repo or InMemoryMemorySpaceRepository()
@@ -123,10 +126,11 @@ class ApplicationContext:
         Used for test isolation. There is no cached profile to clear; only the
         repositories are reset.
         """
+        record_keys: set[tuple[str, str]] = set()
         self.entity_repo = InMemoryEntityRepository()
-        self.decision_repo = InMemoryDecisionRepository()
-        self.task_repo = InMemoryTaskRepository()
-        self.observation_repo = InMemoryObservationRepository()
+        self.decision_repo = InMemoryDecisionRepository(record_keys)
+        self.task_repo = InMemoryTaskRepository(record_keys)
+        self.observation_repo = InMemoryObservationRepository(record_keys)
         self.relation_repo = InMemoryRelationRepository()
         self.about_repo = InMemoryAboutRepository()
         self.memory_space_repo = InMemoryMemorySpaceRepository()

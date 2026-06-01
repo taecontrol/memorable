@@ -13,7 +13,7 @@ cases record_type == "task" before dispatch and routes to CorrectTaskService.)
 
 from __future__ import annotations
 
-from memorable.core.context import ApplicationContext
+from memorable.core.context import ApplicationContext, default_context
 from memorable.mcp.server import (
     current_truth_tool,
     inspect_history_tool,
@@ -27,6 +27,9 @@ class TestTaskRejectedByGenericTemporalTools:
     def setup_method(self) -> None:
         self.ctx = ApplicationContext()
         set_mcp_context(self.ctx)
+
+    def teardown_method(self) -> None:
+        set_mcp_context(default_context)
 
     def test_current_truth_returns_error_dict_for_task(self) -> None:
         result = current_truth_tool(

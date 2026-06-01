@@ -5,6 +5,7 @@ from datetime import datetime
 from heapq import heappop, heappush
 from typing import Protocol
 
+from memorable.core.errors import DuplicateRecordError as DuplicateRecordError
 from memorable.core.models import (
     Decision,
     Entity,

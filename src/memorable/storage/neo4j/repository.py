@@ -10,6 +10,9 @@ from __future__ import annotations
 from datetime import UTC, datetime
 from typing import Any, Protocol, runtime_checkable
 
+from neo4j.exceptions import ConstraintError
+
+from memorable.core.errors import DuplicateRecordError
 from memorable.core.models import (
     Decision,
     Entity,
@@ -52,6 +55,30 @@ def _from_iso(value: str | None) -> datetime | None:
     if value is None:
         return None
     return datetime.fromisoformat(value)
+
+
+def _raise_duplicate_record_if_existing(
+    driver: Neo4jDriver,
+    error: ConstraintError,
+    *,
+    record_kind: str,
+    space: str,
+    record_id: str,
+) -> None:
+    with driver.session() as session:
+        result = session.run(
+            "MATCH (record:Record {space: $space, id: $id}) "
+            "RETURN record.id AS id LIMIT 1",
+            space=space,
+            id=record_id,
+        )
+        if result.single() is not None:
+            raise DuplicateRecordError(
+                record_kind=record_kind,
+                space=space,
+                record_id=record_id,
+            ) from error
+    raise error
 
 
 def _list_projections_by_space(
@@ -385,41 +412,50 @@ class Neo4jDecisionRepository:
         Uses CREATE for append-only semantics. Provenance is stored as
         a separate node linked via PROVENANCE_OF.
         """
-        with self._driver.session() as session:
-            session.run(
-                "CREATE (d:Record:Decision {"
-                "  space: $space, id: $id, statement: $statement, "
-                "  validity_time: $validity_time, "
-                "  invalidation_time: $invalidation_time, "
-                "  lifecycle_state: $lifecycle_state, "
-                "  supersedes: $supersedes, "
-                "  superseded_by: $superseded_by"
-                "}) "
-                "WITH d "
-                "CREATE (p:Provenance {"
-                "  record_id: $record_id, record_kind: $record_kind, "
-                "  source_id: $source_id, episode_id: $episode_id, "
-                "  writer: $writer, reason: $reason, "
-                "  creation_time: $creation_time, "
-                "  validity_time: $prov_validity_time"
-                "}) "
-                "CREATE (p)-[:PROVENANCE_OF]->(d)",
+        try:
+            with self._driver.session() as session:
+                session.run(
+                    "CREATE (d:Record:Decision {"
+                    "  space: $space, id: $id, statement: $statement, "
+                    "  validity_time: $validity_time, "
+                    "  invalidation_time: $invalidation_time, "
+                    "  lifecycle_state: $lifecycle_state, "
+                    "  supersedes: $supersedes, "
+                    "  superseded_by: $superseded_by"
+                    "}) "
+                    "WITH d "
+                    "CREATE (p:Provenance {"
+                    "  record_id: $record_id, record_kind: $record_kind, "
+                    "  source_id: $source_id, episode_id: $episode_id, "
+                    "  writer: $writer, reason: $reason, "
+                    "  creation_time: $creation_time, "
+                    "  validity_time: $prov_validity_time"
+                    "}) "
+                    "CREATE (p)-[:PROVENANCE_OF]->(d)",
+                    space=decision.space,
+                    id=decision.id,
+                    statement=decision.statement,
+                    validity_time=_to_iso(decision.validity_time),
+                    invalidation_time=_to_iso(decision.invalidation_time),
+                    lifecycle_state=decision.lifecycle_state,
+                    supersedes=decision.supersedes,
+                    superseded_by=decision.superseded_by,
+                    record_id=provenance.record_id,
+                    record_kind=provenance.record_kind,
+                    source_id=provenance.source_id,
+                    episode_id=provenance.episode_id,
+                    writer=provenance.writer,
+                    reason=provenance.reason,
+                    creation_time=_to_iso(provenance.creation_time),
+                    prov_validity_time=_to_iso(provenance.validity_time),
+                )
+        except ConstraintError as e:
+            _raise_duplicate_record_if_existing(
+                self._driver,
+                e,
+                record_kind="decision",
                 space=decision.space,
-                id=decision.id,
-                statement=decision.statement,
-                validity_time=_to_iso(decision.validity_time),
-                invalidation_time=_to_iso(decision.invalidation_time),
-                lifecycle_state=decision.lifecycle_state,
-                supersedes=decision.supersedes,
-                superseded_by=decision.superseded_by,
-                record_id=provenance.record_id,
-                record_kind=provenance.record_kind,
-                source_id=provenance.source_id,
-                episode_id=provenance.episode_id,
-                writer=provenance.writer,
-                reason=provenance.reason,
-                creation_time=_to_iso(provenance.creation_time),
-                prov_validity_time=_to_iso(provenance.validity_time),
+                record_id=decision.id,
             )
 
     def get(self, space: str, record_id: str) -> Decision | None:
@@ -637,41 +673,50 @@ class Neo4jObservationRepository:
         Uses CREATE for append-only semantics. Provenance is stored as
         a separate node linked via PROVENANCE_OF.
         """
-        with self._driver.session() as session:
-            session.run(
-                "CREATE (o:Record:Observation {"
-                "  space: $space, id: $id, statement: $statement, "
-                "  validity_time: $validity_time, "
-                "  invalidation_time: $invalidation_time, "
-                "  lifecycle_state: $lifecycle_state, "
-                "  supersedes: $supersedes, "
-                "  superseded_by: $superseded_by"
-                "}) "
-                "WITH o "
-                "CREATE (p:Provenance {"
-                "  record_id: $record_id, record_kind: $record_kind, "
-                "  source_id: $source_id, episode_id: $episode_id, "
-                "  writer: $writer, reason: $reason, "
-                "  creation_time: $creation_time, "
-                "  validity_time: $prov_validity_time"
-                "}) "
-                "CREATE (p)-[:PROVENANCE_OF]->(o)",
+        try:
+            with self._driver.session() as session:
+                session.run(
+                    "CREATE (o:Record:Observation {"
+                    "  space: $space, id: $id, statement: $statement, "
+                    "  validity_time: $validity_time, "
+                    "  invalidation_time: $invalidation_time, "
+                    "  lifecycle_state: $lifecycle_state, "
+                    "  supersedes: $supersedes, "
+                    "  superseded_by: $superseded_by"
+                    "}) "
+                    "WITH o "
+                    "CREATE (p:Provenance {"
+                    "  record_id: $record_id, record_kind: $record_kind, "
+                    "  source_id: $source_id, episode_id: $episode_id, "
+                    "  writer: $writer, reason: $reason, "
+                    "  creation_time: $creation_time, "
+                    "  validity_time: $prov_validity_time"
+                    "}) "
+                    "CREATE (p)-[:PROVENANCE_OF]->(o)",
+                    space=observation.space,
+                    id=observation.id,
+                    statement=observation.statement,
+                    validity_time=_to_iso(observation.validity_time),
+                    invalidation_time=_to_iso(observation.invalidation_time),
+                    lifecycle_state=observation.lifecycle_state,
+                    supersedes=observation.supersedes,
+                    superseded_by=observation.superseded_by,
+                    record_id=provenance.record_id,
+                    record_kind=provenance.record_kind,
+                    source_id=provenance.source_id,
+                    episode_id=provenance.episode_id,
+                    writer=provenance.writer,
+                    reason=provenance.reason,
+                    creation_time=_to_iso(provenance.creation_time),
+                    prov_validity_time=_to_iso(provenance.validity_time),
+                )
+        except ConstraintError as e:
+            _raise_duplicate_record_if_existing(
+                self._driver,
+                e,
+                record_kind="observation",
                 space=observation.space,
-                id=observation.id,
-                statement=observation.statement,
-                validity_time=_to_iso(observation.validity_time),
-                invalidation_time=_to_iso(observation.invalidation_time),
-                lifecycle_state=observation.lifecycle_state,
-                supersedes=observation.supersedes,
-                superseded_by=observation.superseded_by,
-                record_id=provenance.record_id,
-                record_kind=provenance.record_kind,
-                source_id=provenance.source_id,
-                episode_id=provenance.episode_id,
-                writer=provenance.writer,
-                reason=provenance.reason,
-                creation_time=_to_iso(provenance.creation_time),
-                prov_validity_time=_to_iso(provenance.validity_time),
+                record_id=observation.id,
             )
 
     def get(self, space: str, record_id: str) -> Observation | None:
@@ -889,39 +934,48 @@ class Neo4jTaskRepository:
         Uses CREATE for append-only semantics. Provenance is stored as
         a separate node linked via PROVENANCE_OF.
         """
-        with self._driver.session() as session:
-            session.run(
-                "CREATE (t:Record:Task {"
-                "  space: $space, id: $id, title: $title, "
-                "  lifecycle_state: $lifecycle_state, "
-                "  validity_time: $validity_time, "
-                "  completion_time: $completion_time, "
-                "  completion_event_id: $completion_event_id"
-                "}) "
-                "WITH t "
-                "CREATE (p:Provenance {"
-                "  record_id: $record_id, record_kind: $record_kind, "
-                "  source_id: $source_id, episode_id: $episode_id, "
-                "  writer: $writer, reason: $reason, "
-                "  creation_time: $creation_time, "
-                "  validity_time: $prov_validity_time"
-                "}) "
-                "CREATE (p)-[:PROVENANCE_OF]->(t)",
+        try:
+            with self._driver.session() as session:
+                session.run(
+                    "CREATE (t:Record:Task {"
+                    "  space: $space, id: $id, title: $title, "
+                    "  lifecycle_state: $lifecycle_state, "
+                    "  validity_time: $validity_time, "
+                    "  completion_time: $completion_time, "
+                    "  completion_event_id: $completion_event_id"
+                    "}) "
+                    "WITH t "
+                    "CREATE (p:Provenance {"
+                    "  record_id: $record_id, record_kind: $record_kind, "
+                    "  source_id: $source_id, episode_id: $episode_id, "
+                    "  writer: $writer, reason: $reason, "
+                    "  creation_time: $creation_time, "
+                    "  validity_time: $prov_validity_time"
+                    "}) "
+                    "CREATE (p)-[:PROVENANCE_OF]->(t)",
+                    space=task.space,
+                    id=task.id,
+                    title=task.title,
+                    lifecycle_state=task.lifecycle_state,
+                    validity_time=_to_iso(task.validity_time),
+                    completion_time=_to_iso(task.completion_time),
+                    completion_event_id=task.completion_event_id,
+                    record_id=provenance.record_id,
+                    record_kind=provenance.record_kind,
+                    source_id=provenance.source_id,
+                    episode_id=provenance.episode_id,
+                    writer=provenance.writer,
+                    reason=provenance.reason,
+                    creation_time=_to_iso(provenance.creation_time),
+                    prov_validity_time=_to_iso(provenance.validity_time),
+                )
+        except ConstraintError as e:
+            _raise_duplicate_record_if_existing(
+                self._driver,
+                e,
+                record_kind="task",
                 space=task.space,
-                id=task.id,
-                title=task.title,
-                lifecycle_state=task.lifecycle_state,
-                validity_time=_to_iso(task.validity_time),
-                completion_time=_to_iso(task.completion_time),
-                completion_event_id=task.completion_event_id,
-                record_id=provenance.record_id,
-                record_kind=provenance.record_kind,
-                source_id=provenance.source_id,
-                episode_id=provenance.episode_id,
-                writer=provenance.writer,
-                reason=provenance.reason,
-                creation_time=_to_iso(provenance.creation_time),
-                prov_validity_time=_to_iso(provenance.validity_time),
+                record_id=task.id,
             )
 
     def get(self, *, space: str, task_id: str) -> Task | None:
