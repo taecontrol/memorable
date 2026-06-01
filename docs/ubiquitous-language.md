@@ -91,6 +91,8 @@ As a target design it defines domain-specific entity types, record types, relati
 
 The first representation is `.memorable/memory.yaml`.
 
+Like runtime config, the MemoryProfile is resolved live per operation; each MCP tool call reads and validates `.memorable/memory.yaml` (or the built-in default) fresh, per the ADR-0016 Live MemoryProfile Resolution amendment (2026-05-31).
+
 Do not use MemoryProfile as a generic user preference file.
 
 ### Universal Memory Kernel

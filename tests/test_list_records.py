@@ -44,7 +44,7 @@ def _remember_decision(
 ):
     from memorable.core.application import RememberDecisionService
 
-    profile = ctx.load_profile(SPACE)
+    profile = ctx.load_profile()
     service = RememberDecisionService(
         repository=ctx.decision_repo,
         profile=profile,
@@ -70,7 +70,7 @@ def _remember_observation(
 ):
     from memorable.core.application import RememberObservationService
 
-    profile = ctx.load_profile(SPACE)
+    profile = ctx.load_profile()
     service = RememberObservationService(
         repository=ctx.observation_repo,
         profile=profile,
@@ -89,7 +89,7 @@ def _remember_observation(
 def _remember_entities(ctx, *entity_ids: str, at: datetime):
     from memorable.core.application import RememberEntityService
 
-    profile = ctx.load_profile(SPACE)
+    profile = ctx.load_profile()
     service = RememberEntityService(repository=ctx.entity_repo, profile=profile)
     for entity_id in entity_ids:
         service.remember(
@@ -113,7 +113,7 @@ def _remember_relation(
 ):
     from memorable.core.application import RememberRelationService
 
-    profile = ctx.load_profile(SPACE)
+    profile = ctx.load_profile()
     service = RememberRelationService(
         relation_repo=ctx.relation_repo,
         entity_repo=ctx.entity_repo,
@@ -141,7 +141,7 @@ def _remember_task(
 ):
     from memorable.core.application import RememberTaskService
 
-    profile = ctx.load_profile(SPACE)
+    profile = ctx.load_profile()
     service = RememberTaskService(
         repository=ctx.task_repo,
         profile=profile,
@@ -633,7 +633,7 @@ class TestListRecordsServiceStateFilter:
             ctx, decision_id="decision:old", statement="Old call.", at=T1
         )
         # Remembering a successor with supersedes marks the old as superseded.
-        profile = ctx.load_profile(SPACE)
+        profile = ctx.load_profile()
         RememberDecisionService(repository=ctx.decision_repo, profile=profile).remember(
             space=SPACE,
             decision_id="decision:new",
