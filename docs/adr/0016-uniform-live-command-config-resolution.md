@@ -72,3 +72,64 @@ process overrides.
 Revisit if a future live command needs file-only resolution (like `db status`),
 or if honouring overrides everywhere without exception becomes simpler than
 maintaining the distinction.
+
+## Amendment (2026-05-31): Live MemoryProfile Resolution
+
+This ADR established uniform live resolution for runtime *config*. The same
+policy now extends to the **MemoryProfile** (`.memorable/memory.yaml`).
+
+### Context
+
+The CLI already resolves the profile live: each command is a fresh process that
+reads `memory.yaml` on startup. The MCP server does not — it is long-lived and
+caches the parsed profile per MemorySpace for the life of the process, so it
+never sees later edits to the file. The two config files in the same
+`.memorable/` directory therefore behave inconsistently over MCP: `runtime.yaml`
+is honoured per call (e.g. `doctor` resolves it live), while `memory.yaml` is
+frozen at server start.
+
+The visible failure: a Human/Agent declares a new Entity or Relation type in
+`memory.yaml`, then asks the Agent to remember that type, and the write keeps
+failing with an undeclared-type error until the server restarts. This breaks the
+documented evolve loop (ADR-0002 amendment: edit YAML → undeclared-type error
+invites evolution → retry succeeds); over MCP the retry never succeeds.
+
+### Decision
+
+The MemoryProfile is resolved **live per operation**, in parity with runtime
+config. Every MCP tool call reads and validates `memory.yaml` (or the built-in
+default) fresh; no profile is cached across operations.
+
+- **No reload/force surface.** No `profile reload`, no `init --force`, no MCP
+  reload tool. With live read there is nothing to reload, and `init` /
+  `init_space` on an existing space stay no-ops that never overwrite a
+  hand-edited profile (ADR-0002).
+- **Per-call validation is a feature, not a cost** (ADR-0017). A malformed edit
+  fails loud on the next call, giving the Agent a self-correction signal, rather
+  than silently running on a stale-but-valid cached profile.
+- **Within-operation consistency.** A tool call resolves the profile once at the
+  start and uses that instance for the whole operation, so one operation never
+  straddles two profile versions.
+- **Live = read on demand.** No mtime tracking, watcher, or push-based refresh.
+  One small read + parse per call is negligible next to the Neo4j round-trips and
+  embedding calls in the same operation.
+
+### Consequences
+
+Positive: the evolve loop works over MCP without a restart; the two
+`.memorable/` config files behave consistently; a bad profile edit fails loud
+immediately.
+
+Negative: a tiny read + parse on every tool call — negligible at agent/human
+interaction pace.
+
+The durable risk this guards against is reintroduction: any future caching of
+the profile across operations — for instance alongside a reused storage
+connection — would silently restore the stale-profile footgun and must be
+treated as a regression.
+
+### Reconsideration Trigger
+
+Revisit with mtime-gated caching only if profile parsing ever becomes hot enough
+to matter — and only on evidence of cost, not before. It is not hot at
+agent/human interaction pace today.
