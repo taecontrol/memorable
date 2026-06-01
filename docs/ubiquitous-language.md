@@ -507,6 +507,8 @@ MCP tools should expose Memorable Core language. Tool names, inputs, and outputs
 
 Do not expose raw storage terms through MCP unless the tool is explicitly diagnostic.
 
+Duplicate MemoryRecord write errors should name the record id and MemorySpace, and should guide the Agent to correct the existing record or choose a new id.
+
 ### Neo4j
 
 Neo4j is the first storage adapter.

@@ -9,6 +9,7 @@ from collections.abc import Callable
 from dataclasses import dataclass, replace
 from datetime import datetime
 
+from memorable.core.errors import DuplicateRecordError
 from memorable.core.models import (
     Decision,
     Entity,
@@ -103,15 +104,30 @@ class InMemoryTemporalRepository[T: TemporalRecord]:
     lifecycle_state, supersedes, superseded_by.
     """
 
-    def __init__(self) -> None:
+    def __init__(self, record_keys: set[tuple[str, str]] | None = None) -> None:
         self._records: dict[tuple[str, str], T] = {}
         self._provenance: dict[tuple[str, str], Provenance] = {}
+        self._record_keys = record_keys if record_keys is not None else set()
 
-    def save_record(self, record: T, provenance: Provenance) -> None:
+    def save_record(
+        self,
+        record: T,
+        provenance: Provenance,
+        *,
+        record_kind: str | None = None,
+    ) -> None:
         """Store a temporal record and its provenance, keyed by (space, id)."""
         key = (record.space, record.id)
+        if record_kind is not None and key in self._record_keys:
+            raise DuplicateRecordError(
+                record_kind=record_kind,
+                space=record.space,
+                record_id=record.id,
+            )
         self._records[key] = record
         self._provenance[key] = provenance
+        if record_kind is not None:
+            self._record_keys.add(key)
 
     def get(self, space: str, record_id: str) -> T | None:
         """Retrieve a temporal record by space and id, or None if not found."""
@@ -302,7 +318,7 @@ class InMemoryDecisionRepository(InMemoryTemporalRepository[Decision]):
     """
 
     def save(self, decision: Decision, provenance: Provenance) -> None:
-        self.save_record(decision, provenance)
+        self.save_record(decision, provenance, record_kind="decision")
 
     def list_projections_by_space(
         self,
@@ -334,7 +350,7 @@ class InMemoryObservationRepository(InMemoryTemporalRepository[Observation]):
     """
 
     def save(self, observation: Observation, provenance: Provenance) -> None:
-        self.save_record(observation, provenance)
+        self.save_record(observation, provenance, record_kind="observation")
 
     def list_projections_by_space(
         self,
@@ -406,14 +422,22 @@ class InMemoryRelationRepository(InMemoryTemporalRepository[Relation]):
 class InMemoryTaskRepository:
     """In-memory implementation of TaskRepository."""
 
-    def __init__(self) -> None:
+    def __init__(self, record_keys: set[tuple[str, str]] | None = None) -> None:
         self._tasks: dict[tuple[str, str], Task] = {}
         self._provenance: dict[tuple[str, str], Provenance] = {}
+        self._record_keys = record_keys if record_keys is not None else set()
 
     def save(self, task: Task, provenance: Provenance) -> None:
         key = (task.space, task.id)
+        if key in self._record_keys:
+            raise DuplicateRecordError(
+                record_kind="task",
+                space=task.space,
+                record_id=task.id,
+            )
         self._tasks[key] = task
         self._provenance[key] = provenance
+        self._record_keys.add(key)
 
     def list_by_space(self, space: str) -> list[Task]:
         """Return all tasks in the given space."""
