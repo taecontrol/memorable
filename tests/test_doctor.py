@@ -388,8 +388,7 @@ def test_doctor_reports_embedding_provider_build_failure_with_hint() -> None:
     assert "fastembed" in result["hint"]
     assert "BAAI/bge-small-en-v1.5" in result["hint"]
     assert (
-        "Check embeddings.provider, model, dimensions, and API key."
-        in result["hint"]
+        "Check embeddings.provider, model, dimensions, and API key." in result["hint"]
     )
     assert "bad embedding settings" in result["hint"]
 
@@ -425,8 +424,7 @@ def test_doctor_reports_embedding_provider_embed_failure_with_hint() -> None:
     assert "openrouter" in result["hint"]
     assert "google/gemini-embedding-2-preview" in result["hint"]
     assert (
-        "Check embeddings.provider, model, dimensions, and API key."
-        in result["hint"]
+        "Check embeddings.provider, model, dimensions, and API key." in result["hint"]
     )
     assert "No embedding data received" in result["hint"]
 
