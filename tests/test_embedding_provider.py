@@ -11,6 +11,7 @@ Covers:
 from __future__ import annotations
 
 import math
+from types import SimpleNamespace
 from unittest.mock import MagicMock, patch
 
 import pytest
@@ -25,6 +26,36 @@ def _normalized_vector(dimensions: int) -> list[float]:
     raw = [float(i + 1) for i in range(dimensions)]
     magnitude = math.sqrt(sum(v * v for v in raw))
     return [v / magnitude for v in raw]
+
+
+class _StubEmbeddingsEndpoint:
+    def __init__(
+        self,
+        embedding: list[float] | None,
+        data: list[SimpleNamespace] | None = None,
+        error: Exception | None = None,
+    ) -> None:
+        self._data = (
+            data if data is not None else [SimpleNamespace(embedding=embedding)]
+        )
+        self._error = error
+        self.calls: list[dict[str, object]] = []
+
+    def create(self, **kwargs: object) -> SimpleNamespace:
+        self.calls.append(kwargs)
+        if self._error is not None:
+            raise self._error
+        return SimpleNamespace(data=self._data)
+
+
+class _StubOpenAIClient:
+    def __init__(
+        self,
+        embedding: list[float] | None = None,
+        data: list[SimpleNamespace] | None = None,
+        error: Exception | None = None,
+    ) -> None:
+        self.embeddings = _StubEmbeddingsEndpoint(embedding, data, error)
 
 
 # =====================================================================
@@ -71,6 +102,126 @@ class TestOpenRouterEmbeddingProvider:
 
         provider = OpenRouterEmbeddingProvider(api_key="test-key")
         assert provider.dimensions == 768
+
+    def test_embed_sends_float_encoding_with_injected_client(self) -> None:
+        """embed() requests float Embeddings through the injected client."""
+        from memorable.retrieval.embeddings import OpenRouterEmbeddingProvider
+
+        client = _StubOpenAIClient(embedding=_normalized_vector(3))
+        provider = OpenRouterEmbeddingProvider(
+            api_key="test-key",
+            model="custom/model-v1",
+            dimensions=3,
+            client=client,
+        )
+
+        provider.embed("hello world")
+
+        assert client.embeddings.calls[0]["encoding_format"] == "float"
+
+    def test_embed_raises_domain_error_when_embedding_is_null(self) -> None:
+        """embed() fails loud when the Embedding Provider returns no Embedding."""
+        from memorable.retrieval.embeddings import OpenRouterEmbeddingProvider
+
+        client = _StubOpenAIClient(embedding=None)
+        provider = OpenRouterEmbeddingProvider(
+            api_key="test-key",
+            model="custom/model-v1",
+            dimensions=3,
+            client=client,
+        )
+
+        with pytest.raises(RuntimeError) as exc_info:
+            provider.embed("hello world")
+
+        message = str(exc_info.value)
+        assert "Embedding Provider 'openrouter'" in message
+        assert "custom/model-v1" in message
+        assert "returned no Embedding" in message
+        assert "google/gemini-embedding-001" in message
+
+    def test_embed_raises_domain_error_when_response_has_no_data(self) -> None:
+        """embed() fails loud when the Embedding Provider returns no data."""
+        from memorable.retrieval.embeddings import OpenRouterEmbeddingProvider
+
+        client = _StubOpenAIClient(data=[])
+        provider = OpenRouterEmbeddingProvider(
+            api_key="test-key",
+            model="custom/model-v1",
+            dimensions=3,
+            client=client,
+        )
+
+        with pytest.raises(RuntimeError) as exc_info:
+            provider.embed("hello world")
+
+        message = str(exc_info.value)
+        assert "Embedding Provider 'openrouter'" in message
+        assert "custom/model-v1" in message
+        assert "returned no Embedding" in message
+
+    def test_embed_wraps_sdk_no_embedding_error(self) -> None:
+        """embed() translates the SDK's missing Embedding error to domain language."""
+        from memorable.retrieval.embeddings import OpenRouterEmbeddingProvider
+
+        client = _StubOpenAIClient(error=ValueError("No embedding data received"))
+        provider = OpenRouterEmbeddingProvider(
+            api_key="test-key",
+            model="custom/model-v1",
+            dimensions=3,
+            client=client,
+        )
+
+        with pytest.raises(RuntimeError) as exc_info:
+            provider.embed("hello world")
+
+        message = str(exc_info.value)
+        assert "Embedding Provider 'openrouter'" in message
+        assert "custom/model-v1" in message
+        assert "returned no Embedding" in message
+        assert "No embedding data received" not in message
+        assert exc_info.value.__cause__ is None
+        assert exc_info.value.__suppress_context__ is True
+
+    def test_embed_raises_domain_error_when_dimensions_mismatch(self) -> None:
+        """embed() fails loud when returned Embedding dimensions are wrong."""
+        from memorable.retrieval.embeddings import OpenRouterEmbeddingProvider
+
+        client = _StubOpenAIClient(embedding=[1.0, 2.0, 3.0, 4.0])
+        provider = OpenRouterEmbeddingProvider(
+            api_key="test-key",
+            model="custom/model-v1",
+            dimensions=3,
+            client=client,
+        )
+
+        with pytest.raises(RuntimeError) as exc_info:
+            provider.embed("hello world")
+
+        message = str(exc_info.value)
+        assert "Embedding Provider 'openrouter'" in message
+        assert "custom/model-v1" in message
+        assert "dimensions" in message
+        assert "returned 4" in message
+        assert "configured 3" in message
+        assert "Set embeddings.dimensions" in message
+
+    def test_embed_returns_normalized_vector_from_injected_client(self) -> None:
+        """embed() returns a normalized Embedding with configured dimensions."""
+        from memorable.retrieval.embeddings import OpenRouterEmbeddingProvider
+
+        client = _StubOpenAIClient(embedding=[3.0, 4.0, 0.0])
+        provider = OpenRouterEmbeddingProvider(
+            api_key="test-key",
+            model="custom/model-v1",
+            dimensions=3,
+            client=client,
+        )
+
+        result = provider.embed("hello world")
+
+        assert result == pytest.approx([0.6, 0.8, 0.0])
+        assert len(result) == 3
 
     @patch("memorable.retrieval.embeddings.OpenAI")
     def test_embed_returns_vector_of_correct_dimensions(
