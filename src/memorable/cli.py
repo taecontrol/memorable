@@ -125,8 +125,9 @@ def _cmd_doctor(args: argparse.Namespace) -> int:
         for result in results:
             status = "PASS" if result["ok"] else "FAIL"
             print(f"{status} {result['check']}")
-            if not result["ok"] and result["hint"]:
-                print(f"Hint: {result['hint']}")
+            if result["hint"]:
+                label = "Note" if result["ok"] else "Hint"
+                print(f"{label}: {result['hint']}")
 
     return 0 if all_checks_passed(results) else 1
 

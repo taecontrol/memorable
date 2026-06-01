@@ -204,14 +204,15 @@ from `.env`/env.
 > is created from this value, so if you switch providers/models after writing
 > memory, re-create the space against a clean database.
 
-Verify the provider builds correctly:
+Verify the provider can produce a real Embedding:
 
 ```bash
 memorable doctor
 ```
 
-The `embedding_provider_builds` check fails fast if, for example, you selected
-`openrouter` without setting `MEMORABLE_OPENROUTER_API_KEY`.
+The `embedding_provider_embeds` check builds the provider, embeds a short probe,
+and verifies the returned dimensions. For `fastembed`, first use may download the
+local model (~67MB).
 
 ## Neo4j
 

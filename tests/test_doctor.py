@@ -3,7 +3,7 @@ from __future__ import annotations
 import json
 from pathlib import Path
 
-from memorable.config import RuntimeConfig
+from memorable.config import EmbeddingSettings, RuntimeConfig
 from memorable.runtime.doctor import DiagnosticProbes
 
 EXPECTED_SCHEMA_CONSTRAINTS = [
@@ -66,12 +66,20 @@ SCHEMA_CONSTRAINTS_HINT = "Run 'memorable init' to bootstrap schema constraints.
 VECTOR_INDEX_HINT = "Run 'memorable init' to bootstrap the vector index."
 
 
+class _EmbeddingProvider:
+    def __init__(self, vector: list[float] | None = None) -> None:
+        self._vector = vector if vector is not None else [0.0] * 384
+
+    def embed(self, _text: str) -> list[float]:
+        return self._vector
+
+
 def _probes(
     *,
     ping_neo4j=lambda _config: None,
     list_schema_constraints=lambda _config: EXPECTED_SCHEMA_CONSTRAINTS,
     list_vector_indexes=lambda _config: EXPECTED_VECTOR_INDEXES,
-    build_embedding_provider=lambda _settings, api_key=None: object(),
+    build_embedding_provider=lambda _settings, api_key=None: _EmbeddingProvider(),
     profile_path: Path | None = None,
     load_profile_from_yaml=lambda _yaml_text: object(),
 ) -> DiagnosticProbes:
@@ -351,15 +359,15 @@ def test_doctor_reports_vector_index_failure_for_unrelated_vector_index() -> Non
     }
 
 
-def test_doctor_reports_embedding_provider_build_pass() -> None:
+def test_doctor_reports_embedding_provider_embed_pass() -> None:
     from memorable.runtime.doctor import run_diagnostics
 
     results = run_diagnostics(RuntimeConfig(), probes=_probes())
 
-    assert _by_check(results)["embedding_provider_builds"] == {
-        "check": "embedding_provider_builds",
+    assert _by_check(results)["embedding_provider_embeds"] == {
+        "check": "embedding_provider_embeds",
         "ok": True,
-        "hint": "",
+        "hint": "fastembed first use may download the local model (~67MB).",
     }
 
 
@@ -374,11 +382,93 @@ def test_doctor_reports_embedding_provider_build_failure_with_hint() -> None:
         probes=_probes(build_embedding_provider=fail),
     )
 
-    assert _by_check(results)["embedding_provider_builds"] == {
-        "check": "embedding_provider_builds",
-        "ok": False,
-        "hint": "Check embeddings.provider, model, dimensions, and API key.",
-    }
+    result = _by_check(results)["embedding_provider_embeds"]
+    assert result["check"] == "embedding_provider_embeds"
+    assert result["ok"] is False
+    assert "fastembed" in result["hint"]
+    assert "BAAI/bge-small-en-v1.5" in result["hint"]
+    assert (
+        "Check embeddings.provider, model, dimensions, and API key."
+        in result["hint"]
+    )
+    assert "bad embedding settings" in result["hint"]
+
+
+def test_doctor_reports_embedding_provider_embed_failure_with_hint() -> None:
+    from memorable.runtime.doctor import run_diagnostics
+
+    class FailingEmbeddingProvider:
+        def embed(self, _text: str) -> list[float]:
+            raise RuntimeError("No embedding data received")
+
+    config = RuntimeConfig(
+        embeddings=EmbeddingSettings(
+            provider="openrouter",
+            model="google/gemini-embedding-2-preview",
+            dimensions=768,
+            api_key="test-key",
+        )
+    )
+
+    results = run_diagnostics(
+        config,
+        probes=_probes(
+            build_embedding_provider=lambda _settings, api_key=None: (
+                FailingEmbeddingProvider()
+            )
+        ),
+    )
+
+    result = _by_check(results)["embedding_provider_embeds"]
+    assert result["check"] == "embedding_provider_embeds"
+    assert result["ok"] is False
+    assert "openrouter" in result["hint"]
+    assert "google/gemini-embedding-2-preview" in result["hint"]
+    assert (
+        "Check embeddings.provider, model, dimensions, and API key."
+        in result["hint"]
+    )
+    assert "No embedding data received" in result["hint"]
+
+
+def test_doctor_reports_embedding_provider_empty_vector_failure() -> None:
+    from memorable.runtime.doctor import run_diagnostics
+
+    results = run_diagnostics(
+        RuntimeConfig(),
+        probes=_probes(
+            build_embedding_provider=lambda _settings, api_key=None: _EmbeddingProvider(
+                []
+            )
+        ),
+    )
+
+    result = _by_check(results)["embedding_provider_embeds"]
+    assert result["check"] == "embedding_provider_embeds"
+    assert result["ok"] is False
+    assert "provider returned no Embedding" in result["hint"]
+
+
+def test_doctor_reports_embedding_provider_wrong_dimension_failure() -> None:
+    from memorable.runtime.doctor import run_diagnostics
+
+    config = RuntimeConfig(
+        embeddings=EmbeddingSettings(provider="fake", model="hash-based", dimensions=3)
+    )
+
+    results = run_diagnostics(
+        config,
+        probes=_probes(
+            build_embedding_provider=lambda _settings, api_key=None: _EmbeddingProvider(
+                [0.0, 1.0]
+            )
+        ),
+    )
+
+    result = _by_check(results)["embedding_provider_embeds"]
+    assert result["check"] == "embedding_provider_embeds"
+    assert result["ok"] is False
+    assert "provider returned 2 dimensions; runtime configured 3" in result["hint"]
 
 
 def test_doctor_reports_memory_profile_parse_pass(tmp_path: Path) -> None:

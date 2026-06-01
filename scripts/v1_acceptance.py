@@ -158,7 +158,7 @@ def _run_flow(args: argparse.Namespace, workspace: Path) -> None:
             "schema_constraints",
             "vector_index",
             "memory_profile_parses",
-            "embedding_provider_builds",
+            "embedding_provider_embeds",
         }
         <= check_names,
         f"doctor checks missing from {sorted(check_names)}",

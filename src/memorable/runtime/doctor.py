@@ -9,7 +9,7 @@ from neo4j import GraphDatabase
 
 from memorable.config import RuntimeConfig
 from memorable.core.profile import load_profile_from_yaml
-from memorable.retrieval.embeddings import build_embedding_provider
+from memorable.retrieval.embeddings import EmbeddingProvider, build_embedding_provider
 from memorable.storage.neo4j.schema import (
     expected_constraint_shapes,
     expected_vector_index_shape,
@@ -42,6 +42,9 @@ NEO4J_CONNECTIVITY_HINT = (
 SCHEMA_CONSTRAINTS_HINT = "Run 'memorable init' to bootstrap schema constraints."
 VECTOR_INDEX_HINT = "Run 'memorable init' to bootstrap the vector index."
 EMBEDDING_PROVIDER_HINT = "Check embeddings.provider, model, dimensions, and API key."
+EMBEDDING_PROVIDER_CHECK = "embedding_provider_embeds"
+EMBEDDING_PROBE_TEXT = "Memorable doctor embedding probe."
+FASTEMBED_DOWNLOAD_HINT = "fastembed first use may download the local model (~67MB)."
 MEMORY_PROFILE_HINT = "Fix .memorable/memory.yaml so it is valid MemoryProfile YAML."
 
 
@@ -155,7 +158,9 @@ class DiagnosticProbes:
     list_vector_indexes: Callable[[RuntimeConfig], list[VectorIndex]] = (
         list_vector_indexes
     )
-    build_embedding_provider: Callable[..., object] = build_embedding_provider
+    build_embedding_provider: Callable[..., EmbeddingProvider] = (
+        build_embedding_provider
+    )
     profile_path: Path | None = None
     load_profile_from_yaml: Callable[[str], object] = load_profile_from_yaml
 
@@ -187,6 +192,75 @@ def _connectivity_dependent_result(
         return {"check": check, "ok": False, "hint": NEO4J_CONNECTIVITY_HINT}
     ok = is_present(descriptors)
     return {"check": check, "ok": ok, "hint": "" if ok else absent_hint}
+
+
+def _embedding_provider_hint(config: RuntimeConfig, cause: str) -> str:
+    return (
+        "Embedding Provider "
+        f"{config.embeddings.provider!r} with model {config.embeddings.model!r} "
+        "could not build/embed the doctor probe. "
+        f"Expected {config.embeddings.dimensions} dimensions. "
+        f"{EMBEDDING_PROVIDER_HINT} Cause: {cause}"
+    )
+
+
+def _embedding_provider_success_hint(config: RuntimeConfig) -> str:
+    if config.embeddings.provider == "fastembed":
+        return FASTEMBED_DOWNLOAD_HINT
+    return ""
+
+
+def _embedding_probe_result(
+    config: RuntimeConfig,
+    probes: DiagnosticProbes,
+) -> DiagnosticResult:
+    # ADR-0016: doctor diagnoses the live runtime, so it must exercise the same
+    # embed path used by write/search commands instead of only constructing it.
+    try:
+        provider = probes.build_embedding_provider(
+            config.embeddings, api_key=config.embeddings.api_key
+        )
+        vector = provider.embed(EMBEDDING_PROBE_TEXT)
+    except Exception as exc:
+        return {
+            "check": EMBEDDING_PROVIDER_CHECK,
+            "ok": False,
+            "hint": _embedding_provider_hint(config, str(exc)),
+        }
+
+    if not isinstance(vector, list) or not vector:
+        return {
+            "check": EMBEDDING_PROVIDER_CHECK,
+            "ok": False,
+            "hint": _embedding_provider_hint(config, "provider returned no Embedding"),
+        }
+
+    if not all(isinstance(value, float) for value in vector):
+        return {
+            "check": EMBEDDING_PROVIDER_CHECK,
+            "ok": False,
+            "hint": _embedding_provider_hint(
+                config, "provider returned non-float data"
+            ),
+        }
+
+    if len(vector) != config.embeddings.dimensions:
+        return {
+            "check": EMBEDDING_PROVIDER_CHECK,
+            "ok": False,
+            "hint": _embedding_provider_hint(
+                config,
+                "provider returned "
+                f"{len(vector)} dimensions; runtime configured "
+                f"{config.embeddings.dimensions}",
+            ),
+        }
+
+    return {
+        "check": EMBEDDING_PROVIDER_CHECK,
+        "ok": True,
+        "hint": _embedding_provider_success_hint(config),
+    }
 
 
 def run_diagnostics(
@@ -249,20 +323,7 @@ def run_diagnostics(
             )
         )
 
-    try:
-        probes.build_embedding_provider(
-            config.embeddings, api_key=config.embeddings.api_key
-        )
-    except Exception:
-        results.append(
-            {
-                "check": "embedding_provider_builds",
-                "ok": False,
-                "hint": EMBEDDING_PROVIDER_HINT,
-            }
-        )
-    else:
-        results.append({"check": "embedding_provider_builds", "ok": True, "hint": ""})
+    results.append(_embedding_probe_result(config, probes))
 
     profile_path = probes.resolved_profile_path()
     if profile_path.exists():
