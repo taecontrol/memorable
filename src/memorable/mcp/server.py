@@ -219,7 +219,7 @@ def remember_entity_tool(
     or an error dict on failure.
     """
     try:
-        profile = _context.load_profile(space)
+        profile = _context.load_profile()
     except ProfileValidationError as e:
         return _profile_type_error(e)
 
@@ -284,7 +284,7 @@ def remember_decision_tool(
     or an error dict on failure.
     """
     try:
-        profile = _context.load_profile(space)
+        profile = _context.load_profile()
     except ProfileValidationError as e:
         return _profile_type_error(e)
 
@@ -356,7 +356,7 @@ def remember_observation_tool(
     or an error dict on failure.
     """
     try:
-        profile = _context.load_profile(space)
+        profile = _context.load_profile()
     except ProfileValidationError as e:
         return _profile_type_error(e)
 
@@ -428,7 +428,7 @@ def remember_relation_tool(
     or an error dict on failure.
     """
     try:
-        profile = _context.load_profile(space)
+        profile = _context.load_profile()
     except ProfileValidationError as e:
         return _profile_type_error(e)
 
@@ -682,7 +682,7 @@ def remember_task_tool(
     or an error dict on failure.
     """
     try:
-        profile = _context.load_profile(space)
+        profile = _context.load_profile()
     except ProfileValidationError as e:
         return _profile_type_error(e)
 

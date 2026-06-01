@@ -52,8 +52,6 @@ def _setup_entities(ctx: ApplicationContext) -> None:
     from memorable.core.temporal import parse_iso_timestamp
 
     profile = load_profile_from_yaml(PROFILE_YAML)
-    ctx._profiles["test-space"] = profile
-
     service = RememberEntityService(repository=ctx.entity_repo, profile=profile)
     at = parse_iso_timestamp("2026-05-26T10:00:00Z")
 
