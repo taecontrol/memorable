@@ -7,14 +7,37 @@ Verifies:
 - Error: self-relation returns error dict
 - Temporal tools work with record_type="relation": current_truth,
   point_in_time_truth, inspect_history, invalidate, correct
+
+The MemoryProfile is provided hermetically: each test runs from a temp cwd
+containing a ``.memorable/memory.yaml`` that declares exactly the Entity and
+Relation types these tests need. Resolution is live and cwd-based
+(ADR-0016, Live MemoryProfile Resolution), so the tests never depend on the
+built-in default profile or any profile in the repo root.
 """
 
 from __future__ import annotations
 
 import asyncio
+from collections.abc import Iterator
+from pathlib import Path
 
-from memorable.core.context import ApplicationContext
+import pytest
+
+from memorable.core.context import ApplicationContext, default_context
 from memorable.mcp.server import set_mcp_context
+
+PROFILE_YAML = """\
+version: 1
+space:
+  name: test-space
+  description: Test space for relation MCP tool
+entities:
+  - name: Component
+relations:
+  - name: depends-on
+  - name: owns
+records: []
+"""
 
 
 def _call_tool(name: str, arguments: dict) -> object:
@@ -22,6 +45,13 @@ def _call_tool(name: str, arguments: dict) -> object:
     from memorable.mcp.server import mcp_server
 
     return asyncio.run(mcp_server.call_tool(name, arguments))
+
+
+def _write_profile(tmp_path: Path) -> None:
+    """Write a hermetic ``.memorable/memory.yaml`` under *tmp_path*."""
+    profile_dir = tmp_path / ".memorable"
+    profile_dir.mkdir()
+    (profile_dir / "memory.yaml").write_text(PROFILE_YAML, encoding="utf-8")
 
 
 def _setup_space_with_entities() -> ApplicationContext:
@@ -66,8 +96,14 @@ def _setup_space_with_entities() -> ApplicationContext:
 
 
 class TestRememberRelationHappyPath:
-    def setup_method(self) -> None:
+    @pytest.fixture(autouse=True)
+    def _workspace(self, tmp_path: Path, monkeypatch) -> Iterator[None]:
+        _write_profile(tmp_path)
+        monkeypatch.chdir(tmp_path)
         self.ctx = _setup_space_with_entities()
+        yield
+        default_context.reset()
+        set_mcp_context(default_context)
 
     def test_remember_relation_returns_expected_keys(self) -> None:
         _, result = _call_tool(
@@ -159,8 +195,14 @@ class TestRememberRelationHappyPath:
 
 
 class TestRememberRelationErrors:
-    def setup_method(self) -> None:
+    @pytest.fixture(autouse=True)
+    def _workspace(self, tmp_path: Path, monkeypatch) -> Iterator[None]:
+        _write_profile(tmp_path)
+        monkeypatch.chdir(tmp_path)
         self.ctx = _setup_space_with_entities()
+        yield
+        default_context.reset()
+        set_mcp_context(default_context)
 
     def test_undeclared_relation_type_returns_error(self) -> None:
         _, result = _call_tool(
@@ -237,7 +279,10 @@ class TestRelationTemporalToolWiring:
     invalidate, correct) work with record_type='relation'.
     """
 
-    def setup_method(self) -> None:
+    @pytest.fixture(autouse=True)
+    def _workspace(self, tmp_path: Path, monkeypatch) -> Iterator[None]:
+        _write_profile(tmp_path)
+        monkeypatch.chdir(tmp_path)
         self.ctx = _setup_space_with_entities()
         # Remember a relation to work with
         _call_tool(
@@ -253,6 +298,9 @@ class TestRelationTemporalToolWiring:
                 "at": "2026-05-26T12:00:00Z",
             },
         )
+        yield
+        default_context.reset()
+        set_mcp_context(default_context)
 
     def test_current_truth_resolves_relation(self) -> None:
         _, result = _call_tool(

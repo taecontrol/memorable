@@ -3,11 +3,18 @@
 Provides a single place for live profile loading, repository access, and the
 default profile YAML. Both adapters receive the same context instance instead
 of constructing their own module-level singletons.
+
+The MemoryProfile is never cached: ``load_profile`` re-reads and re-validates
+``.memorable/memory.yaml`` (or the built-in default) on every call, so each
+operation sees the profile as it is on disk right now (ADR-0016, Live
+MemoryProfile Resolution amendment).
 """
 
 from __future__ import annotations
 
 from pathlib import Path
+
+import yaml
 
 from memorable.core.ports import (
     AboutRepository,
@@ -18,7 +25,11 @@ from memorable.core.ports import (
     RelationRepository,
     TaskRepository,
 )
-from memorable.core.profile import MemoryProfile, load_profile_from_yaml
+from memorable.core.profile import (
+    MemoryProfile,
+    ProfileValidationError,
+    load_profile_from_yaml,
+)
 from memorable.core.repositories import (
     InMemoryAboutRepository,
     InMemoryDecisionRepository,
@@ -58,7 +69,8 @@ class ApplicationContext:
 
     Holds repositories so that CLI and MCP adapters share the same instances
     within a process, and tests can get clean instances by constructing a fresh
-    context.
+    context. The MemoryProfile is deliberately not held here: it is resolved
+    live on every ``load_profile`` call rather than cached.
     """
 
     def __init__(
@@ -79,11 +91,18 @@ class ApplicationContext:
         self.about_repo = about_repo or InMemoryAboutRepository()
         self.memory_space_repo = memory_space_repo or InMemoryMemorySpaceRepository()
 
-    def load_profile(self, space: str) -> MemoryProfile:
-        """Load a MemoryProfile for the given space.
+    def load_profile(self) -> MemoryProfile:
+        """Resolve the MemoryProfile live from the current working directory.
 
-        Looks for ``.memorable/memory.yaml`` in the current working directory.
-        Falls back to the built-in default profile when none is found.
+        Reads and validates ``.memorable/memory.yaml`` fresh on every call,
+        falling back to the built-in default profile when no file is found.
+        Resolution is purely cwd-based; there is no per-space cache and no
+        per-space reconciliation (ADR-0016, Live MemoryProfile Resolution).
+
+        Raises:
+            ProfileValidationError: When the profile is malformed YAML or fails
+                MemoryProfile validation. Surfacing this on every call is the
+                fail-loud, self-correction signal the amendment relies on.
         """
         profile_path = Path.cwd() / ".memorable" / "memory.yaml"
         if profile_path.exists():
@@ -91,10 +110,19 @@ class ApplicationContext:
         else:
             yaml_text = DEFAULT_PROFILE_YAML
 
-        return load_profile_from_yaml(yaml_text)
+        try:
+            return load_profile_from_yaml(yaml_text)
+        except yaml.YAMLError as e:
+            raise ProfileValidationError(
+                f"MemoryProfile at {profile_path} is not valid YAML: {e}"
+            ) from e
 
     def reset(self) -> None:
-        """Clear all cached state. Useful for test isolation."""
+        """Replace every repository with a fresh, empty instance.
+
+        Used for test isolation. There is no cached profile to clear; only the
+        repositories are reset.
+        """
         self.entity_repo = InMemoryEntityRepository()
         self.decision_repo = InMemoryDecisionRepository()
         self.task_repo = InMemoryTaskRepository()

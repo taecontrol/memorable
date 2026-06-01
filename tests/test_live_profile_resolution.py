@@ -5,6 +5,8 @@ from __future__ import annotations
 import asyncio
 from pathlib import Path
 
+import pytest
+
 
 def _declarations(section: str, names: list[str]) -> str:
     if not names:
@@ -50,9 +52,9 @@ def test_load_profile_reads_memory_yaml_again_after_edit(
     monkeypatch.chdir(tmp_path)
     ctx = ApplicationContext()
 
-    first = ctx.load_profile("live-space")
+    first = ctx.load_profile()
     _write_profile(profile_path, entities=["Project", "Trail"])
-    second = ctx.load_profile("live-space")
+    second = ctx.load_profile()
 
     assert [entity.name for entity in first.entities] == ["Project"]
     assert [entity.name for entity in second.entities] == ["Project", "Trail"]
@@ -110,6 +112,67 @@ def test_mcp_remember_entity_uses_edited_profile_without_rebuilding_context(
     assert second["entity_type"] == "Trail"
 
 
+def test_load_profile_raises_profile_validation_error_on_malformed_yaml(
+    tmp_path: Path, monkeypatch
+) -> None:
+    """A syntactically broken memory.yaml fails loud as a ProfileValidationError."""
+    from memorable.core.context import ApplicationContext
+    from memorable.core.profile import ProfileValidationError
+
+    profile_dir = tmp_path / ".memorable"
+    profile_dir.mkdir()
+    profile_path = profile_dir / "memory.yaml"
+    # Unterminated flow mapping — not valid YAML.
+    profile_path.write_text("version: 1\nspace: {name: live-space\n", encoding="utf-8")
+
+    monkeypatch.chdir(tmp_path)
+    ctx = ApplicationContext()
+
+    with pytest.raises(ProfileValidationError) as excinfo:
+        ctx.load_profile()
+
+    assert "not valid YAML" in str(excinfo.value)
+
+
+def test_mcp_remember_returns_legible_error_on_malformed_profile(
+    tmp_path: Path, monkeypatch
+) -> None:
+    """A malformed memory.yaml surfaces as an agent-legible error, not a crash."""
+    from memorable.core.context import ApplicationContext, default_context
+    from memorable.mcp.server import set_mcp_context
+
+    profile_dir = tmp_path / ".memorable"
+    profile_dir.mkdir()
+    profile_path = profile_dir / "memory.yaml"
+    profile_path.write_text("version: 1\nspace: {name: live-space\n", encoding="utf-8")
+
+    monkeypatch.chdir(tmp_path)
+    ctx = ApplicationContext()
+    set_mcp_context(ctx)
+
+    try:
+        _, result = _call_tool(
+            "memorable_remember_entity",
+            {
+                "space": "live-space",
+                "entity_id": "entity:trail",
+                "entity_type": "Trail",
+                "name": "River Loop",
+                "source": "source:test",
+                "at": "2026-05-31T10:00:00Z",
+            },
+        )
+    finally:
+        default_context.reset()
+        set_mcp_context(default_context)
+
+    assert "error" in result
+    assert "not valid YAML" in result["error"]
+    # Routed through the handler's ProfileValidationError catch, so the agent
+    # also gets the self-correction guidance hint rather than a raw traceback.
+    assert 'memorable_guide("profiles")' in result["error"]
+
+
 def test_load_profile_uses_default_profile_when_memory_yaml_is_missing(
     tmp_path: Path, monkeypatch
 ) -> None:
@@ -117,7 +180,7 @@ def test_load_profile_uses_default_profile_when_memory_yaml_is_missing(
     from memorable.core.context import ApplicationContext
 
     monkeypatch.chdir(tmp_path)
-    profile = ApplicationContext().load_profile("memorable")
+    profile = ApplicationContext().load_profile()
 
     assert profile.space.name == "memorable"
     assert "Project" in {entity.name for entity in profile.entities}

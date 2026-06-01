@@ -292,7 +292,7 @@ def _cmd_remember_entity(
     space = resolve_space(getattr(args, "space", None))
 
     try:
-        profile = ctx.load_profile(space)
+        profile = ctx.load_profile()
     except ProfileValidationError as e:
         print(f"Error: {e}", file=sys.stderr)
         return 1
@@ -375,7 +375,7 @@ def _cmd_remember_decision(
     space = resolve_space(getattr(args, "space", None))
 
     try:
-        profile = ctx.load_profile(space)
+        profile = ctx.load_profile()
     except ProfileValidationError as e:
         print(f"Error: {e}", file=sys.stderr)
         return 1
@@ -429,7 +429,7 @@ def _cmd_remember_observation(
     space = resolve_space(getattr(args, "space", None))
 
     try:
-        profile = ctx.load_profile(space)
+        profile = ctx.load_profile()
     except ProfileValidationError as e:
         print(f"Error: {e}", file=sys.stderr)
         return 1
@@ -485,7 +485,7 @@ def _cmd_remember_relation(
     space = resolve_space(getattr(args, "space", None))
 
     try:
-        profile = ctx.load_profile(space)
+        profile = ctx.load_profile()
     except ProfileValidationError as e:
         print(f"Error: {e}", file=sys.stderr)
         return 1
@@ -649,7 +649,7 @@ def _cmd_remember_task(
     space = resolve_space(getattr(args, "space", None))
 
     try:
-        profile = ctx.load_profile(space)
+        profile = ctx.load_profile()
     except ProfileValidationError as e:
         print(f"Error: {e}", file=sys.stderr)
         return 1
