@@ -21,7 +21,7 @@ classifiers = [
 dependencies = [
     "fastembed>=0.6",
     "mcp>=1.27,<2",
-    "neo4j>=5.0",
+    "neo4j>=5.22",
     "openai>=1.0",
     "pyyaml>=6.0",
 ]

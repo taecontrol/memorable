@@ -508,7 +508,7 @@ requires-dist = [
     { name = "anyio", marker = "extra == 'dev'", specifier = ">=4.0" },
     { name = "fastembed", specifier = ">=0.6" },
     { name = "mcp", specifier = ">=1.27,<2" },
-    { name = "neo4j", specifier = ">=5.0" },
+    { name = "neo4j", specifier = ">=5.22" },
     { name = "openai", specifier = ">=1.0" },
     { name = "pytest", marker = "extra == 'dev'", specifier = ">=8.0" },
     { name = "pyyaml", specifier = ">=6.0" },

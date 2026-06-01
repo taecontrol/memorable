@@ -778,3 +778,38 @@ class TestEnsureAllConstraintsIntegration:
 
         ensure_all_constraints(neo4j_driver)
         ensure_all_constraints(neo4j_driver)
+
+
+class TestSparseGraphSearchIntegration:
+    """Search succeeds against a fresh, sparse production Neo4j graph."""
+
+    @pytest.mark.integration
+    def test_search_on_fresh_space_returns_empty_results(self) -> None:
+        from memorable.config import Neo4jSettings, RuntimeConfig
+        from memorable.retrieval.embeddings import FakeEmbeddingProvider
+        from memorable.retrieval.service import build_retrieval_service
+        from memorable.storage.production import build_production_context
+
+        live_config = Neo4jConfig.from_env()
+        runtime_config = RuntimeConfig(
+            neo4j=Neo4jSettings(
+                uri=live_config.uri,
+                user=live_config.user,
+                password=live_config.password,
+            )
+        )
+        space = _unique_name("test-sparse-search-")
+
+        ctx, driver = build_production_context(runtime_config)
+        try:
+            ctx.memory_space_repo.create_space(space)
+            service = build_retrieval_service(
+                ctx,
+                FakeEmbeddingProvider(dimensions=32),
+            )
+
+            results = service.search(space=space, query="anything")
+        finally:
+            driver.close()
+
+        assert results == []
