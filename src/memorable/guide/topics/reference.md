@@ -24,3 +24,5 @@ Writable Record Types: Decision, Observation, Task.
 - `memorable_list_records`: List MemoryRecords deterministically for Memory Review and state questions.
 - `memorable_invalidate`: Mark a temporal record invalidated without a successor.
 - `memorable_correct`: Correct a mistaken record statement or About membership.
+- `memorable_forget_record`: Forget (hard-delete) a scratch MemoryRecord by id; refuses on a supersession chain.
+- `memorable_forget_entity`: Forget (hard-delete) an Entity by id, cascading to its Relations and About links.

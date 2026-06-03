@@ -361,6 +361,25 @@ Current-state fields or indexes may exist for fast reads, but they are convenien
 
 The single sanctioned exception is Forget (ADR 0019): an explicit, id-addressed hard delete for memory that should never have been remembered. Forget is deliberately named and walled off precisely so that every other operation stays honestly append-first. Correction in place (ADR 0011) is a lesser departure — it mutates a record's statement but the record persists; Forget erases.
 
+### Forget
+
+Forget is an explicit hard delete, addressed by id and scoped to one MemorySpace, that erases a target and its provenance as if it had never been remembered. Forget is the deliberate antonym of Remember.
+
+Forget is the single sanctioned exception to Append-First History. It is erasure, not a lifecycle transition, and it must be kept distinct from the three transitions that preserve history:
+
+- **invalidate** — "no longer true"; the record stays, marked invalidated.
+- **supersede** — "replaced by newer truth"; both records stay, linked.
+- **correct** — "was wrong"; the record persists in place (ADR 0011).
+- **Forget** — "should never have been remembered at all"; the record is erased, nothing remains.
+
+Use Forget only for removing memory that should not exist (especially test and scratch memory), never for normal memory evolution. "This is no longer true" is invalidate; "this was wrong" is correct; "this was replaced" is supersede. Reach for Forget only when the answer is "this should never have been remembered."
+
+Forgetting an Entity cascades: the Entity, every Relation referencing it (in full, with provenance), and every About edge targeting it are removed; records on the far end of those About edges survive. Forgetting a record removes the record node, its provenance, and its outgoing About edges, and does not touch the Entities it was about. Direct record-forget refuses (fail loud, naming the chain) when the target participates in a supersession chain — chained records are evolved history, not scratch; the Entity cascade still erases chained Relations regardless, since the endpoint Entity is gone. Forget fails loud when the id is absent from the space, and is confined to a single MemorySpace.
+
+See ADR 0019 (Forget — the sanctioned exception to Append-First History).
+
+Do not model Forget as a `forgotten` lifecycle state or a tombstone; that is soft-delete, which preserves what Forget is meant to erase.
+
 ### Write Policy
 
 Write Policy defines when agents may write memory automatically, when they should suggest memory, and when they need human confirmation.
@@ -392,25 +411,6 @@ The Human Owner is not expected to browse Memorable directly. Memory Review is e
 Memory Review answers state questions (what is open, what changed recently). Use GraphRAG Retrieval for similarity questions and Current Truth for point-in-time questions. Memory Review in the first version does not surface lifecycle transitions (supersession, correction, invalidation, task completion as distinct events); promoting Event into a first-class record is the forcing case for closing that gap in a later version.
 
 ## Candidate Language
-
-### Forget
-
-Forget is an explicit hard delete, addressed by id and scoped to one MemorySpace, that erases a target and its provenance as if it had never been remembered. Forget is the deliberate antonym of Remember.
-
-Forget is the single sanctioned exception to Append-First History. It is erasure, not a lifecycle transition, and it must be kept distinct from the three transitions that preserve history:
-
-- **invalidate** — "no longer true"; the record stays, marked invalidated.
-- **supersede** — "replaced by newer truth"; both records stay, linked.
-- **correct** — "was wrong"; the record persists in place (ADR 0011).
-- **Forget** — "should never have been remembered at all"; the record is erased, nothing remains.
-
-Use Forget only for removing memory that should not exist (especially test and scratch memory), never for normal memory evolution. "This is no longer true" is invalidate; "this was wrong" is correct; "this was replaced" is supersede. Reach for Forget only when the answer is "this should never have been remembered."
-
-Forgetting an Entity cascades: the Entity, every Relation referencing it (in full, with provenance), and every About edge targeting it are removed; records on the far end of those About edges survive. Forgetting a record removes the record node, its provenance, and its outgoing About edges, and does not touch the Entities it was about. Direct record-forget refuses (fail loud, naming the chain) when the target participates in a supersession chain — chained records are evolved history, not scratch; the Entity cascade still erases chained Relations regardless, since the endpoint Entity is gone. Forget fails loud when the id is absent from the space, and is confined to a single MemorySpace.
-
-Keep this term candidate until Forget has a write path. See ADR 0019 (Forget — the sanctioned exception to Append-First History).
-
-Do not model Forget as a `forgotten` lifecycle state or a tombstone; that is soft-delete, which preserves what Forget is meant to erase.
 
 ### Lifecycle Event
 
