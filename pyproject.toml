@@ -7,7 +7,7 @@ packages = ["src/memorable"]
 
 [project]
 name = "memorable-kg"
-version = "0.0.3"
+version = "0.0.4"
 description = "Project-scoped GraphRAG memory for agents."
 readme = "README.md"
 requires-python = ">=3.14"

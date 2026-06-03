@@ -294,6 +294,18 @@ Lifecycle, truth & history:
 | `memorable invalidate --id --record-type --at` | Mark a record invalidated (no successor). |
 | `memorable correct --id --record-type --new-statement --source --at` | Append a corrected statement. |
 
+Erasure (escape hatch):
+
+| Command | Purpose |
+|---|---|
+| `memorable forget --id --target-type decision\|observation\|task\|entity` | Hard-delete a record or Entity by id. |
+
+Forget is erasure, not a lifecycle transition: it removes memory outright rather
+than superseding or invalidating it, so it sits outside append-first history.
+Forgetting an Entity cascades to its provenance and the relations that hang off
+it. Reach for it only when the answer is "this should never have been written" —
+not to retire stale truth.
+
 Search:
 
 | Command | Purpose |
@@ -312,6 +324,11 @@ Once connected, the agent can call **`memorable_guide`** to learn the system
 in-band — call it with no topic for an index, or pass a topic (`overview`,
 `writing`, `retrieval`, `temporal`, `profiles`, `recipes`, `reference`) before
 writing memory or choosing how to retrieve.
+
+The agent can also erase memory through **`memorable_forget_record`** and
+**`memorable_forget_entity`** — the sanctioned escape hatch for memory that
+should never have been written. These hard-delete by id (Entity-forget cascades)
+and fail loud when the id is absent.
 
 Start it manually to test:
 
