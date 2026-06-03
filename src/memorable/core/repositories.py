@@ -13,6 +13,7 @@ from memorable.core.errors import DuplicateRecordError
 from memorable.core.models import (
     Decision,
     Entity,
+    ForgetTarget,
     MemorySpace,
     Observation,
     Provenance,
@@ -132,6 +133,18 @@ class InMemoryTemporalRepository[T: TemporalRecord]:
     def get(self, space: str, record_id: str) -> T | None:
         """Retrieve a temporal record by space and id, or None if not found."""
         return self._records.get((space, record_id))
+
+    def evict(self, space: str, record_id: str) -> None:
+        """Erase a record from all in-memory structures it inhabits.
+
+        Storage-context eviction: drops the record, its provenance, and its
+        uniqueness key together so the multi-structure invariant stays intact.
+        Used only by the ForgetRepository adapter.
+        """
+        key = (space, record_id)
+        self._records.pop(key, None)
+        self._provenance.pop(key, None)
+        self._record_keys.discard(key)
 
     def get_provenance(self, space: str, record_id: str) -> Provenance | None:
         """Retrieve the provenance for a temporal record, or None."""
@@ -270,6 +283,15 @@ class InMemoryEntityRepository:
     def get(self, space: str, entity_id: str) -> Entity | None:
         return self._entities.get((space, entity_id))
 
+    def evict(self, space: str, entity_id: str) -> None:
+        """Erase an Entity and its provenance from in-memory storage.
+
+        Storage-context eviction used only by the ForgetRepository adapter.
+        """
+        key = (space, entity_id)
+        self._entities.pop(key, None)
+        self._provenance.pop(key, None)
+
     def get_provenance(self, space: str, entity_id: str) -> Provenance | None:
         return self._provenance.get((space, entity_id))
 
@@ -293,6 +315,17 @@ class InMemoryAboutRepository:
             link
             for link in self._links
             if not (link[0] == space and link[1] == record_id)
+        }
+
+    def unlink_entity(self, space: str, entity_id: str) -> None:
+        """Drop every About link pointing at the given Entity in the space.
+
+        Storage-context eviction used only by the ForgetRepository adapter.
+        """
+        self._links = {
+            link
+            for link in self._links
+            if not (link[0] == space and link[2] == entity_id)
         }
 
     def entities_for_record(self, space: str, record_id: str) -> list[str]:
@@ -478,6 +511,18 @@ class InMemoryTaskRepository:
     def get(self, *, space: str, task_id: str) -> Task | None:
         return self._tasks.get((space, task_id))
 
+    def evict(self, *, space: str, task_id: str) -> None:
+        """Erase a Task from all in-memory structures it inhabits.
+
+        Storage-context eviction: drops the task, its provenance, and its
+        uniqueness key together so the multi-structure invariant stays intact.
+        Used only by the ForgetRepository adapter.
+        """
+        key = (space, task_id)
+        self._tasks.pop(key, None)
+        self._provenance.pop(key, None)
+        self._record_keys.discard(key)
+
     def get_provenance(self, *, space: str, task_id: str) -> Provenance | None:
         return self._provenance.get((space, task_id))
 
@@ -512,3 +557,76 @@ class InMemoryTaskRepository:
             completion_event_id=completion_event_id,
         )
         self._tasks[key] = updated
+
+
+class InMemoryForgetRepository:
+    """In-memory adapter for Forget."""
+
+    def __init__(
+        self,
+        *,
+        entity_repo: InMemoryEntityRepository,
+        decision_repo: InMemoryDecisionRepository,
+        observation_repo: InMemoryObservationRepository,
+        relation_repo: InMemoryRelationRepository,
+        task_repo: InMemoryTaskRepository,
+        about_repo: InMemoryAboutRepository,
+    ) -> None:
+        self._entity_repo = entity_repo
+        self._decision_repo = decision_repo
+        self._observation_repo = observation_repo
+        self._relation_repo = relation_repo
+        self._task_repo = task_repo
+        self._about_repo = about_repo
+
+    def get_forget_target(
+        self,
+        *,
+        space: str,
+        record_id: str,
+        record_kind: str,
+    ) -> ForgetTarget | None:
+        if record_kind == "decision":
+            record = self._decision_repo.get(space, record_id)
+        elif record_kind == "observation":
+            record = self._observation_repo.get(space, record_id)
+        elif record_kind == "task":
+            record = self._task_repo.get(space=space, task_id=record_id)
+        else:
+            return None
+        if record is None:
+            return None
+        return ForgetTarget(
+            id=record_id,
+            record_kind=record_kind,
+            space=space,
+            supersedes=getattr(record, "supersedes", None),
+            superseded_by=getattr(record, "superseded_by", None),
+        )
+
+    def forget_record(
+        self,
+        *,
+        space: str,
+        record_id: str,
+        record_kind: str,
+    ) -> None:
+        if record_kind == "decision":
+            self._decision_repo.evict(space, record_id)
+        elif record_kind == "observation":
+            self._observation_repo.evict(space, record_id)
+        elif record_kind == "task":
+            self._task_repo.evict(space=space, task_id=record_id)
+        self._about_repo.unlink(space, record_id)
+
+    def entity_exists(self, *, space: str, entity_id: str) -> bool:
+        return self._entity_repo.get(space, entity_id) is not None
+
+    def forget_entity(self, *, space: str, entity_id: str) -> None:
+        self._entity_repo.evict(space, entity_id)
+
+        relations = list(self._relation_repo.list_by_entity(space, entity_id))
+        for relation in relations:
+            self._relation_repo.evict(space, relation.id)
+
+        self._about_repo.unlink_entity(space, entity_id)

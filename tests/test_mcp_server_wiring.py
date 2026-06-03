@@ -83,6 +83,8 @@ EXPECTED_TOOL_NAMES = {
     "memorable_invalidate",
     "memorable_correct",
     "memorable_list_records",
+    "memorable_forget_record",
+    "memorable_forget_entity",
 }
 
 EXPECTED_GUIDE_TOPICS = [
@@ -97,9 +99,9 @@ EXPECTED_GUIDE_TOPICS = [
 
 
 class TestToolRegistration:
-    def test_all_20_tools_registered(self) -> None:
+    def test_all_22_tools_registered(self) -> None:
         tool_names = _list_tool_names()
-        assert len(tool_names) == 20
+        assert len(tool_names) == 22
 
     def test_all_expected_tool_names_present(self) -> None:
         tool_names = _list_tool_names()

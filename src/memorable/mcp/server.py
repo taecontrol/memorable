@@ -12,6 +12,7 @@ from memorable.core.application import (
     CorrectService,
     CorrectTaskService,
     CurrentTruthService,
+    ForgetService,
     InitService,
     InspectHistoryService,
     InspectProvenanceService,
@@ -1124,4 +1125,102 @@ def correct_tool(
         "space": result.space,
         "old_statement": result.old_statement,
         "new_statement": result.new_statement,
+    }
+
+
+@mcp_server.tool(
+    name="memorable_forget_record",
+    description=(
+        "Forget a MemoryRecord (Decision, Observation, or Task) by id in one "
+        "MemorySpace. Forget is erasure, not a lifecycle transition: it removes "
+        "the record, its Provenance, and its outgoing About membership as if the "
+        "record had never been remembered. There is no undo and no tombstone. "
+        "It is confined to the named MemorySpace — an identically-id'd record in "
+        "another space is untouched — and fails loud when the id is absent. It "
+        "refuses (fail loud, naming the chain) when the target participates in a "
+        "Supersession chain, because chained records are evolved real history, "
+        "not scratch. Reach for Forget only when the answer is 'this should never "
+        "have been remembered at all' — typically test or scratch memory. For "
+        "'no longer true' use memorable_invalidate, for 'was wrong' use "
+        "memorable_correct, and for 'replaced by newer truth' use Supersession."
+    ),
+)
+def forget_record_tool(
+    space: str,
+    record_id: str,
+    record_type: str,
+) -> dict[str, object]:
+    """Forget (hard-delete) a MemoryRecord by id in a MemorySpace.
+
+    Args:
+        space: MemorySpace containing the record.
+        record_id: ID of the record to forget.
+        record_type: Type of record ("decision", "observation", or "task").
+
+    Returns a dict with forget info on success, or an error dict (e.g. an
+    absent id or a record in a Supersession chain).
+    """
+    service = ForgetService(repository=_context.forget_repo)
+
+    try:
+        result = service.forget_record(
+            space=space,
+            record_id=record_id,
+            record_kind=record_type,
+        )
+    except ValueError as e:
+        return {"error": str(e)}
+
+    return {
+        "forgotten": True,
+        "record_id": result.record_id,
+        "record_kind": result.record_kind,
+        "space": result.space,
+    }
+
+
+@mcp_server.tool(
+    name="memorable_forget_entity",
+    description=(
+        "Forget an Entity by id in one MemorySpace. This is the largest blast "
+        "radius in Memorable: Forget is erasure, not a lifecycle transition, and "
+        "Entity-forget cascades. It removes the Entity and its Provenance, "
+        "every Relation referencing the Entity as source or target (the Relation "
+        "and its Provenance, including Relations in their own Supersession "
+        "chains, since the endpoint Entity is gone), and every About membership "
+        "targeting the Entity. Records on the far end of those About links are "
+        "independent memory and survive — they simply lose one membership link. "
+        "There is no undo and no tombstone. It is confined to the named "
+        "MemorySpace — an identically-id'd Entity in another space is untouched — "
+        "and fails loud when the id is absent. Reach for Forget only when the "
+        "answer is 'this should never have been remembered at all' — typically "
+        "test or scratch memory. For 'no longer true' use memorable_invalidate "
+        "and for 'was wrong' use memorable_correct."
+    ),
+)
+def forget_entity_tool(
+    space: str,
+    entity_id: str,
+) -> dict[str, object]:
+    """Forget (hard-delete) an Entity by id in a MemorySpace, with cascade.
+
+    Args:
+        space: MemorySpace containing the Entity.
+        entity_id: ID of the Entity to forget.
+
+    Returns a dict with forget info on success (record_kind is "entity"), or
+    an error dict when the id is absent.
+    """
+    service = ForgetService(repository=_context.forget_repo)
+
+    try:
+        result = service.forget_entity(space=space, entity_id=entity_id)
+    except ValueError as e:
+        return {"error": str(e)}
+
+    return {
+        "forgotten": True,
+        "record_id": result.record_id,
+        "record_kind": result.record_kind,
+        "space": result.space,
     }

@@ -12,6 +12,7 @@ from typing import Protocol, runtime_checkable
 from memorable.core.models import (
     Decision,
     Entity,
+    ForgetTarget,
     MemorySpace,
     Observation,
     Provenance,
@@ -153,6 +154,38 @@ class AboutRepository(Protocol):
 
     def records_for_entity(self, space: str, entity_id: str) -> list[str]:
         """Return MemoryRecord ids linked to the Entity."""
+        ...
+
+
+class ForgetRepository(Protocol):
+    """Port for scoped hard deletion by Forget."""
+
+    def get_forget_target(
+        self,
+        *,
+        space: str,
+        record_id: str,
+        record_kind: str,
+    ) -> ForgetTarget | None:
+        """Return the Forget target projection, or None if absent."""
+        ...
+
+    def forget_record(
+        self,
+        *,
+        space: str,
+        record_id: str,
+        record_kind: str,
+    ) -> None:
+        """Erase the record, its provenance, and outgoing About edges."""
+        ...
+
+    def entity_exists(self, *, space: str, entity_id: str) -> bool:
+        """Return whether the Entity exists in the MemorySpace."""
+        ...
+
+    def forget_entity(self, *, space: str, entity_id: str) -> None:
+        """Erase the Entity, provenance, referencing Relations, and About edges."""
         ...
 
 

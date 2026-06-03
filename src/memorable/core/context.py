@@ -20,6 +20,7 @@ from memorable.core.ports import (
     AboutRepository,
     DecisionRepository,
     EntityRepository,
+    ForgetRepository,
     MemorySpaceRepository,
     ObservationRepository,
     RelationRepository,
@@ -34,6 +35,7 @@ from memorable.core.repositories import (
     InMemoryAboutRepository,
     InMemoryDecisionRepository,
     InMemoryEntityRepository,
+    InMemoryForgetRepository,
     InMemoryMemorySpaceRepository,
     InMemoryObservationRepository,
     InMemoryRelationRepository,
@@ -81,6 +83,7 @@ class ApplicationContext:
         observation_repo: ObservationRepository | None = None,
         relation_repo: RelationRepository | None = None,
         about_repo: AboutRepository | None = None,
+        forget_repo: ForgetRepository | None = None,
         memory_space_repo: MemorySpaceRepository | None = None,
     ) -> None:
         record_keys: set[tuple[str, str]] = set()
@@ -92,6 +95,14 @@ class ApplicationContext:
         )
         self.relation_repo = relation_repo or InMemoryRelationRepository()
         self.about_repo = about_repo or InMemoryAboutRepository()
+        self.forget_repo = forget_repo or InMemoryForgetRepository(
+            entity_repo=self.entity_repo,
+            decision_repo=self.decision_repo,
+            observation_repo=self.observation_repo,
+            relation_repo=self.relation_repo,
+            task_repo=self.task_repo,
+            about_repo=self.about_repo,
+        )
         self.memory_space_repo = memory_space_repo or InMemoryMemorySpaceRepository()
 
     def load_profile(self) -> MemoryProfile:
@@ -133,6 +144,14 @@ class ApplicationContext:
         self.observation_repo = InMemoryObservationRepository(record_keys)
         self.relation_repo = InMemoryRelationRepository()
         self.about_repo = InMemoryAboutRepository()
+        self.forget_repo = InMemoryForgetRepository(
+            entity_repo=self.entity_repo,
+            decision_repo=self.decision_repo,
+            observation_repo=self.observation_repo,
+            relation_repo=self.relation_repo,
+            task_repo=self.task_repo,
+            about_repo=self.about_repo,
+        )
         self.memory_space_repo = InMemoryMemorySpaceRepository()
 
 
