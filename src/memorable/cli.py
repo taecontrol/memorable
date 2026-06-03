@@ -936,13 +936,13 @@ def _cmd_forget(
 
     service = ForgetService(repository=ctx.forget_repo)
     try:
-        if args.record_type == "entity":
+        if args.target_type == "entity":
             result = service.forget_entity(space=space, entity_id=args.id)
         else:
             result = service.forget_record(
                 space=space,
                 record_id=args.id,
-                record_kind=args.record_type,
+                record_kind=args.target_type,
             )
     except ValueError as e:
         print(f"Error: {e}", file=sys.stderr)
@@ -1282,10 +1282,10 @@ def main(argv: list[str] | None = None) -> int:
     forget_parser.add_argument("--space", default=None)
     forget_parser.add_argument("--id", required=True)
     forget_parser.add_argument(
-        "--record-type",
+        "--target-type",
         required=True,
         choices=["decision", "observation", "task", "entity"],
-        help="Target kind to forget (decision, observation, task, entity).",
+        help="Target to forget (decision, observation, task, entity).",
     )
 
     args = parser.parse_args(argv)
