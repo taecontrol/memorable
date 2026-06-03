@@ -12,6 +12,7 @@ from memorable.core.application import (
     CompleteTaskService,
     CorrectService,
     CurrentTruthService,
+    ForgetService,
     InitService,
     InspectHistoryService,
     InspectProvenanceService,
@@ -925,6 +926,39 @@ def _cmd_correct(
     return 0
 
 
+def _cmd_forget(
+    args: argparse.Namespace,
+    ctx: ApplicationContext,
+    config: RuntimeConfig,
+) -> int:
+    """Forget a writable record by id within a MemorySpace."""
+    space = resolve_space(getattr(args, "space", None))
+
+    service = ForgetService(repository=ctx.forget_repo)
+    try:
+        result = service.forget_record(
+            space=space,
+            record_id=args.id,
+            record_kind=args.record_type,
+        )
+    except ValueError as e:
+        print(f"Error: {e}", file=sys.stderr)
+        return 1
+
+    print(
+        json.dumps(
+            {
+                "forgotten": True,
+                "record_id": result.record_id,
+                "record_kind": result.record_kind,
+                "space": result.space,
+            },
+            sort_keys=True,
+        )
+    )
+    return 0
+
+
 # =====================================================================
 # Dispatch helpers
 # =====================================================================
@@ -949,6 +983,7 @@ _CONTEXT_HANDLERS: dict[
     ("search", None): _cmd_search,
     ("invalidate", None): _cmd_invalidate,
     ("correct", None): _cmd_correct,
+    ("forget", None): _cmd_forget,
 }
 
 # Map command name -> attribute that holds the subtype on argparse.Namespace.
@@ -1235,6 +1270,20 @@ def main(argv: list[str] | None = None) -> int:
     correct_parser.add_argument("--at", required=True)
     correct_parser.add_argument("--reason", default="")
     correct_parser.add_argument("--writer", default="agent:memorable")
+
+    # forget subcommand
+    forget_parser = subparsers.add_parser(
+        "forget",
+        help="Hard-delete a writable record by id.",
+    )
+    forget_parser.add_argument("--space", default=None)
+    forget_parser.add_argument("--id", required=True)
+    forget_parser.add_argument(
+        "--record-type",
+        required=True,
+        choices=["decision", "observation", "task"],
+        help="Type of record to forget (decision, observation, task).",
+    )
 
     args = parser.parse_args(argv)
 

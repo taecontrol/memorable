@@ -102,6 +102,17 @@ class RecordProjection:
 
 
 @dataclass(frozen=True)
+class ForgetTarget:
+    """A scoped MemoryRecord target that may be erased by Forget."""
+
+    id: str
+    record_kind: str
+    space: str
+    supersedes: str | None
+    superseded_by: str | None
+
+
+@dataclass(frozen=True)
 class Decision:
     """A remembered choice with temporal validity and supersession links.
 

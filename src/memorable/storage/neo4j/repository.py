@@ -16,6 +16,7 @@ from memorable.core.errors import DuplicateRecordError
 from memorable.core.models import (
     Decision,
     Entity,
+    ForgetTarget,
     MemorySpace,
     Observation,
     Provenance,
@@ -391,6 +392,80 @@ class Neo4jAboutRepository:
                 entity_id=entity_id,
             )
             return [record["record_id"] for record in result]
+
+
+# --- Forget adapter ---
+
+
+class Neo4jForgetRepository:
+    """Storage adapter for Forget across Writable Record Types."""
+
+    _RECORD_LABELS = {
+        "decision": "Decision",
+        "observation": "Observation",
+        "task": "Task",
+    }
+
+    def __init__(self, driver: Neo4jDriver) -> None:
+        self._driver = driver
+
+    def get_forget_target(
+        self,
+        *,
+        space: str,
+        record_id: str,
+        record_kind: str,
+    ) -> ForgetTarget | None:
+        label = self._RECORD_LABELS.get(record_kind)
+        if label is None:
+            return None
+        with self._driver.session() as session:
+            result = session.run(
+                f"MATCH (record:Record:{label} {{space: $space, id: $id}}) "
+                "RETURN record.id AS id, record.space AS space, "
+                "       record.supersedes AS supersedes, "
+                "       record.superseded_by AS superseded_by",
+                space=space,
+                id=record_id,
+            )
+            record = result.single()
+            if record is None:
+                return None
+            return ForgetTarget(
+                id=record["id"],
+                record_kind=record_kind,
+                space=record["space"],
+                supersedes=record["supersedes"],
+                superseded_by=record["superseded_by"],
+            )
+
+    def forget_record(
+        self,
+        *,
+        space: str,
+        record_id: str,
+        record_kind: str,
+    ) -> None:
+        label = self._RECORD_LABELS.get(record_kind)
+        if label is None:
+            return
+        with self._driver.session() as session:
+            session.run(
+                f"MATCH (record:Record:{label} {{space: $space, id: $id}}) "
+                "OPTIONAL MATCH (provenance:Provenance)"
+                "-[provenance_link:PROVENANCE_OF]->(record) "
+                "OPTIONAL MATCH (record)-[about:ABOUT]->(:Entity {space: $space}) "
+                "WITH record, "
+                "     collect(DISTINCT provenance) AS provenances, "
+                "     collect(DISTINCT provenance_link) AS provenance_links, "
+                "     collect(DISTINCT about) AS about_links "
+                "FOREACH (link IN about_links | DELETE link) "
+                "FOREACH (link IN provenance_links | DELETE link) "
+                "FOREACH (provenance IN provenances | DELETE provenance) "
+                "DELETE record",
+                space=space,
+                id=record_id,
+            )
 
 
 # --- Decision adapter ---

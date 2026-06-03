@@ -5,7 +5,13 @@ from datetime import datetime
 from heapq import heappop, heappush
 from typing import Protocol
 
-from memorable.core.errors import DuplicateRecordError as DuplicateRecordError
+from memorable.core.errors import (
+    CannotForgetRecordInSupersessionChainError,
+    NothingToForgetError,
+)
+from memorable.core.errors import (
+    DuplicateRecordError as DuplicateRecordError,
+)
 from memorable.core.models import (
     Decision,
     Entity,
@@ -20,6 +26,7 @@ from memorable.core.ports import (
     AboutRepository,
     DecisionRepository,
     EntityRepository,
+    ForgetRepository,
     MemorySpaceRepository,
     ObservationRepository,
     RelationRepository,
@@ -891,6 +898,64 @@ class CorrectTaskService:
             space=space,
             old_statement=task.title,
             new_statement=task.title,
+        )
+
+
+@dataclass(frozen=True)
+class ForgetResult:
+    """Result of forgetting a MemoryRecord."""
+
+    record_id: str
+    record_kind: str
+    space: str
+
+
+class ForgetService:
+    """Application service for scoped hard deletion of writable records."""
+
+    RECORD_KINDS = ("decision", "observation", "task")
+
+    def __init__(self, repository: ForgetRepository) -> None:
+        self._repository = repository
+
+    def forget_record(
+        self,
+        *,
+        space: str,
+        record_id: str,
+        record_kind: str,
+    ) -> ForgetResult:
+        if record_kind not in self.RECORD_KINDS:
+            raise ValueError(
+                f"Forget supports record types {list(self.RECORD_KINDS)}; "
+                f"got '{record_kind}'."
+            )
+
+        target = self._repository.get_forget_target(
+            space=space,
+            record_id=record_id,
+            record_kind=record_kind,
+        )
+        if target is None:
+            raise NothingToForgetError(space=space, record_id=record_id)
+        if target.supersedes is not None or target.superseded_by is not None:
+            raise CannotForgetRecordInSupersessionChainError(
+                record_kind=record_kind,
+                space=space,
+                record_id=record_id,
+                supersedes=target.supersedes,
+                superseded_by=target.superseded_by,
+            )
+
+        self._repository.forget_record(
+            space=space,
+            record_id=record_id,
+            record_kind=record_kind,
+        )
+        return ForgetResult(
+            record_id=record_id,
+            record_kind=record_kind,
+            space=space,
         )
 
 

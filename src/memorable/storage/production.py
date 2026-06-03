@@ -15,6 +15,7 @@ from memorable.storage.neo4j.repository import (
     Neo4jAboutRepository,
     Neo4jDecisionRepository,
     Neo4jEntityRepository,
+    Neo4jForgetRepository,
     Neo4jMemorySpaceRepository,
     Neo4jObservationRepository,
     Neo4jRelationRepository,
@@ -64,6 +65,7 @@ def build_production_context(
         observation_repo=Neo4jObservationRepository(driver),
         relation_repo=Neo4jRelationRepository(driver),
         about_repo=Neo4jAboutRepository(driver),
+        forget_repo=Neo4jForgetRepository(driver),
         memory_space_repo=Neo4jMemorySpaceRepository(driver),
     )
 

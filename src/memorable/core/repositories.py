@@ -13,6 +13,7 @@ from memorable.core.errors import DuplicateRecordError
 from memorable.core.models import (
     Decision,
     Entity,
+    ForgetTarget,
     MemorySpace,
     Observation,
     Provenance,
@@ -512,3 +513,67 @@ class InMemoryTaskRepository:
             completion_event_id=completion_event_id,
         )
         self._tasks[key] = updated
+
+
+class InMemoryForgetRepository:
+    """In-memory adapter for Forget across Writable Record Types."""
+
+    def __init__(
+        self,
+        *,
+        decision_repo: InMemoryDecisionRepository,
+        observation_repo: InMemoryObservationRepository,
+        task_repo: InMemoryTaskRepository,
+        about_repo: InMemoryAboutRepository,
+    ) -> None:
+        self._decision_repo = decision_repo
+        self._observation_repo = observation_repo
+        self._task_repo = task_repo
+        self._about_repo = about_repo
+
+    def get_forget_target(
+        self,
+        *,
+        space: str,
+        record_id: str,
+        record_kind: str,
+    ) -> ForgetTarget | None:
+        if record_kind == "decision":
+            record = self._decision_repo.get(space, record_id)
+        elif record_kind == "observation":
+            record = self._observation_repo.get(space, record_id)
+        elif record_kind == "task":
+            record = self._task_repo.get(space=space, task_id=record_id)
+        else:
+            return None
+        if record is None:
+            return None
+        return ForgetTarget(
+            id=record_id,
+            record_kind=record_kind,
+            space=space,
+            supersedes=getattr(record, "supersedes", None),
+            superseded_by=getattr(record, "superseded_by", None),
+        )
+
+    def forget_record(
+        self,
+        *,
+        space: str,
+        record_id: str,
+        record_kind: str,
+    ) -> None:
+        key = (space, record_id)
+        if record_kind == "decision":
+            self._decision_repo._records.pop(key, None)
+            self._decision_repo._provenance.pop(key, None)
+            self._decision_repo._record_keys.discard(key)
+        elif record_kind == "observation":
+            self._observation_repo._records.pop(key, None)
+            self._observation_repo._provenance.pop(key, None)
+            self._observation_repo._record_keys.discard(key)
+        elif record_kind == "task":
+            self._task_repo._tasks.pop(key, None)
+            self._task_repo._provenance.pop(key, None)
+            self._task_repo._record_keys.discard(key)
+        self._about_repo.unlink(space, record_id)
