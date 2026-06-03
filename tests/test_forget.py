@@ -263,18 +263,24 @@ def test_forget_record_removes_record_provenance_and_about_but_not_entity(
 
     assert result.record_id == record_id
     assert result.record_kind == record_kind
-    assert _get_record(
-        ctx,
-        space="memorable",
-        record_kind=record_kind,
-        record_id=record_id,
-    ) is None
-    assert _get_provenance(
-        ctx,
-        space="memorable",
-        record_kind=record_kind,
-        record_id=record_id,
-    ) is None
+    assert (
+        _get_record(
+            ctx,
+            space="memorable",
+            record_kind=record_kind,
+            record_id=record_id,
+        )
+        is None
+    )
+    assert (
+        _get_provenance(
+            ctx,
+            space="memorable",
+            record_kind=record_kind,
+            record_id=record_id,
+        )
+        is None
+    )
     assert ctx.about_repo.entities_for_record("memorable", record_id) == []
     assert ctx.entity_repo.get("memorable", "entity:scratch") is not None
 
@@ -452,8 +458,7 @@ def test_forget_entity_cascades_relations_and_about_edges_only() -> None:
     assert ctx.entity_repo.get("memorable", "entity:unrelated-a") is not None
     assert ctx.relation_repo.get("memorable", "relation:unrelated") is not None
     assert (
-        ctx.relation_repo.get_provenance("memorable", "relation:unrelated")
-        is not None
+        ctx.relation_repo.get_provenance("memorable", "relation:unrelated") is not None
     )
     assert ctx.about_repo.records_for_entity("memorable", "entity:unrelated-a") == [
         "observation:unrelated"
@@ -576,12 +581,15 @@ def test_cli_forget_record_by_id(
     )
 
     assert rc == 0
-    assert _get_record(
-        ctx,
-        space="memorable",
-        record_kind=record_kind,
-        record_id=record_id,
-    ) is None
+    assert (
+        _get_record(
+            ctx,
+            space="memorable",
+            record_kind=record_kind,
+            record_id=record_id,
+        )
+        is None
+    )
     output = capsys.readouterr().out
     assert record_id in output
 
@@ -673,18 +681,24 @@ def test_neo4j_forget_record_removes_record_provenance_and_about_but_not_entity(
         record_kind=record_kind,
     )
 
-    assert _get_record(
-        ctx,
-        space=space,
-        record_kind=record_kind,
-        record_id=record_id,
-    ) is None
-    assert _get_provenance(
-        ctx,
-        space=space,
-        record_kind=record_kind,
-        record_id=record_id,
-    ) is None
+    assert (
+        _get_record(
+            ctx,
+            space=space,
+            record_kind=record_kind,
+            record_id=record_id,
+        )
+        is None
+    )
+    assert (
+        _get_provenance(
+            ctx,
+            space=space,
+            record_kind=record_kind,
+            record_id=record_id,
+        )
+        is None
+    )
     assert ctx.about_repo.entities_for_record(space, record_id) == []
     assert ctx.entity_repo.get(space, "entity:neo4j-scratch") is not None
 
