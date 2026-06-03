@@ -398,7 +398,7 @@ class Neo4jAboutRepository:
 
 
 class Neo4jForgetRepository:
-    """Storage adapter for Forget across Writable Record Types."""
+    """Storage adapter for Forget."""
 
     _RECORD_LABELS = {
         "decision": "Decision",
@@ -465,6 +465,42 @@ class Neo4jForgetRepository:
                 "DELETE record",
                 space=space,
                 id=record_id,
+            )
+
+    def entity_exists(self, *, space: str, entity_id: str) -> bool:
+        with self._driver.session() as session:
+            result = session.run(
+                "MATCH (:Entity {space: $space, id: $id}) RETURN 1 AS present",
+                space=space,
+                id=entity_id,
+            )
+            return result.single() is not None
+
+    def forget_entity(self, *, space: str, entity_id: str) -> None:
+        with self._driver.session() as session:
+            session.run(
+                "MATCH (entity:Entity {space: $space, id: $id}) "
+                "OPTIONAL MATCH (entity)<-[:FROM|TO]-"
+                "(relation:Relation {space: $space}) "
+                "OPTIONAL MATCH (relation)<-[:PROVENANCE_OF]-"
+                "(relation_provenance:Provenance) "
+                "OPTIONAL MATCH (entity)<-[:PROVENANCE_OF]-"
+                "(entity_provenance:Provenance) "
+                "OPTIONAL MATCH (:Record {space: $space})-[about:ABOUT]->(entity) "
+                "WITH entity, "
+                "     collect(DISTINCT relation) AS relations, "
+                "     collect(DISTINCT relation_provenance) AS relation_provenances, "
+                "     collect(DISTINCT entity_provenance) AS entity_provenances, "
+                "     collect(DISTINCT about) AS about_links "
+                "FOREACH (link IN about_links | DELETE link) "
+                "FOREACH (relation IN relations | DETACH DELETE relation) "
+                "FOREACH (provenance IN relation_provenances | "
+                "  DETACH DELETE provenance) "
+                "FOREACH (provenance IN entity_provenances | "
+                "  DETACH DELETE provenance) "
+                "DELETE entity",
+                space=space,
+                id=entity_id,
             )
 
 

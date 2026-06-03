@@ -516,18 +516,22 @@ class InMemoryTaskRepository:
 
 
 class InMemoryForgetRepository:
-    """In-memory adapter for Forget across Writable Record Types."""
+    """In-memory adapter for Forget."""
 
     def __init__(
         self,
         *,
+        entity_repo: InMemoryEntityRepository,
         decision_repo: InMemoryDecisionRepository,
         observation_repo: InMemoryObservationRepository,
+        relation_repo: InMemoryRelationRepository,
         task_repo: InMemoryTaskRepository,
         about_repo: InMemoryAboutRepository,
     ) -> None:
+        self._entity_repo = entity_repo
         self._decision_repo = decision_repo
         self._observation_repo = observation_repo
+        self._relation_repo = relation_repo
         self._task_repo = task_repo
         self._about_repo = about_repo
 
@@ -577,3 +581,31 @@ class InMemoryForgetRepository:
             self._task_repo._provenance.pop(key, None)
             self._task_repo._record_keys.discard(key)
         self._about_repo.unlink(space, record_id)
+
+    def entity_exists(self, *, space: str, entity_id: str) -> bool:
+        return self._entity_repo.get(space, entity_id) is not None
+
+    def forget_entity(self, *, space: str, entity_id: str) -> None:
+        key = (space, entity_id)
+        self._entity_repo._entities.pop(key, None)
+        self._entity_repo._provenance.pop(key, None)
+
+        relation_ids = [
+            relation.id
+            for (relation_space, _), relation in self._relation_repo._records.items()
+            if relation_space == space
+            and (
+                relation.source_entity_id == entity_id
+                or relation.target_entity_id == entity_id
+            )
+        ]
+        for relation_id in relation_ids:
+            relation_key = (space, relation_id)
+            self._relation_repo._records.pop(relation_key, None)
+            self._relation_repo._provenance.pop(relation_key, None)
+
+        self._about_repo._links = {
+            link
+            for link in self._about_repo._links
+            if not (link[0] == space and link[2] == entity_id)
+        }

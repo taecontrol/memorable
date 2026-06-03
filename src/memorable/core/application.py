@@ -903,7 +903,7 @@ class CorrectTaskService:
 
 @dataclass(frozen=True)
 class ForgetResult:
-    """Result of forgetting a MemoryRecord."""
+    """Result of forgetting a scoped memory target."""
 
     record_id: str
     record_kind: str
@@ -911,7 +911,7 @@ class ForgetResult:
 
 
 class ForgetService:
-    """Application service for scoped hard deletion of writable records."""
+    """Application service for scoped hard deletion by Forget."""
 
     RECORD_KINDS = ("decision", "observation", "task")
 
@@ -955,6 +955,22 @@ class ForgetService:
         return ForgetResult(
             record_id=record_id,
             record_kind=record_kind,
+            space=space,
+        )
+
+    def forget_entity(
+        self,
+        *,
+        space: str,
+        entity_id: str,
+    ) -> ForgetResult:
+        if not self._repository.entity_exists(space=space, entity_id=entity_id):
+            raise NothingToForgetError(space=space, record_id=entity_id)
+
+        self._repository.forget_entity(space=space, entity_id=entity_id)
+        return ForgetResult(
+            record_id=entity_id,
+            record_kind="entity",
             space=space,
         )
 

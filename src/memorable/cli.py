@@ -931,16 +931,19 @@ def _cmd_forget(
     ctx: ApplicationContext,
     config: RuntimeConfig,
 ) -> int:
-    """Forget a writable record by id within a MemorySpace."""
+    """Forget a record or Entity by id within a MemorySpace."""
     space = resolve_space(getattr(args, "space", None))
 
     service = ForgetService(repository=ctx.forget_repo)
     try:
-        result = service.forget_record(
-            space=space,
-            record_id=args.id,
-            record_kind=args.record_type,
-        )
+        if args.record_type == "entity":
+            result = service.forget_entity(space=space, entity_id=args.id)
+        else:
+            result = service.forget_record(
+                space=space,
+                record_id=args.id,
+                record_kind=args.record_type,
+            )
     except ValueError as e:
         print(f"Error: {e}", file=sys.stderr)
         return 1
@@ -1274,15 +1277,15 @@ def main(argv: list[str] | None = None) -> int:
     # forget subcommand
     forget_parser = subparsers.add_parser(
         "forget",
-        help="Hard-delete a writable record by id.",
+        help="Hard-delete a record or Entity by id.",
     )
     forget_parser.add_argument("--space", default=None)
     forget_parser.add_argument("--id", required=True)
     forget_parser.add_argument(
         "--record-type",
         required=True,
-        choices=["decision", "observation", "task"],
-        help="Type of record to forget (decision, observation, task).",
+        choices=["decision", "observation", "task", "entity"],
+        help="Target kind to forget (decision, observation, task, entity).",
     )
 
     args = parser.parse_args(argv)

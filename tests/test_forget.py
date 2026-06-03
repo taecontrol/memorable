@@ -15,6 +15,8 @@ PROFILE_YAML = textwrap.dedent("""\
       name: memorable
     entities:
       - name: Project
+    relations:
+      - name: depends-on
     records: []
 """)
 
@@ -52,6 +54,7 @@ def neo4j_forget_context() -> Iterator[object]:
         Neo4jEntityRepository,
         Neo4jForgetRepository,
         Neo4jObservationRepository,
+        Neo4jRelationRepository,
         Neo4jTaskRepository,
     )
 
@@ -63,6 +66,7 @@ def neo4j_forget_context() -> Iterator[object]:
         observation_repo=Neo4jObservationRepository(driver),
         task_repo=Neo4jTaskRepository(driver),
         about_repo=Neo4jAboutRepository(driver),
+        relation_repo=Neo4jRelationRepository(driver),
         forget_repo=Neo4jForgetRepository(driver),
     )
     yield ctx
@@ -162,6 +166,33 @@ def _remember_record(
         raise AssertionError(f"unhandled record kind: {record_kind}")
 
 
+def _remember_relation(
+    ctx,
+    profile,
+    *,
+    space: str,
+    relation_id: str,
+    source_entity_id: str,
+    target_entity_id: str,
+) -> None:
+    from memorable.core.application import RememberRelationService
+
+    RememberRelationService(
+        relation_repo=ctx.relation_repo,
+        entity_repo=ctx.entity_repo,
+        profile=profile,
+    ).remember(
+        space=space,
+        relation_id=relation_id,
+        source_entity_id=source_entity_id,
+        target_entity_id=target_entity_id,
+        relation_type="depends-on",
+        statement=f"{source_entity_id} depends on {target_entity_id}.",
+        source_id="source:test",
+        at=AT,
+    )
+
+
 def _get_record(ctx, *, space: str, record_kind: str, record_id: str):
     if record_kind == "decision":
         return ctx.decision_repo.get(space, record_id)
@@ -186,7 +217,12 @@ def test_forget_repository_port_methods() -> None:
     from memorable.core.ports import ForgetRepository
 
     methods = {name for name in vars(ForgetRepository) if not name.startswith("_")}
-    assert methods == {"get_forget_target", "forget_record"}
+    assert methods == {
+        "entity_exists",
+        "forget_entity",
+        "forget_record",
+        "get_forget_target",
+    }
 
 
 @pytest.mark.parametrize(
@@ -353,6 +389,132 @@ def test_forget_refuses_record_in_supersession_chain() -> None:
     assert ctx.decision_repo.get("memorable", "decision:v2") is not None
 
 
+def test_forget_entity_cascades_relations_and_about_edges_only() -> None:
+    from memorable.core.application import ForgetService
+
+    ctx, profile, entity_service, about_linker = _context_with_profile()
+    for entity_id in (
+        "entity:scratch",
+        "entity:related",
+        "entity:unrelated-a",
+        "entity:unrelated-b",
+    ):
+        _remember_entity(entity_service, space="memorable", entity_id=entity_id)
+    _remember_relation(
+        ctx,
+        profile,
+        space="memorable",
+        relation_id="relation:scratch",
+        source_entity_id="entity:scratch",
+        target_entity_id="entity:related",
+    )
+    _remember_relation(
+        ctx,
+        profile,
+        space="memorable",
+        relation_id="relation:unrelated",
+        source_entity_id="entity:unrelated-a",
+        target_entity_id="entity:unrelated-b",
+    )
+    _remember_record(
+        ctx,
+        profile,
+        about_linker,
+        space="memorable",
+        record_kind="decision",
+        record_id="decision:about-scratch",
+        about=["entity:scratch"],
+    )
+    _remember_record(
+        ctx,
+        profile,
+        about_linker,
+        space="memorable",
+        record_kind="observation",
+        record_id="observation:unrelated",
+        about=["entity:unrelated-a"],
+    )
+
+    result = ForgetService(repository=ctx.forget_repo).forget_entity(
+        space="memorable",
+        entity_id="entity:scratch",
+    )
+
+    assert result.record_id == "entity:scratch"
+    assert result.record_kind == "entity"
+    assert ctx.entity_repo.get("memorable", "entity:scratch") is None
+    assert ctx.entity_repo.get_provenance("memorable", "entity:scratch") is None
+    assert ctx.relation_repo.get("memorable", "relation:scratch") is None
+    assert ctx.relation_repo.get_provenance("memorable", "relation:scratch") is None
+    assert ctx.about_repo.records_for_entity("memorable", "entity:scratch") == []
+    assert ctx.decision_repo.get("memorable", "decision:about-scratch") is not None
+    assert ctx.entity_repo.get("memorable", "entity:related") is not None
+    assert ctx.entity_repo.get("memorable", "entity:unrelated-a") is not None
+    assert ctx.relation_repo.get("memorable", "relation:unrelated") is not None
+    assert (
+        ctx.relation_repo.get_provenance("memorable", "relation:unrelated")
+        is not None
+    )
+    assert ctx.about_repo.records_for_entity("memorable", "entity:unrelated-a") == [
+        "observation:unrelated"
+    ]
+
+
+def test_forget_missing_entity_id_fails_loud() -> None:
+    from memorable.core.application import ForgetService
+    from memorable.core.errors import NothingToForgetError
+
+    ctx, _profile, _entity_service, _about_linker = _context_with_profile()
+
+    with pytest.raises(NothingToForgetError, match="Nothing to forget"):
+        ForgetService(repository=ctx.forget_repo).forget_entity(
+            space="memorable",
+            entity_id="entity:missing",
+        )
+
+
+def test_forget_entity_is_scoped_to_one_memory_space() -> None:
+    from memorable.core.application import ForgetService
+
+    ctx, profile, entity_service, about_linker = _context_with_profile()
+    for space in ("space-a", "space-b"):
+        _remember_entity(entity_service, space=space, entity_id="entity:same-id")
+        _remember_entity(entity_service, space=space, entity_id="entity:related")
+        _remember_relation(
+            ctx,
+            profile,
+            space=space,
+            relation_id="relation:same-id",
+            source_entity_id="entity:same-id",
+            target_entity_id="entity:related",
+        )
+        _remember_record(
+            ctx,
+            profile,
+            about_linker,
+            space=space,
+            record_kind="decision",
+            record_id="decision:same-id",
+            about=["entity:same-id"],
+        )
+
+    ForgetService(repository=ctx.forget_repo).forget_entity(
+        space="space-a",
+        entity_id="entity:same-id",
+    )
+
+    assert ctx.entity_repo.get("space-a", "entity:same-id") is None
+    assert ctx.entity_repo.get_provenance("space-a", "entity:same-id") is None
+    assert ctx.relation_repo.get("space-a", "relation:same-id") is None
+    assert ctx.about_repo.records_for_entity("space-a", "entity:same-id") == []
+    assert ctx.entity_repo.get("space-b", "entity:same-id") is not None
+    assert ctx.entity_repo.get_provenance("space-b", "entity:same-id") is not None
+    assert ctx.relation_repo.get("space-b", "relation:same-id") is not None
+    assert ctx.about_repo.records_for_entity("space-b", "entity:same-id") == [
+        "decision:same-id"
+    ]
+
+
 @pytest.mark.parametrize(
     ("record_kind", "record_id", "remember_args"),
     [
@@ -422,6 +584,50 @@ def test_cli_forget_record_by_id(
     ) is None
     output = capsys.readouterr().out
     assert record_id in output
+
+
+def test_cli_forget_entity_by_id(cli_in_memory_context, capsys) -> None:
+    from memorable.cli import main
+
+    ctx = cli_in_memory_context
+    rc = main(
+        [
+            "remember",
+            "entity",
+            "--space",
+            "memorable",
+            "--id",
+            "entity:cli-scratch",
+            "--type",
+            "Project",
+            "--name",
+            "CLI scratch",
+            "--source",
+            "source:test",
+            "--at",
+            "2026-06-03T09:00:00Z",
+        ]
+    )
+    assert rc == 0
+    capsys.readouterr()
+
+    rc = main(
+        [
+            "forget",
+            "--space",
+            "memorable",
+            "--record-type",
+            "entity",
+            "--id",
+            "entity:cli-scratch",
+        ]
+    )
+
+    assert rc == 0
+    assert ctx.entity_repo.get("memorable", "entity:cli-scratch") is None
+    assert ctx.entity_repo.get_provenance("memorable", "entity:cli-scratch") is None
+    output = capsys.readouterr().out
+    assert "entity:cli-scratch" in output
 
 
 @pytest.mark.integration
@@ -526,3 +732,148 @@ def test_neo4j_forget_is_scoped_to_one_memory_space(neo4j_forget_context) -> Non
     assert ctx.decision_repo.get_provenance(space_a, "decision:same-id") is None
     assert ctx.decision_repo.get(space_b, "decision:same-id") is not None
     assert ctx.decision_repo.get_provenance(space_b, "decision:same-id") is not None
+
+
+@pytest.mark.integration
+def test_neo4j_forget_entity_cascades_relations_and_about_edges_only(
+    neo4j_forget_context,
+) -> None:
+    from memorable.core.application import (
+        AboutLinker,
+        ForgetService,
+        RememberEntityService,
+    )
+    from memorable.core.profile import load_profile_from_yaml
+
+    ctx = neo4j_forget_context
+    profile = load_profile_from_yaml(PROFILE_YAML)
+    entity_service = RememberEntityService(repository=ctx.entity_repo, profile=profile)
+    about_linker = AboutLinker(entity_repo=ctx.entity_repo, about_repo=ctx.about_repo)
+    space = _unique_space()
+    for entity_id in (
+        "entity:scratch",
+        "entity:related",
+        "entity:unrelated-a",
+        "entity:unrelated-b",
+    ):
+        _remember_entity(entity_service, space=space, entity_id=entity_id)
+    _remember_relation(
+        ctx,
+        profile,
+        space=space,
+        relation_id="relation:scratch",
+        source_entity_id="entity:scratch",
+        target_entity_id="entity:related",
+    )
+    _remember_relation(
+        ctx,
+        profile,
+        space=space,
+        relation_id="relation:unrelated",
+        source_entity_id="entity:unrelated-a",
+        target_entity_id="entity:unrelated-b",
+    )
+    _remember_record(
+        ctx,
+        profile,
+        about_linker,
+        space=space,
+        record_kind="decision",
+        record_id="decision:about-scratch",
+        about=["entity:scratch"],
+    )
+    _remember_record(
+        ctx,
+        profile,
+        about_linker,
+        space=space,
+        record_kind="observation",
+        record_id="observation:unrelated",
+        about=["entity:unrelated-a"],
+    )
+
+    ForgetService(repository=ctx.forget_repo).forget_entity(
+        space=space,
+        entity_id="entity:scratch",
+    )
+
+    assert ctx.entity_repo.get(space, "entity:scratch") is None
+    assert ctx.entity_repo.get_provenance(space, "entity:scratch") is None
+    assert ctx.relation_repo.get(space, "relation:scratch") is None
+    assert ctx.relation_repo.get_provenance(space, "relation:scratch") is None
+    assert ctx.about_repo.records_for_entity(space, "entity:scratch") == []
+    assert ctx.decision_repo.get(space, "decision:about-scratch") is not None
+    assert ctx.entity_repo.get(space, "entity:related") is not None
+    assert ctx.entity_repo.get(space, "entity:unrelated-a") is not None
+    assert ctx.relation_repo.get(space, "relation:unrelated") is not None
+    assert ctx.relation_repo.get_provenance(space, "relation:unrelated") is not None
+    assert ctx.about_repo.records_for_entity(space, "entity:unrelated-a") == [
+        "observation:unrelated"
+    ]
+
+
+@pytest.mark.integration
+def test_neo4j_forget_missing_entity_id_fails_loud(neo4j_forget_context) -> None:
+    from memorable.core.application import ForgetService
+    from memorable.core.errors import NothingToForgetError
+
+    with pytest.raises(NothingToForgetError, match="Nothing to forget"):
+        ForgetService(repository=neo4j_forget_context.forget_repo).forget_entity(
+            space=_unique_space(),
+            entity_id="entity:missing",
+        )
+
+
+@pytest.mark.integration
+def test_neo4j_forget_entity_is_scoped_to_one_memory_space(
+    neo4j_forget_context,
+) -> None:
+    from memorable.core.application import (
+        AboutLinker,
+        ForgetService,
+        RememberEntityService,
+    )
+    from memorable.core.profile import load_profile_from_yaml
+
+    ctx = neo4j_forget_context
+    profile = load_profile_from_yaml(PROFILE_YAML)
+    entity_service = RememberEntityService(repository=ctx.entity_repo, profile=profile)
+    about_linker = AboutLinker(entity_repo=ctx.entity_repo, about_repo=ctx.about_repo)
+    space_a = _unique_space()
+    space_b = _unique_space()
+    for space in (space_a, space_b):
+        _remember_entity(entity_service, space=space, entity_id="entity:same-id")
+        _remember_entity(entity_service, space=space, entity_id="entity:related")
+        _remember_relation(
+            ctx,
+            profile,
+            space=space,
+            relation_id="relation:same-id",
+            source_entity_id="entity:same-id",
+            target_entity_id="entity:related",
+        )
+        _remember_record(
+            ctx,
+            profile,
+            about_linker,
+            space=space,
+            record_kind="decision",
+            record_id="decision:same-id",
+            about=["entity:same-id"],
+        )
+
+    ForgetService(repository=ctx.forget_repo).forget_entity(
+        space=space_a,
+        entity_id="entity:same-id",
+    )
+
+    assert ctx.entity_repo.get(space_a, "entity:same-id") is None
+    assert ctx.entity_repo.get_provenance(space_a, "entity:same-id") is None
+    assert ctx.relation_repo.get(space_a, "relation:same-id") is None
+    assert ctx.about_repo.records_for_entity(space_a, "entity:same-id") == []
+    assert ctx.entity_repo.get(space_b, "entity:same-id") is not None
+    assert ctx.entity_repo.get_provenance(space_b, "entity:same-id") is not None
+    assert ctx.relation_repo.get(space_b, "relation:same-id") is not None
+    assert ctx.about_repo.records_for_entity(space_b, "entity:same-id") == [
+        "decision:same-id"
+    ]

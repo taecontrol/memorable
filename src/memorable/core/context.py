@@ -96,8 +96,10 @@ class ApplicationContext:
         self.relation_repo = relation_repo or InMemoryRelationRepository()
         self.about_repo = about_repo or InMemoryAboutRepository()
         self.forget_repo = forget_repo or InMemoryForgetRepository(
+            entity_repo=self.entity_repo,
             decision_repo=self.decision_repo,
             observation_repo=self.observation_repo,
+            relation_repo=self.relation_repo,
             task_repo=self.task_repo,
             about_repo=self.about_repo,
         )
@@ -143,8 +145,10 @@ class ApplicationContext:
         self.relation_repo = InMemoryRelationRepository()
         self.about_repo = InMemoryAboutRepository()
         self.forget_repo = InMemoryForgetRepository(
+            entity_repo=self.entity_repo,
             decision_repo=self.decision_repo,
             observation_repo=self.observation_repo,
+            relation_repo=self.relation_repo,
             task_repo=self.task_repo,
             about_repo=self.about_repo,
         )
