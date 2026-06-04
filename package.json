@@ -2,7 +2,7 @@
   "name": "memorable",
   "private": true,
   "type": "module",
-  "packageManager": "pnpm@11.1.2",
+  "packageManager": "pnpm@11.5.1",
   "scripts": {
     "implement-prd": "tsx .sandcastle/implement-prd.ts",
     "sandcastle:build-image": "sandcastle docker build-image --image-name memorable-sandcastle-opencode:latest --dockerfile .sandcastle/Dockerfile",
