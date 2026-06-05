@@ -8,6 +8,7 @@ Project-local Pi extension for persistent resident sub-agents.
 /agent-room start [--in-place] [--base <ref>] [name]
 /agent-room prd [--in-place] [--base <ref>] <issue-or-url>
 /agent-room resume <run-id>
+/agent-room unblock [run-id]
 /agent-room list
 /agent-room status
 /agent-room ask <agent|all> <message>
@@ -33,6 +34,8 @@ Alias: `/room`.
 - resident prompts are serialized: only one agent runs at a time
 - PRD runs gate slices with `agent_submit_review` → reviewer `agent_finish_review`
 - approved slices are committed, then all agents are compacted before the next slice assignment
+- compaction retries transient provider overloads (`overloaded_error` / HTTP 529) with exponential backoff so a momentary API hiccup does not wedge the workflow
+- `/agent-room unblock [run-id]` clears a `blocked` PRD workflow and re-drives it from the last safe checkpoint (re-commit/compact/assign the current slice, or re-request final review); intended for recovering from transient infrastructure failures
 - after the last slice, architect calls `agent_finish_architecture_review`; AgentRoom pushes the branch, opens/updates the PR, and comments on the PRD issue
 - TUI widget renders resident-agent tiles, PRD slices, workflow state, and latest human-directed message above editor
 - child sessions load Pi built-in tools plus AgentRoom communication tools

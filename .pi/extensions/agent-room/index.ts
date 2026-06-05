@@ -1520,20 +1520,47 @@ async function compactResidentAgents(room: AgentRoom, slice: PrdRunMetadata["ord
 		agent.stats.status = "running";
 		agent.stats.currentTask = "compacting";
 		updateDashboard(room);
-		try {
-			await agent.session.compact(instructions);
-		} catch (error) {
-			if (!isAlreadyCompactedError(error)) throw error;
-		}
+		await compactWithRetry(agent.session, instructions);
 		const fresh = statsFromSession(agent.session);
 		agent.stats = { ...fresh, inbox: pendingMessagesFor(room, agent.role.name).length };
 		updateDashboard(room);
 	}
 }
 
+const COMPACT_MAX_ATTEMPTS = 5;
+const COMPACT_BACKOFF_BASE_MS = 1000;
+const COMPACT_BACKOFF_CAP_MS = 30000;
+
+function sleep(ms: number): Promise<void> {
+	return new Promise((resolve) => setTimeout(resolve, ms));
+}
+
+// Compaction issues a model call (turn-prefix summarization) that can hit transient
+// provider overload (HTTP 529). A single failure here used to wedge the whole PRD
+// workflow in "blocked" with no recovery, so retry transient overloads with backoff.
+async function compactWithRetry(session: AgentSession, instructions: string): Promise<void> {
+	for (let attempt = 1; ; attempt += 1) {
+		try {
+			await session.compact(instructions);
+			return;
+		} catch (error) {
+			if (isAlreadyCompactedError(error)) return;
+			if (!isOverloadedError(error) || attempt >= COMPACT_MAX_ATTEMPTS) throw error;
+			const backoff = Math.min(COMPACT_BACKOFF_CAP_MS, COMPACT_BACKOFF_BASE_MS * 2 ** (attempt - 1));
+			const jitter = Math.floor(Math.random() * 500);
+			await sleep(backoff + jitter);
+		}
+	}
+}
+
 function isAlreadyCompactedError(error: unknown): boolean {
 	const message = error instanceof Error ? error.message : String(error);
 	return /already compacted/i.test(message);
+}
+
+function isOverloadedError(error: unknown): boolean {
+	const message = error instanceof Error ? error.message : String(error);
+	return /overloaded_error|\boverloaded\b|\b529\b/i.test(message);
 }
 
 type GhPullRequest = {
@@ -2023,6 +2050,7 @@ function usage(): string {
 		"/agent-room start [--in-place] [--base <ref>] [name]",
 		"/agent-room prd [--in-place] [--base <ref>] <issue-or-url>",
 		"/agent-room resume <run-id>",
+		"/agent-room unblock [run-id]",
 		"/agent-room list",
 		"/agent-room status",
 		"/agent-room ask <agent|all> <message>",
@@ -2102,6 +2130,40 @@ async function handleAgentRoomCommand(pi: ExtensionAPI, args: string, ctx: Exten
 		await activateRoom(pi, ctx, room);
 		ctx.ui.notify(`AgentRoom resumed: ${room.id}`, "info");
 		for (const agentName of room.agents.keys()) void deliverInbox(room, agentName);
+		return;
+	}
+
+	if (command === "unblock") {
+		const runId = rest[0];
+		const room = runId ? await loadRoom(pi, ctx, runId) : requireRoom();
+		if (runId && room !== activeRoom) await activateRoom(pi, ctx, room);
+		const workflow = prdWorkflow(room);
+		if (!workflow) {
+			ctx.ui.notify("Active run has no PRD workflow to unblock.", "error");
+			return;
+		}
+		if (workflow.phase !== "blocked") {
+			ctx.ui.notify(`PRD workflow is not blocked (phase: ${workflow.phase}).`, "info");
+			return;
+		}
+		const priorReason = workflow.blockedReason ?? "unknown";
+		const slice = currentPrdSlice(room);
+		// Re-enter at the last safe checkpoint. A current slice means commit/compact/assign
+		// can be re-driven idempotently via "approved"; otherwise re-request final review.
+		if (slice) {
+			workflow.phase = "approved";
+			delete workflow.blockedReason;
+			await saveManifest(room);
+			await routeMessage(room, "agent-room", HUMAN_NAME, `Unblocked PRD workflow; re-driving slice #${slice.number}. Prior reason: ${oneLine(priorReason)}`, "unblock", pi);
+			await runPrdWorkflowAutomation(room, pi);
+		} else {
+			workflow.phase = "final-reviewing";
+			delete workflow.blockedReason;
+			await saveManifest(room);
+			await routeMessage(room, "agent-room", HUMAN_NAME, `Unblocked PRD workflow; re-requesting final architecture review. Prior reason: ${oneLine(priorReason)}`, "unblock", pi);
+			await promptAgent(room, "architect", buildPrdFinalArchitectPrompt(room), true);
+		}
+		ctx.ui.notify(`AgentRoom unblocked: ${room.id} (phase: ${workflow.phase}).`, "info");
 		return;
 	}
 
@@ -2302,7 +2364,7 @@ export default function agentRoomExtension(pi: ExtensionAPI) {
 	pi.registerCommand("agent-room", {
 		description: "Persistent resident sub-agents with mailbox communication and TUI tiles",
 		getArgumentCompletions: (prefix: string) => {
-			const commands = ["start", "prd", "resume", "list", "status", "ask", "reply", "answer", "inbox", "send", "compact", "stop", "destroy", "help"];
+			const commands = ["start", "prd", "resume", "unblock", "list", "status", "ask", "reply", "answer", "inbox", "send", "compact", "stop", "destroy", "help"];
 			const agents = activeRoom ? [...activeRoom.agents.keys(), HUMAN_NAME, "all"] : [];
 			return [...commands, ...agents]
 				.filter((item) => item.startsWith(prefix))
