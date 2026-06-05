@@ -26,7 +26,7 @@ def test_build_production_context_returns_context_and_driver() -> None:
 
     config = RuntimeConfig()
 
-    with patch("memorable.storage.production.GraphDatabase") as mock_gdb:
+    with patch("memorable.storage.neo4j.connection.GraphDatabase") as mock_gdb:
         mock_driver = _make_mock_driver()
         mock_gdb.driver.return_value = mock_driver
 
@@ -50,7 +50,7 @@ def test_build_production_context_wires_all_neo4j_repos() -> None:
 
     config = RuntimeConfig()
 
-    with patch("memorable.storage.production.GraphDatabase") as mock_gdb:
+    with patch("memorable.storage.neo4j.connection.GraphDatabase") as mock_gdb:
         mock_driver = _make_mock_driver()
         mock_gdb.driver.return_value = mock_driver
 
@@ -72,7 +72,7 @@ def test_build_production_context_fails_fast_when_neo4j_unreachable() -> None:
 
     config = RuntimeConfig()
 
-    with patch("memorable.storage.production.GraphDatabase") as mock_gdb:
+    with patch("memorable.storage.neo4j.connection.GraphDatabase") as mock_gdb:
         mock_driver = MagicMock()
         mock_driver.verify_connectivity.side_effect = Exception("connection refused")
         mock_gdb.driver.return_value = mock_driver
@@ -92,13 +92,32 @@ def test_fail_fast_error_includes_configured_uri() -> None:
 
     config = RuntimeConfig()
 
-    with patch("memorable.storage.production.GraphDatabase") as mock_gdb:
+    with patch("memorable.storage.neo4j.connection.GraphDatabase") as mock_gdb:
         mock_driver = MagicMock()
         mock_driver.verify_connectivity.side_effect = Exception("timeout")
         mock_gdb.driver.return_value = mock_driver
 
         with pytest.raises(ConnectionError, match="bolt://127.0.0.1:7687"):
             build_production_context(config)
+
+
+def test_build_production_context_routes_through_connection_policy() -> None:
+    """Localhost config connects to the IPv4-resolved endpoint via the policy."""
+    from memorable.config import Neo4jSettings
+    from memorable.storage.production import build_production_context
+
+    config = RuntimeConfig(neo4j=Neo4jSettings(uri="bolt://localhost:7687"))
+
+    with patch(
+        "memorable.storage.neo4j.connection.GraphDatabase"
+    ) as mock_gdb:
+        mock_driver = _make_mock_driver()
+        mock_gdb.driver.return_value = mock_driver
+
+        _, driver = build_production_context(config)
+
+    assert driver is mock_driver
+    assert mock_gdb.driver.call_args.args[0] == "bolt://127.0.0.1:7687"
 
 
 def test_application_context_default_still_uses_in_memory() -> None:
@@ -135,17 +154,18 @@ def test_build_production_context_passes_config_to_driver() -> None:
     )
     config = RuntimeConfig(neo4j=custom_neo4j)
 
-    with patch("memorable.storage.production.GraphDatabase") as mock_gdb:
+    with patch("memorable.storage.neo4j.connection.GraphDatabase") as mock_gdb:
         mock_driver = _make_mock_driver()
         mock_gdb.driver.return_value = mock_driver
 
         build_production_context(config)
 
-    mock_gdb.driver.assert_called_once_with(
-        "bolt://custom-host:9999",
-        auth=("custom-user", "custom-pass"),
-        notifications_disabled_classifications=["UNRECOGNIZED"],
-    )
+    # Non-local host is preserved exactly; auth and benign-notification
+    # suppression flow through the shared connection policy.
+    assert mock_gdb.driver.call_args.args[0] == "bolt://custom-host:9999"
+    call_kwargs = mock_gdb.driver.call_args.kwargs
+    assert call_kwargs["auth"] == ("custom-user", "custom-pass")
+    assert call_kwargs["notifications_disabled_classifications"] == ["UNRECOGNIZED"]
 
 
 def test_build_production_context_suppresses_sparse_graph_notifications() -> None:
@@ -154,7 +174,7 @@ def test_build_production_context_suppresses_sparse_graph_notifications() -> Non
 
     config = RuntimeConfig()
 
-    with patch("memorable.storage.production.GraphDatabase") as mock_gdb:
+    with patch("memorable.storage.neo4j.connection.GraphDatabase") as mock_gdb:
         mock_driver = _make_mock_driver()
         mock_gdb.driver.return_value = mock_driver
 
