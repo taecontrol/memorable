@@ -8,6 +8,7 @@ from typing import Any
 from unittest.mock import MagicMock, patch
 
 import pytest
+from live_neo4j import build_live_neo4j_driver, live_neo4j_available
 
 from memorable.config import RuntimeConfig
 from memorable.core.context import ApplicationContext
@@ -159,19 +160,20 @@ class TaskProjectionNeo4jHarness:
         self.repository.save(record, provenance)
 
 
-def _neo4j_available() -> bool:
-    try:
-        from neo4j import GraphDatabase
+@pytest.fixture()
+def live_neo4j_driver() -> Iterator[Any]:
+    """Yield a raw driver for the live Neo4j runtime via the shared seam.
 
-        from memorable.storage.neo4j.config import Neo4jConfig
+    Settings are resolved through ``load_runtime_config(...)`` — the same layered
+    precedence the live runtime uses — so tests and production cannot disagree
+    about which runtime they target.
+    """
+    if not live_neo4j_available():
+        pytest.skip("Neo4j is not available")
 
-        config = Neo4jConfig.from_env()
-        driver = GraphDatabase.driver(config.uri, auth=(config.user, config.password))
-        driver.verify_connectivity()
-        driver.close()
-    except Exception:
-        return False
-    return True
+    driver = build_live_neo4j_driver()
+    yield driver
+    driver.close()
 
 
 @pytest.fixture()
@@ -204,16 +206,12 @@ def task_projection_inmemory_harness() -> TaskProjectionInMemoryHarness:
 
 @pytest.fixture()
 def decision_projection_neo4j_harness() -> Iterator[DecisionProjectionNeo4jHarness]:
-    if not _neo4j_available():
+    if not live_neo4j_available():
         pytest.skip("Neo4j is not available")
 
-    from neo4j import GraphDatabase
-
-    from memorable.storage.neo4j.config import Neo4jConfig
     from memorable.storage.neo4j.repository import Neo4jDecisionRepository
 
-    config = Neo4jConfig.from_env()
-    driver = GraphDatabase.driver(config.uri, auth=(config.user, config.password))
+    driver = build_live_neo4j_driver()
     repo = Neo4jDecisionRepository(driver)
     yield DecisionProjectionNeo4jHarness(repo, driver)
     with driver.session() as session:
@@ -229,16 +227,12 @@ def decision_projection_neo4j_harness() -> Iterator[DecisionProjectionNeo4jHarne
 def observation_projection_neo4j_harness() -> Iterator[
     ObservationProjectionNeo4jHarness
 ]:
-    if not _neo4j_available():
+    if not live_neo4j_available():
         pytest.skip("Neo4j is not available")
 
-    from neo4j import GraphDatabase
-
-    from memorable.storage.neo4j.config import Neo4jConfig
     from memorable.storage.neo4j.repository import Neo4jObservationRepository
 
-    config = Neo4jConfig.from_env()
-    driver = GraphDatabase.driver(config.uri, auth=(config.user, config.password))
+    driver = build_live_neo4j_driver()
     repo = Neo4jObservationRepository(driver)
     yield ObservationProjectionNeo4jHarness(repo, driver)
     with driver.session() as session:
@@ -252,19 +246,15 @@ def observation_projection_neo4j_harness() -> Iterator[
 
 @pytest.fixture()
 def relation_projection_neo4j_harness() -> Iterator[RelationProjectionNeo4jHarness]:
-    if not _neo4j_available():
+    if not live_neo4j_available():
         pytest.skip("Neo4j is not available")
 
-    from neo4j import GraphDatabase
-
-    from memorable.storage.neo4j.config import Neo4jConfig
     from memorable.storage.neo4j.repository import (
         Neo4jEntityRepository,
         Neo4jRelationRepository,
     )
 
-    config = Neo4jConfig.from_env()
-    driver = GraphDatabase.driver(config.uri, auth=(config.user, config.password))
+    driver = build_live_neo4j_driver()
     repo = Neo4jRelationRepository(driver)
     entity_repo = Neo4jEntityRepository(driver)
     yield RelationProjectionNeo4jHarness(repo, entity_repo, driver)
@@ -290,16 +280,12 @@ def relation_projection_neo4j_harness() -> Iterator[RelationProjectionNeo4jHarne
 
 @pytest.fixture()
 def task_projection_neo4j_harness() -> Iterator[TaskProjectionNeo4jHarness]:
-    if not _neo4j_available():
+    if not live_neo4j_available():
         pytest.skip("Neo4j is not available")
 
-    from neo4j import GraphDatabase
-
-    from memorable.storage.neo4j.config import Neo4jConfig
     from memorable.storage.neo4j.repository import Neo4jTaskRepository
 
-    config = Neo4jConfig.from_env()
-    driver = GraphDatabase.driver(config.uri, auth=(config.user, config.password))
+    driver = build_live_neo4j_driver()
     repo = Neo4jTaskRepository(driver)
     yield TaskProjectionNeo4jHarness(repo, driver)
     with driver.session() as session:

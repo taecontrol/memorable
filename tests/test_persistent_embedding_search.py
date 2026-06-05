@@ -2926,17 +2926,15 @@ def test_production_context_wires_neo4j_retrieval_index() -> None:
 @pytest.mark.integration
 def test_neo4j_retrieval_index_returns_space_candidate_behind_global_decoys() -> None:
     try:
-        from neo4j import GraphDatabase
+        from live_neo4j import build_live_neo4j_driver
 
-        from memorable.storage.neo4j.config import Neo4jConfig
         from memorable.storage.neo4j.repository import ensure_all_constraints
         from memorable.storage.neo4j.retrieval_index import Neo4jRetrievalIndex
         from memorable.storage.neo4j.schema import EXPECTED_VECTOR_INDEX
     except Exception:
         pytest.skip("Neo4j dependencies are not available")
 
-    config = Neo4jConfig.from_env()
-    driver = GraphDatabase.driver(config.uri, auth=(config.user, config.password))
+    driver = build_live_neo4j_driver()
     prefix = f"test-embedding-index-{uuid.uuid4().hex[:8]}"
     try:
         try:
@@ -3011,17 +3009,15 @@ def test_neo4j_retrieval_index_returns_space_candidate_behind_global_decoys() ->
 @pytest.mark.integration
 def test_neo4j_retrieval_index_searches_vector_candidates() -> None:
     try:
-        from neo4j import GraphDatabase
+        from live_neo4j import build_live_neo4j_driver
 
-        from memorable.storage.neo4j.config import Neo4jConfig
         from memorable.storage.neo4j.repository import ensure_all_constraints
         from memorable.storage.neo4j.retrieval_index import Neo4jRetrievalIndex
         from memorable.storage.neo4j.schema import EXPECTED_VECTOR_INDEX
     except Exception:
         pytest.skip("Neo4j dependencies are not available")
 
-    config = Neo4jConfig.from_env()
-    driver = GraphDatabase.driver(config.uri, auth=(config.user, config.password))
+    driver = build_live_neo4j_driver()
     try:
         try:
             driver.verify_connectivity()
