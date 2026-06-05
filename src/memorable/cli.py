@@ -5,7 +5,7 @@ import json
 import sys
 from collections.abc import Callable
 from pathlib import Path
-from typing import Literal, cast
+from typing import TYPE_CHECKING, Literal, cast
 
 from memorable.config import RuntimeConfig, load_runtime_config
 from memorable.core.application import (
@@ -42,6 +42,9 @@ from memorable.runtime.docker import stop as docker_stop
 from memorable.runtime.doctor import all_checks_passed, run_diagnostics
 from memorable.storage.neo4j.repository import ensure_all_constraints
 from memorable.storage.production import build_production_context
+
+if TYPE_CHECKING:
+    from memorable.retrieval.indexing import EmbeddingIndexer
 
 
 def resolve_space(space_arg: str | None) -> str:
@@ -285,6 +288,48 @@ def _cmd_tracer_run(args: argparse.Namespace) -> int:
 # =====================================================================
 
 
+def _build_embedding_indexer(
+    ctx: ApplicationContext,
+    config: RuntimeConfig,
+) -> EmbeddingIndexer:
+    """Build the write-time Embedding indexer for the active runtime config."""
+    from memorable.retrieval.embeddings import build_embedding_provider
+    from memorable.retrieval.indexing import EmbeddingIndexer
+
+    provider = build_embedding_provider(
+        config.embeddings, api_key=config.embeddings.api_key
+    )
+    return EmbeddingIndexer(
+        retrieval_index=ctx.retrieval_index,
+        embedding_provider=provider,
+        dimensions=config.embeddings.dimensions,
+    )
+
+
+def _index_after_canonical_write(
+    *,
+    ctx: ApplicationContext,
+    config: RuntimeConfig,
+    space: str,
+    source_id: str,
+    source_kind: str,
+    upsert: Callable[[EmbeddingIndexer], None],
+) -> bool:
+    """Upsert a derived Embedding after canonical memory was written."""
+    try:
+        upsert(_build_embedding_indexer(ctx, config))
+    except Exception as exc:
+        print(
+            "Error: Canonical memory was written, but derived Embedding index "
+            f"maintenance failed for {source_kind} '{source_id}' in "
+            f"MemorySpace '{space}'. Run `memorable reindex --space {space}` "
+            f"to repair search. Original error: {exc}",
+            file=sys.stderr,
+        )
+        return False
+    return True
+
+
 def _cmd_remember_entity(
     args: argparse.Namespace,
     ctx: ApplicationContext,
@@ -316,6 +361,16 @@ def _cmd_remember_entity(
         )
     except ValueError as e:
         print(f"Error: {e}", file=sys.stderr)
+        return 1
+
+    if not _index_after_canonical_write(
+        ctx=ctx,
+        config=config,
+        space=space,
+        source_id=result.entity.id,
+        source_kind="Entity",
+        upsert=lambda indexer: indexer.upsert_entity(result.entity),
+    ):
         return 1
 
     print(
@@ -402,6 +457,16 @@ def _cmd_remember_decision(
         print(f"Error: {e}", file=sys.stderr)
         return 1
 
+    if not _index_after_canonical_write(
+        ctx=ctx,
+        config=config,
+        space=space,
+        source_id=result.decision.id,
+        source_kind="Decision",
+        upsert=lambda indexer: indexer.upsert_decision(result.decision),
+    ):
+        return 1
+
     print(
         json.dumps(
             {
@@ -456,6 +521,16 @@ def _cmd_remember_observation(
         )
     except ValueError as e:
         print(f"Error: {e}", file=sys.stderr)
+        return 1
+
+    if not _index_after_canonical_write(
+        ctx=ctx,
+        config=config,
+        space=space,
+        source_id=result.observation.id,
+        source_kind="Observation",
+        upsert=lambda indexer: indexer.upsert_observation(result.observation),
+    ):
         return 1
 
     print(
@@ -517,6 +592,16 @@ def _cmd_remember_relation(
         )
     except ValueError as e:
         print(f"Error: {e}", file=sys.stderr)
+        return 1
+
+    if not _index_after_canonical_write(
+        ctx=ctx,
+        config=config,
+        space=space,
+        source_id=result.relation.id,
+        source_kind="Relation",
+        upsert=lambda indexer: indexer.upsert_relation(result.relation),
+    ):
         return 1
 
     print(
@@ -672,6 +757,16 @@ def _cmd_remember_task(
         )
     except ValueError as e:
         print(f"Error: {e}", file=sys.stderr)
+        return 1
+
+    if not _index_after_canonical_write(
+        ctx=ctx,
+        config=config,
+        space=space,
+        source_id=result.task.id,
+        source_kind="Task",
+        upsert=lambda indexer: indexer.upsert_task(result.task),
+    ):
         return 1
 
     print(

@@ -6,7 +6,6 @@ and provenance-aware explanation into ranked retrieval results.
 
 from __future__ import annotations
 
-import hashlib
 from datetime import datetime
 from typing import TYPE_CHECKING, Literal
 
@@ -22,15 +21,8 @@ from memorable.core.ports import (
 )
 from memorable.retrieval.embeddings import EmbeddingProvider
 from memorable.retrieval.index import InMemoryEmbeddingIndex, RetrievalIndex
-from memorable.retrieval.indexable_text import (
-    INDEXABLE_TEXT_VERSION,
-    indexable_text_for_decision,
-    indexable_text_for_entity,
-    indexable_text_for_observation,
-    indexable_text_for_relation,
-    indexable_text_for_task,
-)
-from memorable.retrieval.models import EmbeddingRecord, ReindexResult, RetrievalResult
+from memorable.retrieval.indexing import EmbeddingIndexer
+from memorable.retrieval.models import ReindexResult, RetrievalResult
 
 if TYPE_CHECKING:
     from memorable.core.context import ApplicationContext
@@ -91,32 +83,6 @@ class HybridRetrievalService:
             else None
         )
 
-    def _store_embedding(
-        self,
-        *,
-        space: str,
-        source_id: str,
-        source_kind: str,
-        indexable_text: str,
-    ) -> None:
-        vector = self._embedding_provider.embed(indexable_text)
-        self._index.store(
-            EmbeddingRecord(
-                source_id=source_id,
-                source_kind=source_kind,
-                space=space,
-                indexable_text=indexable_text,
-                vector=vector,
-                provider_name=self._embedding_provider.provider_name,
-                model_name=self._embedding_provider.model_name,
-                dimensions=self._dimensions,
-                indexable_text_hash=hashlib.sha256(
-                    indexable_text.encode("utf-8")
-                ).hexdigest(),
-                indexable_text_version=INDEXABLE_TEXT_VERSION,
-            )
-        )
-
     def reindex(self, space: str) -> ReindexResult:
         """Backfill derived Embeddings for every retrievable item in a MemorySpace."""
         self._index.clear_space(space)
@@ -127,51 +93,31 @@ class HybridRetrievalService:
             "Observation": 0,
             "Relation": 0,
         }
+        indexer = EmbeddingIndexer(
+            retrieval_index=self._index,
+            embedding_provider=self._embedding_provider,
+            dimensions=self._dimensions,
+        )
 
         for entity in self._entity_repo.list_by_space(space):
-            self._store_embedding(
-                space=space,
-                source_id=entity.id,
-                source_kind="Entity",
-                indexable_text=indexable_text_for_entity(entity),
-            )
+            indexer.upsert_entity(entity)
             indexed_by_kind["Entity"] += 1
 
         for decision in self._decision_repo.list_by_space(space):
-            self._store_embedding(
-                space=space,
-                source_id=decision.id,
-                source_kind="Decision",
-                indexable_text=indexable_text_for_decision(decision),
-            )
+            indexer.upsert_decision(decision)
             indexed_by_kind["Decision"] += 1
 
         for task in self._task_repo.list_by_space(space):
-            self._store_embedding(
-                space=space,
-                source_id=task.id,
-                source_kind="Task",
-                indexable_text=indexable_text_for_task(task),
-            )
+            indexer.upsert_task(task)
             indexed_by_kind["Task"] += 1
 
         for observation in self._observation_repo.list_by_space(space):
-            self._store_embedding(
-                space=space,
-                source_id=observation.id,
-                source_kind="Observation",
-                indexable_text=indexable_text_for_observation(observation),
-            )
+            indexer.upsert_observation(observation)
             indexed_by_kind["Observation"] += 1
 
         if self._relation_repo is not None:
             for relation in self._relation_repo.list_by_space(space):
-                self._store_embedding(
-                    space=space,
-                    source_id=relation.id,
-                    source_kind="Relation",
-                    indexable_text=indexable_text_for_relation(relation),
-                )
+                indexer.upsert_relation(relation)
                 indexed_by_kind["Relation"] += 1
 
         return ReindexResult(space=space, indexed_by_kind=indexed_by_kind)

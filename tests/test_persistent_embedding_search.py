@@ -56,6 +56,32 @@ class CountingEmbeddingProvider:
         return [value / magnitude for value in vector]
 
 
+class FailingEmbeddingIndex:
+    def store(self, record: EmbeddingRecord) -> None:
+        raise RuntimeError("vector index unavailable")
+
+    def clear_space(self, space: str) -> None:
+        return None
+
+    def delete(self, *, space: str, source_id: str, source_kind: str) -> None:
+        return None
+
+    def records(self, *, space: str | None = None) -> list[EmbeddingRecord]:
+        return []
+
+    def search(
+        self,
+        space: str,
+        query_vector: list[float],
+        top_k: int = 10,
+        *,
+        provider_name: str | None = None,
+        model_name: str | None = None,
+        dimensions: int | None = None,
+    ) -> list[object]:
+        return []
+
+
 PROFILE_YAML = textwrap.dedent(
     """\
     version: 1
@@ -229,6 +255,226 @@ def test_reindex_preserves_embedding_metadata() -> None:
     ).hexdigest()
 
 
+def test_cli_remember_decision_upserts_embedding_for_immediate_search(
+    tmp_path: Path,
+    monkeypatch,
+    capsys,
+) -> None:
+    from memorable.cli import main
+
+    _write_profile(tmp_path)
+    monkeypatch.chdir(tmp_path)
+
+    ctx = ApplicationContext()
+    driver = MagicMock()
+    provider = CountingEmbeddingProvider(dimensions=8)
+    config = RuntimeConfig(
+        embeddings=EmbeddingSettings(provider="fake", dimensions=8),
+    )
+
+    with (
+        patch("memorable.cli.build_production_context", return_value=(ctx, driver)),
+        patch("memorable.cli.load_runtime_config", return_value=config),
+        patch(
+            "memorable.retrieval.embeddings.build_embedding_provider",
+            return_value=provider,
+        ),
+    ):
+        assert (
+            main(
+                [
+                    "remember",
+                    "decision",
+                    "--space",
+                    "test-space",
+                    "--id",
+                    "decision:cli-immediate",
+                    "--statement",
+                    "Newly remembered Decisions are indexed immediately",
+                    "--source",
+                    "source:cli-test",
+                    "--at",
+                    "2026-06-05T12:00:00Z",
+                ]
+            )
+            == 0
+        )
+        capsys.readouterr()
+
+        provider.calls.clear()
+        assert (
+            main(
+                [
+                    "search",
+                    "--space",
+                    "test-space",
+                    "--query",
+                    "newly remembered decision search",
+                ]
+            )
+            == 0
+        )
+        search_output = json.loads(capsys.readouterr().out)
+
+    assert provider.calls == ["newly remembered decision search"]
+    result_ids = {result["source_id"] for result in search_output["results"]}
+    assert "decision:cli-immediate" in result_ids
+
+
+def test_cli_remember_upserts_embeddings_for_all_retrievable_kinds(
+    tmp_path: Path,
+    monkeypatch,
+    capsys,
+) -> None:
+    from memorable.cli import main
+
+    _write_profile(tmp_path)
+    monkeypatch.chdir(tmp_path)
+
+    ctx = ApplicationContext()
+    driver = MagicMock()
+    provider = CountingEmbeddingProvider(dimensions=8)
+    config = RuntimeConfig(
+        embeddings=EmbeddingSettings(provider="fake", dimensions=8),
+    )
+
+    with (
+        patch("memorable.cli.build_production_context", return_value=(ctx, driver)),
+        patch("memorable.cli.load_runtime_config", return_value=config),
+        patch(
+            "memorable.retrieval.embeddings.build_embedding_provider",
+            return_value=provider,
+        ),
+    ):
+        commands = [
+            [
+                "remember",
+                "entity",
+                "--space",
+                "test-space",
+                "--id",
+                "entity:cli-auth",
+                "--type",
+                "Component",
+                "--name",
+                "CLI Auth component",
+                "--source",
+                "source:cli-test",
+                "--at",
+                "2026-06-05T12:00:00Z",
+            ],
+            [
+                "remember",
+                "entity",
+                "--space",
+                "test-space",
+                "--id",
+                "entity:cli-db",
+                "--type",
+                "Component",
+                "--name",
+                "CLI Database component",
+                "--source",
+                "source:cli-test",
+                "--at",
+                "2026-06-05T12:00:00Z",
+            ],
+            [
+                "remember",
+                "decision",
+                "--space",
+                "test-space",
+                "--id",
+                "decision:cli-immediate-kind",
+                "--statement",
+                "CLI remembers index Decisions immediately",
+                "--source",
+                "source:cli-test",
+                "--at",
+                "2026-06-05T12:00:00Z",
+            ],
+            [
+                "remember",
+                "task",
+                "--space",
+                "test-space",
+                "--id",
+                "task:cli-immediate-kind",
+                "--title",
+                "CLI remembers index Tasks immediately",
+                "--source",
+                "source:cli-test",
+                "--at",
+                "2026-06-05T12:00:00Z",
+            ],
+            [
+                "remember",
+                "observation",
+                "--space",
+                "test-space",
+                "--id",
+                "observation:cli-immediate-kind",
+                "--statement",
+                "CLI remembers index Observations immediately",
+                "--source",
+                "source:cli-test",
+                "--at",
+                "2026-06-05T12:00:00Z",
+            ],
+            [
+                "remember",
+                "relation",
+                "--space",
+                "test-space",
+                "--id",
+                "relation:cli-immediate-kind",
+                "--source-entity-id",
+                "entity:cli-auth",
+                "--target-entity-id",
+                "entity:cli-db",
+                "--relation-type",
+                "depends-on",
+                "--statement",
+                "CLI Auth component depends on CLI Database component",
+                "--source",
+                "source:cli-test",
+                "--at",
+                "2026-06-05T12:00:00Z",
+            ],
+        ]
+        for command in commands:
+            assert main(command) == 0
+            capsys.readouterr()
+
+        provider.calls.clear()
+        assert (
+            main(
+                [
+                    "search",
+                    "--space",
+                    "test-space",
+                    "--query",
+                    "CLI immediate Entity Decision Task Observation Relation",
+                ]
+            )
+            == 0
+        )
+        search_output = json.loads(capsys.readouterr().out)
+
+    assert provider.calls == [
+        "CLI immediate Entity Decision Task Observation Relation"
+    ]
+    result_ids = {result["source_id"] for result in search_output["results"]}
+    assert {
+        "entity:cli-auth",
+        "entity:cli-db",
+        "decision:cli-immediate-kind",
+        "task:cli-immediate-kind",
+        "observation:cli-immediate-kind",
+        "relation:cli-immediate-kind",
+    }.issubset(result_ids)
+
+
 def test_cli_reindex_backfills_memory_for_later_search(
     tmp_path: Path,
     monkeypatch,
@@ -297,6 +543,227 @@ def test_cli_reindex_backfills_memory_for_later_search(
     assert provider.calls == ["backfilled persistent search"]
     result_ids = {result["source_id"] for result in search_output["results"]}
     assert "decision:cli-backfill" in result_ids
+
+
+def test_cli_remember_reports_partial_state_when_embedding_upsert_fails(
+    tmp_path: Path,
+    monkeypatch,
+    capsys,
+) -> None:
+    from memorable.cli import main
+
+    _write_profile(tmp_path)
+    monkeypatch.chdir(tmp_path)
+
+    ctx = ApplicationContext(retrieval_index=FailingEmbeddingIndex())
+    driver = MagicMock()
+    provider = CountingEmbeddingProvider(dimensions=8)
+    config = RuntimeConfig(
+        embeddings=EmbeddingSettings(provider="fake", dimensions=8),
+    )
+
+    with (
+        patch("memorable.cli.build_production_context", return_value=(ctx, driver)),
+        patch("memorable.cli.load_runtime_config", return_value=config),
+        patch(
+            "memorable.retrieval.embeddings.build_embedding_provider",
+            return_value=provider,
+        ),
+    ):
+        assert (
+            main(
+                [
+                    "remember",
+                    "decision",
+                    "--space",
+                    "test-space",
+                    "--id",
+                    "decision:cli-partial-index",
+                    "--statement",
+                    "Canonical memory survives index maintenance failure",
+                    "--source",
+                    "source:cli-test",
+                    "--at",
+                    "2026-06-05T12:00:00Z",
+                ]
+            )
+            == 1
+        )
+        remember_output = capsys.readouterr()
+
+        assert main(
+            [
+                "truth",
+                "current",
+                "--space",
+                "test-space",
+                "--id",
+                "decision:cli-partial-index",
+            ]
+        ) == 0
+        truth_output = json.loads(capsys.readouterr().out)
+
+    assert "Canonical memory was written" in remember_output.err
+    assert "memorable reindex --space test-space" in remember_output.err
+    assert "vector index unavailable" in remember_output.err
+    assert truth_output["decision_id"] == "decision:cli-partial-index"
+
+
+def test_mcp_remember_upserts_embeddings_for_all_retrievable_kinds(
+    tmp_path: Path,
+    monkeypatch,
+) -> None:
+    from memorable.core.context import default_context
+    from memorable.mcp.server import (
+        remember_decision_tool,
+        remember_entity_tool,
+        remember_observation_tool,
+        remember_relation_tool,
+        remember_task_tool,
+        search_memory_tool,
+        set_mcp_context,
+    )
+
+    _write_profile(tmp_path)
+    monkeypatch.chdir(tmp_path)
+
+    ctx = ApplicationContext()
+    provider = CountingEmbeddingProvider(dimensions=8)
+    config = RuntimeConfig(
+        embeddings=EmbeddingSettings(provider="fake", dimensions=8),
+    )
+    set_mcp_context(ctx)
+
+    try:
+        with (
+            patch("memorable.mcp.server.load_runtime_config", return_value=config),
+            patch(
+                "memorable.retrieval.embeddings.build_embedding_provider",
+                return_value=provider,
+            ),
+        ):
+            remember_results = [
+                remember_entity_tool(
+                    space="test-space",
+                    entity_id="entity:mcp-auth",
+                    entity_type="Component",
+                    name="MCP Auth component",
+                    source="source:mcp-test",
+                    at="2026-06-05T12:00:00Z",
+                ),
+                remember_entity_tool(
+                    space="test-space",
+                    entity_id="entity:mcp-db",
+                    entity_type="Component",
+                    name="MCP Database component",
+                    source="source:mcp-test",
+                    at="2026-06-05T12:00:00Z",
+                ),
+                remember_decision_tool(
+                    space="test-space",
+                    decision_id="decision:mcp-immediate-kind",
+                    statement="MCP remembers index Decisions immediately",
+                    source="source:mcp-test",
+                    at="2026-06-05T12:00:00Z",
+                ),
+                remember_task_tool(
+                    space="test-space",
+                    task_id="task:mcp-immediate-kind",
+                    title="MCP remembers index Tasks immediately",
+                    source="source:mcp-test",
+                    at="2026-06-05T12:00:00Z",
+                ),
+                remember_observation_tool(
+                    space="test-space",
+                    observation_id="observation:mcp-immediate-kind",
+                    statement="MCP remembers index Observations immediately",
+                    source="source:mcp-test",
+                    at="2026-06-05T12:00:00Z",
+                ),
+                remember_relation_tool(
+                    space="test-space",
+                    relation_id="relation:mcp-immediate-kind",
+                    source_entity_id="entity:mcp-auth",
+                    target_entity_id="entity:mcp-db",
+                    relation_type="depends-on",
+                    statement="MCP Auth component depends on MCP Database component",
+                    source="source:mcp-test",
+                    at="2026-06-05T12:00:00Z",
+                ),
+            ]
+            assert all("error" not in result for result in remember_results)
+
+            provider.calls.clear()
+            search_result = search_memory_tool(
+                space="test-space",
+                query="MCP immediate Entity Decision Task Observation Relation",
+            )
+
+        assert provider.calls == [
+            "MCP immediate Entity Decision Task Observation Relation"
+        ]
+        result_ids = {result["source_id"] for result in search_result["results"]}
+        assert {
+            "entity:mcp-auth",
+            "entity:mcp-db",
+            "decision:mcp-immediate-kind",
+            "task:mcp-immediate-kind",
+            "observation:mcp-immediate-kind",
+            "relation:mcp-immediate-kind",
+        }.issubset(result_ids)
+    finally:
+        set_mcp_context(default_context)
+
+
+def test_mcp_remember_reports_partial_state_when_embedding_upsert_fails(
+    tmp_path: Path,
+    monkeypatch,
+) -> None:
+    from memorable.core.context import default_context
+    from memorable.mcp.server import (
+        current_truth_tool,
+        remember_decision_tool,
+        set_mcp_context,
+    )
+
+    _write_profile(tmp_path)
+    monkeypatch.chdir(tmp_path)
+
+    ctx = ApplicationContext(retrieval_index=FailingEmbeddingIndex())
+    provider = CountingEmbeddingProvider(dimensions=8)
+    config = RuntimeConfig(
+        embeddings=EmbeddingSettings(provider="fake", dimensions=8),
+    )
+    set_mcp_context(ctx)
+
+    try:
+        with (
+            patch("memorable.mcp.server.load_runtime_config", return_value=config),
+            patch(
+                "memorable.retrieval.embeddings.build_embedding_provider",
+                return_value=provider,
+            ),
+        ):
+            result = remember_decision_tool(
+                space="test-space",
+                decision_id="decision:mcp-partial-index",
+                statement="MCP reports partial index maintenance failure",
+                source="source:mcp-test",
+                at="2026-06-05T12:00:00Z",
+            )
+
+        current = current_truth_tool(
+            space="test-space",
+            record_id="decision:mcp-partial-index",
+        )
+
+        assert result["canonical_memory_written"] is True
+        assert result["reindex_command"] == "memorable reindex --space test-space"
+        assert "Canonical memory was written" in str(result["error"])
+        assert "vector index unavailable" in str(result["error"])
+        assert current["record_id"] == "decision:mcp-partial-index"
+    finally:
+        set_mcp_context(default_context)
 
 
 def test_mcp_reindex_backfills_memory_for_later_search(

@@ -1,7 +1,8 @@
 from __future__ import annotations
 
+from collections.abc import Callable
 from pathlib import Path
-from typing import Literal
+from typing import TYPE_CHECKING, Literal
 
 from mcp.server.fastmcp import FastMCP
 
@@ -41,6 +42,9 @@ from memorable.guide import GuideTopicName
 from memorable.guide import render as render_guide
 from memorable.runtime.doctor import DiagnosticResult, run_diagnostics
 
+if TYPE_CHECKING:
+    from memorable.retrieval.indexing import EmbeddingIndexer
+
 mcp_server = FastMCP(
     "memorable",
     instructions=(
@@ -71,6 +75,46 @@ def guide_hint(topic: GuideTopicName) -> str:
 
 def _profile_type_error(message: object) -> dict[str, object]:
     return {"error": f"{message}{guide_hint('profiles')}"}
+
+
+def _build_embedding_indexer() -> EmbeddingIndexer:
+    """Build the write-time Embedding indexer for the active runtime config."""
+    from memorable.retrieval.embeddings import build_embedding_provider
+    from memorable.retrieval.indexing import EmbeddingIndexer
+
+    config = load_runtime_config(include_environment_overrides=True)
+    provider = build_embedding_provider(
+        config.embeddings, api_key=config.embeddings.api_key
+    )
+    return EmbeddingIndexer(
+        retrieval_index=_context.retrieval_index,
+        embedding_provider=provider,
+        dimensions=config.embeddings.dimensions,
+    )
+
+
+def _index_after_canonical_write(
+    *,
+    space: str,
+    source_id: str,
+    source_kind: str,
+    upsert: Callable[[EmbeddingIndexer], None],
+) -> dict[str, object] | None:
+    """Upsert a derived Embedding after canonical memory was written."""
+    try:
+        upsert(_build_embedding_indexer())
+    except Exception as exc:
+        return {
+            "error": (
+                "Canonical memory was written, but derived Embedding index "
+                f"maintenance failed for {source_kind} '{source_id}' in "
+                f"MemorySpace '{space}'. Run `memorable reindex --space "
+                f"{space}` to repair search. Original error: {exc}"
+            ),
+            "canonical_memory_written": True,
+            "reindex_command": f"memorable reindex --space {space}",
+        }
+    return None
 
 
 def _resolve_repository(
@@ -244,6 +288,15 @@ def remember_entity_tool(
             return _profile_type_error(e)
         return {"error": str(e)}
 
+    index_error = _index_after_canonical_write(
+        space=space,
+        source_id=result.entity.id,
+        source_kind="Entity",
+        upsert=lambda indexer: indexer.upsert_entity(result.entity),
+    )
+    if index_error is not None:
+        return index_error
+
     return {
         "entity_id": result.entity.id,
         "entity_type": result.entity.entity_type,
@@ -315,6 +368,15 @@ def remember_decision_tool(
         )
     except ValueError as e:
         return {"error": str(e)}
+
+    index_error = _index_after_canonical_write(
+        space=space,
+        source_id=result.decision.id,
+        source_kind="Decision",
+        upsert=lambda indexer: indexer.upsert_decision(result.decision),
+    )
+    if index_error is not None:
+        return index_error
 
     return {
         "decision_id": result.decision.id,
@@ -388,6 +450,15 @@ def remember_observation_tool(
     except ValueError as e:
         return {"error": str(e)}
 
+    index_error = _index_after_canonical_write(
+        space=space,
+        source_id=result.observation.id,
+        source_kind="Observation",
+        upsert=lambda indexer: indexer.upsert_observation(result.observation),
+    )
+    if index_error is not None:
+        return index_error
+
     return {
         "observation_id": result.observation.id,
         "statement": result.observation.statement,
@@ -459,6 +530,15 @@ def remember_relation_tool(
         if isinstance(e, UndeclaredTypeError):
             return _profile_type_error(e)
         return {"error": str(e)}
+
+    index_error = _index_after_canonical_write(
+        space=space,
+        source_id=result.relation.id,
+        source_kind="Relation",
+        upsert=lambda indexer: indexer.upsert_relation(result.relation),
+    )
+    if index_error is not None:
+        return index_error
 
     return {
         "relation_id": result.relation.id,
@@ -712,6 +792,15 @@ def remember_task_tool(
         )
     except ValueError as e:
         return {"error": str(e)}
+
+    index_error = _index_after_canonical_write(
+        space=space,
+        source_id=result.task.id,
+        source_kind="Task",
+        upsert=lambda indexer: indexer.upsert_task(result.task),
+    )
+    if index_error is not None:
+        return index_error
 
     return {
         "task_id": result.task.id,
