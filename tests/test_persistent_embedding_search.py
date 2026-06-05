@@ -298,6 +298,108 @@ def test_reindex_backfills_all_retrievable_kinds_and_search_embeds_only_query() 
     }.issubset(result_ids)
 
 
+class _RecordingRetrievalIndex:
+    """Retrieval index that delegates to an in-memory index and records calls.
+
+    Used to prove the search read path only *reads* the persistent index: it
+    must query candidates without writing, clearing, or recreating anything.
+    """
+
+    def __init__(self) -> None:
+        from memorable.retrieval.index import InMemoryEmbeddingIndex
+
+        self._inner = InMemoryEmbeddingIndex()
+        self.events: list[str] = []
+
+    def recreate_index(self, dimensions: int) -> None:
+        self.events.append("recreate_index")
+        self._inner.recreate_index(dimensions)
+
+    def store(self, record: EmbeddingRecord) -> None:
+        self.events.append("store")
+        self._inner.store(record)
+
+    def clear_space(self, space: str) -> None:
+        self.events.append("clear_space")
+        self._inner.clear_space(space)
+
+    def delete(self, *, space: str, source_id: str, source_kind: str) -> None:
+        self.events.append("delete")
+        self._inner.delete(space=space, source_id=source_id, source_kind=source_kind)
+
+    def records(self, *, space: str | None = None) -> list[EmbeddingRecord]:
+        self.events.append("records")
+        return self._inner.records(space=space)
+
+    def search(
+        self,
+        space: str,
+        query_vector: list[float],
+        top_k: int = 10,
+        *,
+        provider_name: str | None = None,
+        model_name: str | None = None,
+        dimensions: int | None = None,
+    ) -> list[object]:
+        self.events.append("search")
+        return self._inner.search(
+            space,
+            query_vector,
+            top_k,
+            provider_name=provider_name,
+            model_name=model_name,
+            dimensions=dimensions,
+        )
+
+
+def test_search_reads_persistent_index_without_writing_or_rebuilding() -> None:
+    profile = load_profile_from_yaml(PROFILE_YAML)
+    at = datetime(2026, 6, 5, 12, 0, tzinfo=UTC)
+    source = "source:read-path-test"
+
+    decision_repo = InMemoryDecisionRepository()
+    RememberDecisionService(repository=decision_repo, profile=profile).remember(
+        space="test-space",
+        decision_id="decision:read-path",
+        statement="Keep a persistent Embedding index so search avoids rebuilds",
+        source_id=source,
+        at=at,
+    )
+
+    index = _RecordingRetrievalIndex()
+    provider = CountingEmbeddingProvider(dimensions=8)
+    service = HybridRetrievalService(
+        entity_repo=InMemoryEntityRepository(),
+        decision_repo=decision_repo,
+        task_repo=InMemoryTaskRepository(),
+        observation_repo=InMemoryObservationRepository(),
+        relation_repo=InMemoryRelationRepository(),
+        embedding_provider=provider,
+        dimensions=8,
+        retrieval_index=index,
+    )
+
+    service.reindex("test-space")
+    index.events.clear()
+    provider.calls.clear()
+
+    results = service.search(
+        space="test-space",
+        query="persistent Embedding index avoids rebuilds",
+    )
+
+    # The read path queries the persistent index for candidates...
+    assert "search" in index.events
+    # ...and embeds only the query once -- never the stored records.
+    assert provider.calls == ["persistent Embedding index avoids rebuilds"]
+    # ...and never writes, clears, or recreates the index on a read.
+    assert "store" not in index.events
+    assert "clear_space" not in index.events
+    assert "recreate_index" not in index.events
+    assert "delete" not in index.events
+    assert {result.source_id for result in results} == {"decision:read-path"}
+
+
 def _write_profile(tmp_path: Path) -> None:
     memorable_dir = tmp_path / ".memorable"
     memorable_dir.mkdir()
