@@ -12,7 +12,16 @@ from dataclasses import dataclass
 
 @dataclass(frozen=True)
 class Neo4jConfig:
-    """Connection settings for the Neo4j storage adapter."""
+    """Connection settings for the Neo4j storage adapter.
+
+    TEST-HARNESS-ONLY: this shape exists for live-Neo4j test fixtures that build
+    raw drivers directly. Live runtime code (production context, diagnostics,
+    CLI, MCP) MUST build drivers through the shared connection policy
+    (``memorable.storage.neo4j.connection``), never through ``Neo4jConfig``, so a
+    second/third connection-config shape cannot drift back into production and
+    reintroduce the IPv4-first / fail-fast divergence this work removed. See
+    ADR-0016 and PRD #184.
+    """
 
     uri: str
     user: str
