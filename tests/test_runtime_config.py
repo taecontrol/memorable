@@ -421,3 +421,18 @@ class TestEnvironmentFallback:
         # .env file exists, so environ is not consulted
         assert config.neo4j.password == "memorable"  # built-in default
         assert config.sources["neo4j.password"] == "built-in"
+
+
+class TestConnectionSettingsStayOutOfCore:
+    """Neo4j connection settings are storage/runtime infrastructure, not core."""
+
+    def test_neo4j_settings_is_not_a_core_domain_model(self) -> None:
+        """Connection settings must not leak into core domain models.
+
+        Neo4j connection settings live in the runtime-config vocabulary
+        (``memorable.config.Neo4jSettings``), never in core domain models, so
+        infrastructure configuration cannot drift into the core domain.
+        """
+        import memorable.core.models as core_models
+
+        assert not hasattr(core_models, "Neo4jSettings")
