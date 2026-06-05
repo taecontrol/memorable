@@ -108,9 +108,7 @@ def test_build_production_context_routes_through_connection_policy() -> None:
 
     config = RuntimeConfig(neo4j=Neo4jSettings(uri="bolt://localhost:7687"))
 
-    with patch(
-        "memorable.storage.neo4j.connection.GraphDatabase"
-    ) as mock_gdb:
+    with patch("memorable.storage.neo4j.connection.GraphDatabase") as mock_gdb:
         mock_driver = _make_mock_driver()
         mock_gdb.driver.return_value = mock_driver
 
