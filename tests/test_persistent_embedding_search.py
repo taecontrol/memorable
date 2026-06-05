@@ -72,6 +72,30 @@ class FailingOnSecondEmbedProvider(CountingEmbeddingProvider):
         return super().embed(text)
 
 
+class SemanticNeedleEmbeddingProvider:
+    def __init__(self) -> None:
+        self.calls: list[str] = []
+
+    @property
+    def provider_name(self) -> str:
+        return "needle-test"
+
+    @property
+    def model_name(self) -> str:
+        return "semantic-needle"
+
+    def embed(self, text: str) -> list[float]:
+        self.calls.append(text)
+        lowered = text.lower()
+        if "corrected vector needle" in lowered:
+            return [1.0, 0.0]
+        if "decoy vector lure" in lowered:
+            return [0.6, 0.8]
+        if "obsolete vector text" in lowered:
+            return [0.0, 1.0]
+        return [0.1, 0.9]
+
+
 class FailingSearchIndex:
     def __init__(self) -> None:
         from memorable.retrieval.index import InMemoryEmbeddingIndex
@@ -560,6 +584,570 @@ def test_cli_remember_upserts_embeddings_for_all_retrievable_kinds(
     }.issubset(result_ids)
 
 
+def test_cli_invalidate_decision_refreshes_embedding_and_current_search_filters_it(
+    tmp_path: Path,
+    monkeypatch,
+    capsys,
+) -> None:
+    from memorable.cli import main
+    from memorable.retrieval.service import build_retrieval_service
+
+    _write_profile(tmp_path)
+    monkeypatch.chdir(tmp_path)
+
+    ctx = ApplicationContext()
+    driver = MagicMock()
+    provider = SemanticNeedleEmbeddingProvider()
+    config = RuntimeConfig(
+        embeddings=EmbeddingSettings(provider="fake", dimensions=2),
+    )
+
+    with (
+        patch("memorable.cli.build_production_context", return_value=(ctx, driver)),
+        patch("memorable.cli.load_runtime_config", return_value=config),
+        patch(
+            "memorable.retrieval.embeddings.build_embedding_provider",
+            return_value=provider,
+        ),
+    ):
+        assert (
+            main(
+                [
+                    "remember",
+                    "decision",
+                    "--space",
+                    "test-space",
+                    "--id",
+                    "decision:cli-invalidate-refresh",
+                    "--statement",
+                    "Corrected vector needle later invalidated",
+                    "--source",
+                    "source:cli-test",
+                    "--at",
+                    "2026-06-05T12:00:00Z",
+                ]
+            )
+            == 0
+        )
+        capsys.readouterr()
+
+        assert (
+            main(
+                [
+                    "invalidate",
+                    "--space",
+                    "test-space",
+                    "--record-type",
+                    "decision",
+                    "--id",
+                    "decision:cli-invalidate-refresh",
+                    "--at",
+                    "2026-06-05T12:05:00Z",
+                ]
+            )
+            == 0
+        )
+        capsys.readouterr()
+
+        service = build_retrieval_service(ctx, provider, dimensions=2)
+        coverage = service.index_coverage("test-space")
+        current_results = service.search(
+            space="test-space",
+            query="corrected vector needle",
+            mode="current",
+        )
+        historical_results = service.search(
+            space="test-space",
+            query="corrected vector needle",
+            mode="as-of",
+            as_of=datetime(2026, 6, 5, 12, 3, tzinfo=UTC),
+        )
+
+    assert coverage.stale_by_kind["Decision"] == 0
+    assert coverage.ok
+    assert "decision:cli-invalidate-refresh" not in {
+        result.source_id for result in current_results
+    }
+    assert "decision:cli-invalidate-refresh" in {
+        result.source_id for result in historical_results
+    }
+
+
+def test_cli_correct_decision_refreshes_embedding_without_manual_reindex(
+    tmp_path: Path,
+    monkeypatch,
+    capsys,
+) -> None:
+    from memorable.cli import main
+    from memorable.retrieval.service import build_retrieval_service
+
+    _write_profile(tmp_path)
+    monkeypatch.chdir(tmp_path)
+
+    ctx = ApplicationContext()
+    driver = MagicMock()
+    provider = SemanticNeedleEmbeddingProvider()
+    config = RuntimeConfig(
+        embeddings=EmbeddingSettings(provider="fake", dimensions=2),
+    )
+
+    with (
+        patch("memorable.cli.build_production_context", return_value=(ctx, driver)),
+        patch("memorable.cli.load_runtime_config", return_value=config),
+        patch(
+            "memorable.retrieval.embeddings.build_embedding_provider",
+            return_value=provider,
+        ),
+    ):
+        assert (
+            main(
+                [
+                    "remember",
+                    "decision",
+                    "--space",
+                    "test-space",
+                    "--id",
+                    "decision:cli-correct-refresh",
+                    "--statement",
+                    "Obsolete vector text before correction",
+                    "--source",
+                    "source:cli-test",
+                    "--at",
+                    "2026-06-05T12:00:00Z",
+                ]
+            )
+            == 0
+        )
+        capsys.readouterr()
+
+        for index in range(3):
+            assert (
+                main(
+                    [
+                        "remember",
+                        "decision",
+                        "--space",
+                        "test-space",
+                        "--id",
+                        f"decision:cli-correct-decoy-{index}",
+                        "--statement",
+                        f"Decoy vector lure {index}",
+                        "--source",
+                        "source:cli-test",
+                        "--at",
+                        "2026-06-05T12:01:00Z",
+                    ]
+                )
+                == 0
+            )
+            capsys.readouterr()
+
+        assert (
+            main(
+                [
+                    "correct",
+                    "--space",
+                    "test-space",
+                    "--record-type",
+                    "decision",
+                    "--id",
+                    "decision:cli-correct-refresh",
+                    "--new-statement",
+                    "Corrected vector needle after correction",
+                    "--source",
+                    "source:correction",
+                    "--at",
+                    "2026-06-05T12:02:00Z",
+                ]
+            )
+            == 0
+        )
+        capsys.readouterr()
+
+        provider.calls.clear()
+        service = build_retrieval_service(ctx, provider, dimensions=2)
+        results = service.search(
+            space="test-space",
+            query="corrected vector needle",
+            top_k=1,
+        )
+
+    assert provider.calls == ["corrected vector needle"]
+    assert [result.source_id for result in results] == [
+        "decision:cli-correct-refresh"
+    ]
+    assert results[0].lifecycle_state == "current"
+
+
+def test_cli_supersede_relation_refreshes_old_embedding_without_manual_reindex(
+    tmp_path: Path,
+    monkeypatch,
+    capsys,
+) -> None:
+    from memorable.cli import main
+    from memorable.retrieval.service import build_retrieval_service
+
+    _write_profile(tmp_path)
+    monkeypatch.chdir(tmp_path)
+
+    ctx = ApplicationContext()
+    driver = MagicMock()
+    provider = SemanticNeedleEmbeddingProvider()
+    config = RuntimeConfig(
+        embeddings=EmbeddingSettings(provider="fake", dimensions=2),
+    )
+
+    with (
+        patch("memorable.cli.build_production_context", return_value=(ctx, driver)),
+        patch("memorable.cli.load_runtime_config", return_value=config),
+        patch(
+            "memorable.retrieval.embeddings.build_embedding_provider",
+            return_value=provider,
+        ),
+    ):
+        for entity_id, name in [
+            ("entity:cli-super-source", "CLI Supersession Source"),
+            ("entity:cli-super-target", "CLI Supersession Target"),
+        ]:
+            assert (
+                main(
+                    [
+                        "remember",
+                        "entity",
+                        "--space",
+                        "test-space",
+                        "--id",
+                        entity_id,
+                        "--type",
+                        "Component",
+                        "--name",
+                        name,
+                        "--source",
+                        "source:cli-test",
+                        "--at",
+                        "2026-06-05T12:00:00Z",
+                    ]
+                )
+                == 0
+            )
+            capsys.readouterr()
+
+        assert (
+            main(
+                [
+                    "remember",
+                    "relation",
+                    "--space",
+                    "test-space",
+                    "--id",
+                    "relation:cli-superseded-refresh",
+                    "--source-entity-id",
+                    "entity:cli-super-source",
+                    "--target-entity-id",
+                    "entity:cli-super-target",
+                    "--relation-type",
+                    "depends-on",
+                    "--statement",
+                    "Obsolete vector text relation should be superseded",
+                    "--source",
+                    "source:cli-test",
+                    "--at",
+                    "2026-06-05T12:01:00Z",
+                ]
+            )
+            == 0
+        )
+        capsys.readouterr()
+
+        assert (
+            main(
+                [
+                    "remember",
+                    "relation",
+                    "--space",
+                    "test-space",
+                    "--id",
+                    "relation:cli-superseding-refresh",
+                    "--source-entity-id",
+                    "entity:cli-super-source",
+                    "--target-entity-id",
+                    "entity:cli-super-target",
+                    "--relation-type",
+                    "depends-on",
+                    "--statement",
+                    "Corrected vector needle relation is current truth",
+                    "--source",
+                    "source:cli-test",
+                    "--at",
+                    "2026-06-05T12:10:00Z",
+                    "--supersedes",
+                    "relation:cli-superseded-refresh",
+                ]
+            )
+            == 0
+        )
+        capsys.readouterr()
+
+        service = build_retrieval_service(ctx, provider, dimensions=2)
+        coverage = service.index_coverage("test-space")
+
+    assert coverage.stale_by_kind["Relation"] == 0
+    assert coverage.ok
+
+
+def test_cli_supersede_observation_refreshes_old_embedding_without_manual_reindex(
+    tmp_path: Path,
+    monkeypatch,
+    capsys,
+) -> None:
+    from memorable.cli import main
+    from memorable.retrieval.service import build_retrieval_service
+
+    _write_profile(tmp_path)
+    monkeypatch.chdir(tmp_path)
+
+    ctx = ApplicationContext()
+    driver = MagicMock()
+    provider = SemanticNeedleEmbeddingProvider()
+    config = RuntimeConfig(
+        embeddings=EmbeddingSettings(provider="fake", dimensions=2),
+    )
+
+    with (
+        patch("memorable.cli.build_production_context", return_value=(ctx, driver)),
+        patch("memorable.cli.load_runtime_config", return_value=config),
+        patch(
+            "memorable.retrieval.embeddings.build_embedding_provider",
+            return_value=provider,
+        ),
+    ):
+        assert (
+            main(
+                [
+                    "remember",
+                    "observation",
+                    "--space",
+                    "test-space",
+                    "--id",
+                    "observation:cli-superseded-refresh",
+                    "--statement",
+                    "Obsolete vector text observation should be superseded",
+                    "--source",
+                    "source:cli-test",
+                    "--at",
+                    "2026-06-05T12:00:00Z",
+                ]
+            )
+            == 0
+        )
+        capsys.readouterr()
+
+        assert (
+            main(
+                [
+                    "remember",
+                    "observation",
+                    "--space",
+                    "test-space",
+                    "--id",
+                    "observation:cli-superseding-refresh",
+                    "--statement",
+                    "Corrected vector needle observation is current truth",
+                    "--source",
+                    "source:cli-test",
+                    "--at",
+                    "2026-06-05T12:10:00Z",
+                    "--supersedes",
+                    "observation:cli-superseded-refresh",
+                ]
+            )
+            == 0
+        )
+        capsys.readouterr()
+
+        service = build_retrieval_service(ctx, provider, dimensions=2)
+        coverage = service.index_coverage("test-space")
+        current_results = service.search(
+            space="test-space",
+            query="obsolete vector text",
+            mode="current",
+            top_k=1,
+        )
+
+    assert coverage.stale_by_kind["Observation"] == 0
+    assert coverage.ok
+    assert [result.source_id for result in current_results] == [
+        "observation:cli-superseding-refresh"
+    ]
+
+
+def test_cli_complete_task_refreshes_embedding_without_manual_reindex(
+    tmp_path: Path,
+    monkeypatch,
+    capsys,
+) -> None:
+    from memorable.cli import main
+    from memorable.retrieval.service import build_retrieval_service
+
+    _write_profile(tmp_path)
+    monkeypatch.chdir(tmp_path)
+
+    ctx = ApplicationContext()
+    driver = MagicMock()
+    provider = SemanticNeedleEmbeddingProvider()
+    config = RuntimeConfig(
+        embeddings=EmbeddingSettings(provider="fake", dimensions=2),
+    )
+
+    with (
+        patch("memorable.cli.build_production_context", return_value=(ctx, driver)),
+        patch("memorable.cli.load_runtime_config", return_value=config),
+        patch(
+            "memorable.retrieval.embeddings.build_embedding_provider",
+            return_value=provider,
+        ),
+    ):
+        assert (
+            main(
+                [
+                    "remember",
+                    "task",
+                    "--space",
+                    "test-space",
+                    "--id",
+                    "task:cli-complete-refresh",
+                    "--title",
+                    "Corrected vector needle CLI task to complete",
+                    "--source",
+                    "source:cli-test",
+                    "--at",
+                    "2026-06-05T12:00:00Z",
+                ]
+            )
+            == 0
+        )
+        capsys.readouterr()
+
+        assert (
+            main(
+                [
+                    "complete",
+                    "task",
+                    "--space",
+                    "test-space",
+                    "--id",
+                    "task:cli-complete-refresh",
+                    "--at",
+                    "2026-06-05T12:05:00Z",
+                ]
+            )
+            == 0
+        )
+        capsys.readouterr()
+
+        service = build_retrieval_service(ctx, provider, dimensions=2)
+        coverage = service.index_coverage("test-space")
+
+    assert coverage.stale_by_kind["Task"] == 0
+    assert coverage.ok
+
+
+def test_cli_supersession_refreshes_old_embedding_and_current_truth_wins(
+    tmp_path: Path,
+    monkeypatch,
+    capsys,
+) -> None:
+    from memorable.cli import main
+    from memorable.retrieval.service import build_retrieval_service
+
+    _write_profile(tmp_path)
+    monkeypatch.chdir(tmp_path)
+
+    ctx = ApplicationContext()
+    driver = MagicMock()
+    provider = SemanticNeedleEmbeddingProvider()
+    config = RuntimeConfig(
+        embeddings=EmbeddingSettings(provider="fake", dimensions=2),
+    )
+
+    with (
+        patch("memorable.cli.build_production_context", return_value=(ctx, driver)),
+        patch("memorable.cli.load_runtime_config", return_value=config),
+        patch(
+            "memorable.retrieval.embeddings.build_embedding_provider",
+            return_value=provider,
+        ),
+    ):
+        assert (
+            main(
+                [
+                    "remember",
+                    "decision",
+                    "--space",
+                    "test-space",
+                    "--id",
+                    "decision:cli-superseded-refresh",
+                    "--statement",
+                    "Obsolete vector text should be superseded",
+                    "--source",
+                    "source:cli-test",
+                    "--at",
+                    "2026-06-05T12:00:00Z",
+                ]
+            )
+            == 0
+        )
+        capsys.readouterr()
+
+        assert (
+            main(
+                [
+                    "remember",
+                    "decision",
+                    "--space",
+                    "test-space",
+                    "--id",
+                    "decision:cli-superseding-refresh",
+                    "--statement",
+                    "Corrected vector needle is current truth",
+                    "--source",
+                    "source:cli-test",
+                    "--at",
+                    "2026-06-05T12:10:00Z",
+                    "--supersedes",
+                    "decision:cli-superseded-refresh",
+                ]
+            )
+            == 0
+        )
+        capsys.readouterr()
+
+        service = build_retrieval_service(ctx, provider, dimensions=2)
+        coverage = service.index_coverage("test-space")
+        current_results = service.search(
+            space="test-space",
+            query="obsolete vector text",
+            mode="current",
+            top_k=1,
+        )
+        historical_results = service.search(
+            space="test-space",
+            query="obsolete vector text",
+            mode="as-of",
+            as_of=datetime(2026, 6, 5, 12, 5, tzinfo=UTC),
+            top_k=1,
+        )
+
+    assert coverage.stale_by_kind["Decision"] == 0
+    assert coverage.ok
+    assert [result.source_id for result in current_results] == [
+        "decision:cli-superseding-refresh"
+    ]
+    assert [result.source_id for result in historical_results] == [
+        "decision:cli-superseded-refresh"
+    ]
+
+
 def test_cli_search_reports_embedding_provider_failure_with_doctor_hint(
     tmp_path: Path,
     monkeypatch,
@@ -1042,6 +1630,493 @@ def test_mcp_remember_upserts_embeddings_for_all_retrievable_kinds(
             "observation:mcp-immediate-kind",
             "relation:mcp-immediate-kind",
         }.issubset(result_ids)
+    finally:
+        set_mcp_context(default_context)
+
+
+def test_mcp_supersede_observation_refreshes_old_embedding_without_manual_reindex(
+    tmp_path: Path,
+    monkeypatch,
+) -> None:
+    from memorable.core.context import default_context
+    from memorable.mcp.server import (
+        remember_observation_tool,
+        set_mcp_context,
+    )
+    from memorable.retrieval.service import build_retrieval_service
+
+    _write_profile(tmp_path)
+    monkeypatch.chdir(tmp_path)
+
+    ctx = ApplicationContext()
+    provider = SemanticNeedleEmbeddingProvider()
+    config = RuntimeConfig(
+        embeddings=EmbeddingSettings(provider="fake", dimensions=2),
+    )
+    set_mcp_context(ctx)
+
+    try:
+        with (
+            patch("memorable.mcp.server.load_runtime_config", return_value=config),
+            patch(
+                "memorable.retrieval.embeddings.build_embedding_provider",
+                return_value=provider,
+            ),
+        ):
+            old_result = remember_observation_tool(
+                space="test-space",
+                observation_id="observation:mcp-superseded-refresh",
+                statement="Obsolete vector text observation should be superseded",
+                source="source:mcp-test",
+                at="2026-06-05T12:00:00Z",
+            )
+            assert "error" not in old_result
+
+            new_result = remember_observation_tool(
+                space="test-space",
+                observation_id="observation:mcp-superseding-refresh",
+                statement="Corrected vector needle observation is current truth",
+                source="source:mcp-test",
+                at="2026-06-05T12:10:00Z",
+                supersedes="observation:mcp-superseded-refresh",
+            )
+            assert "error" not in new_result
+
+            service = build_retrieval_service(ctx, provider, dimensions=2)
+            coverage = service.index_coverage("test-space")
+
+        assert coverage.stale_by_kind["Observation"] == 0
+        assert coverage.ok
+    finally:
+        set_mcp_context(default_context)
+
+
+def test_mcp_supersede_decision_refreshes_old_embedding_without_manual_reindex(
+    tmp_path: Path,
+    monkeypatch,
+) -> None:
+    from memorable.core.context import default_context
+    from memorable.mcp.server import (
+        remember_decision_tool,
+        search_memory_tool,
+        set_mcp_context,
+    )
+    from memorable.retrieval.service import build_retrieval_service
+
+    _write_profile(tmp_path)
+    monkeypatch.chdir(tmp_path)
+
+    ctx = ApplicationContext()
+    provider = SemanticNeedleEmbeddingProvider()
+    config = RuntimeConfig(
+        embeddings=EmbeddingSettings(provider="fake", dimensions=2),
+    )
+    set_mcp_context(ctx)
+
+    try:
+        with (
+            patch("memorable.mcp.server.load_runtime_config", return_value=config),
+            patch(
+                "memorable.retrieval.embeddings.build_embedding_provider",
+                return_value=provider,
+            ),
+        ):
+            old_result = remember_decision_tool(
+                space="test-space",
+                decision_id="decision:mcp-superseded-refresh",
+                statement="Obsolete vector text should be superseded",
+                source="source:mcp-test",
+                at="2026-06-05T12:00:00Z",
+            )
+            assert "error" not in old_result
+
+            new_result = remember_decision_tool(
+                space="test-space",
+                decision_id="decision:mcp-superseding-refresh",
+                statement="Corrected vector needle is current truth",
+                source="source:mcp-test",
+                at="2026-06-05T12:10:00Z",
+                supersedes="decision:mcp-superseded-refresh",
+            )
+            assert "error" not in new_result
+
+            service = build_retrieval_service(ctx, provider, dimensions=2)
+            coverage = service.index_coverage("test-space")
+            current_result = search_memory_tool(
+                space="test-space",
+                query="obsolete vector text",
+            )
+
+        assert coverage.stale_by_kind["Decision"] == 0
+        assert coverage.ok
+        assert "decision:mcp-superseded-refresh" not in {
+            result["source_id"] for result in current_result["results"]
+        }
+    finally:
+        set_mcp_context(default_context)
+
+
+def test_mcp_supersede_relation_refreshes_old_embedding_without_manual_reindex(
+    tmp_path: Path,
+    monkeypatch,
+) -> None:
+    from memorable.core.context import default_context
+    from memorable.mcp.server import (
+        remember_entity_tool,
+        remember_relation_tool,
+        search_memory_tool,
+        set_mcp_context,
+    )
+    from memorable.retrieval.service import build_retrieval_service
+
+    _write_profile(tmp_path)
+    monkeypatch.chdir(tmp_path)
+
+    ctx = ApplicationContext()
+    provider = SemanticNeedleEmbeddingProvider()
+    config = RuntimeConfig(
+        embeddings=EmbeddingSettings(provider="fake", dimensions=2),
+    )
+    set_mcp_context(ctx)
+
+    try:
+        with (
+            patch("memorable.mcp.server.load_runtime_config", return_value=config),
+            patch(
+                "memorable.retrieval.embeddings.build_embedding_provider",
+                return_value=provider,
+            ),
+        ):
+            for entity_id, name in [
+                ("entity:mcp-super-source", "MCP Supersession Source"),
+                ("entity:mcp-super-target", "MCP Supersession Target"),
+            ]:
+                result = remember_entity_tool(
+                    space="test-space",
+                    entity_id=entity_id,
+                    entity_type="Component",
+                    name=name,
+                    source="source:mcp-test",
+                    at="2026-06-05T12:00:00Z",
+                )
+                assert "error" not in result
+
+            old_result = remember_relation_tool(
+                space="test-space",
+                relation_id="relation:mcp-superseded-refresh",
+                source_entity_id="entity:mcp-super-source",
+                target_entity_id="entity:mcp-super-target",
+                relation_type="depends-on",
+                statement="Obsolete vector text relation should be superseded",
+                source="source:mcp-test",
+                at="2026-06-05T12:01:00Z",
+            )
+            assert "error" not in old_result
+
+            new_result = remember_relation_tool(
+                space="test-space",
+                relation_id="relation:mcp-superseding-refresh",
+                source_entity_id="entity:mcp-super-source",
+                target_entity_id="entity:mcp-super-target",
+                relation_type="depends-on",
+                statement="Corrected vector needle relation is current truth",
+                source="source:mcp-test",
+                at="2026-06-05T12:10:00Z",
+                supersedes="relation:mcp-superseded-refresh",
+            )
+            assert "error" not in new_result
+
+            service = build_retrieval_service(ctx, provider, dimensions=2)
+            coverage = service.index_coverage("test-space")
+            current_old_query = search_memory_tool(
+                space="test-space",
+                query="obsolete vector text",
+            )
+            current_new_query = search_memory_tool(
+                space="test-space",
+                query="corrected vector needle",
+            )
+            historical_result = search_memory_tool(
+                space="test-space",
+                query="obsolete vector text",
+                mode="as-of",
+                as_of="2026-06-05T12:05:00Z",
+            )
+
+        assert coverage.stale_by_kind["Relation"] == 0
+        assert coverage.ok
+        assert "relation:mcp-superseded-refresh" not in {
+            result["source_id"] for result in current_old_query["results"]
+        }
+        assert "relation:mcp-superseding-refresh" in {
+            result["source_id"] for result in current_new_query["results"]
+        }
+        assert "relation:mcp-superseded-refresh" in {
+            result["source_id"] for result in historical_result["results"]
+        }
+    finally:
+        set_mcp_context(default_context)
+
+
+def test_mcp_invalidate_relation_refreshes_embedding_and_current_search_filters_it(
+    tmp_path: Path,
+    monkeypatch,
+) -> None:
+    from memorable.core.context import default_context
+    from memorable.mcp.server import (
+        invalidate_tool,
+        remember_entity_tool,
+        remember_relation_tool,
+        search_memory_tool,
+        set_mcp_context,
+    )
+    from memorable.retrieval.service import build_retrieval_service
+
+    _write_profile(tmp_path)
+    monkeypatch.chdir(tmp_path)
+
+    ctx = ApplicationContext()
+    provider = SemanticNeedleEmbeddingProvider()
+    config = RuntimeConfig(
+        embeddings=EmbeddingSettings(provider="fake", dimensions=2),
+    )
+    set_mcp_context(ctx)
+
+    try:
+        with (
+            patch("memorable.mcp.server.load_runtime_config", return_value=config),
+            patch(
+                "memorable.retrieval.embeddings.build_embedding_provider",
+                return_value=provider,
+            ),
+        ):
+            for entity_id, name in [
+                ("entity:mcp-invalid-source", "MCP Invalid Source"),
+                ("entity:mcp-invalid-target", "MCP Invalid Target"),
+            ]:
+                result = remember_entity_tool(
+                    space="test-space",
+                    entity_id=entity_id,
+                    entity_type="Component",
+                    name=name,
+                    source="source:mcp-test",
+                    at="2026-06-05T12:00:00Z",
+                )
+                assert "error" not in result
+
+            relation_result = remember_relation_tool(
+                space="test-space",
+                relation_id="relation:mcp-invalidate-refresh",
+                source_entity_id="entity:mcp-invalid-source",
+                target_entity_id="entity:mcp-invalid-target",
+                relation_type="depends-on",
+                statement="Corrected vector needle relation to invalidate",
+                source="source:mcp-test",
+                at="2026-06-05T12:01:00Z",
+            )
+            assert "error" not in relation_result
+
+            invalidation_result = invalidate_tool(
+                space="test-space",
+                record_id="relation:mcp-invalidate-refresh",
+                record_type="relation",
+                at="2026-06-05T12:05:00Z",
+            )
+            assert "error" not in invalidation_result
+
+            service = build_retrieval_service(ctx, provider, dimensions=2)
+            coverage = service.index_coverage("test-space")
+            current_result = search_memory_tool(
+                space="test-space",
+                query="corrected vector needle",
+            )
+            historical_result = search_memory_tool(
+                space="test-space",
+                query="corrected vector needle",
+                mode="as-of",
+                as_of="2026-06-05T12:03:00Z",
+            )
+
+        assert coverage.stale_by_kind["Relation"] == 0
+        assert coverage.ok
+        assert "relation:mcp-invalidate-refresh" not in {
+            result["source_id"] for result in current_result["results"]
+        }
+        assert "relation:mcp-invalidate-refresh" in {
+            result["source_id"] for result in historical_result["results"]
+        }
+    finally:
+        set_mcp_context(default_context)
+
+
+def test_mcp_complete_task_refreshes_embedding_and_remains_retrievable(
+    tmp_path: Path,
+    monkeypatch,
+) -> None:
+    from memorable.core.context import default_context
+    from memorable.mcp.server import (
+        complete_task_tool,
+        remember_task_tool,
+        search_memory_tool,
+        set_mcp_context,
+    )
+    from memorable.retrieval.service import build_retrieval_service
+
+    _write_profile(tmp_path)
+    monkeypatch.chdir(tmp_path)
+
+    ctx = ApplicationContext()
+    provider = SemanticNeedleEmbeddingProvider()
+    config = RuntimeConfig(
+        embeddings=EmbeddingSettings(provider="fake", dimensions=2),
+    )
+    set_mcp_context(ctx)
+
+    try:
+        with (
+            patch("memorable.mcp.server.load_runtime_config", return_value=config),
+            patch(
+                "memorable.retrieval.embeddings.build_embedding_provider",
+                return_value=provider,
+            ),
+        ):
+            remember_result = remember_task_tool(
+                space="test-space",
+                task_id="task:mcp-complete-refresh",
+                title="Corrected vector needle task to complete",
+                source="source:mcp-test",
+                at="2026-06-05T12:00:00Z",
+            )
+            assert "error" not in remember_result
+
+            complete_result = complete_task_tool(
+                space="test-space",
+                task_id="task:mcp-complete-refresh",
+                at="2026-06-05T12:05:00Z",
+            )
+            assert "error" not in complete_result
+
+            service = build_retrieval_service(ctx, provider, dimensions=2)
+            coverage = service.index_coverage("test-space")
+
+            current_result = search_memory_tool(
+                space="test-space",
+                query="corrected vector needle",
+            )
+            historical_result = search_memory_tool(
+                space="test-space",
+                query="corrected vector needle",
+                mode="as-of",
+                as_of="2026-06-05T12:03:00Z",
+            )
+
+        assert coverage.stale_by_kind["Task"] == 0
+        assert coverage.ok
+        current_tasks = [
+            result
+            for result in current_result["results"]
+            if result["source_id"] == "task:mcp-complete-refresh"
+        ]
+        historical_tasks = [
+            result
+            for result in historical_result["results"]
+            if result["source_id"] == "task:mcp-complete-refresh"
+        ]
+        assert current_tasks[0]["lifecycle_state"] == "completed"
+        assert historical_tasks[0]["lifecycle_state"] == "open"
+    finally:
+        set_mcp_context(default_context)
+
+
+def test_mcp_correct_relation_refreshes_embedding_without_manual_reindex(
+    tmp_path: Path,
+    monkeypatch,
+) -> None:
+    from memorable.core.context import default_context
+    from memorable.mcp.server import (
+        correct_tool,
+        remember_decision_tool,
+        remember_entity_tool,
+        remember_relation_tool,
+        search_memory_tool,
+        set_mcp_context,
+    )
+
+    _write_profile(tmp_path)
+    monkeypatch.chdir(tmp_path)
+
+    ctx = ApplicationContext()
+    provider = SemanticNeedleEmbeddingProvider()
+    config = RuntimeConfig(
+        embeddings=EmbeddingSettings(provider="fake", dimensions=2),
+    )
+    set_mcp_context(ctx)
+
+    try:
+        with (
+            patch("memorable.mcp.server.load_runtime_config", return_value=config),
+            patch(
+                "memorable.retrieval.embeddings.build_embedding_provider",
+                return_value=provider,
+            ),
+        ):
+            for entity_id, name in [
+                ("entity:mcp-source", "MCP Source"),
+                ("entity:mcp-target", "MCP Target"),
+            ]:
+                result = remember_entity_tool(
+                    space="test-space",
+                    entity_id=entity_id,
+                    entity_type="Component",
+                    name=name,
+                    source="source:mcp-test",
+                    at="2026-06-05T12:00:00Z",
+                )
+                assert "error" not in result
+
+            relation_result = remember_relation_tool(
+                space="test-space",
+                relation_id="relation:mcp-correct-refresh",
+                source_entity_id="entity:mcp-source",
+                target_entity_id="entity:mcp-target",
+                relation_type="depends-on",
+                statement="Obsolete vector text before relation correction",
+                source="source:mcp-test",
+                at="2026-06-05T12:01:00Z",
+            )
+            assert "error" not in relation_result
+
+            for index in range(3):
+                decoy_result = remember_decision_tool(
+                    space="test-space",
+                    decision_id=f"decision:mcp-relation-decoy-{index}",
+                    statement=f"Decoy vector lure {index}",
+                    source="source:mcp-test",
+                    at="2026-06-05T12:02:00Z",
+                )
+                assert "error" not in decoy_result
+
+            correction_result = correct_tool(
+                space="test-space",
+                record_id="relation:mcp-correct-refresh",
+                record_type="relation",
+                new_statement="Corrected vector needle after relation correction",
+                source="source:correction",
+                at="2026-06-05T12:03:00Z",
+            )
+            assert "error" not in correction_result
+
+            provider.calls.clear()
+            search_result = search_memory_tool(
+                space="test-space",
+                query="corrected vector needle",
+            )
+
+        assert provider.calls == ["corrected vector needle"]
+        assert search_result["results"][0]["source_id"] == (
+            "relation:mcp-correct-refresh"
+        )
+        assert search_result["results"][0]["lifecycle_state"] == "current"
     finally:
         set_mcp_context(default_context)
 

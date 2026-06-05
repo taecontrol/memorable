@@ -457,13 +457,20 @@ def _cmd_remember_decision(
         print(f"Error: {e}", file=sys.stderr)
         return 1
 
+    def upsert_decision_embeddings(indexer: EmbeddingIndexer) -> None:
+        indexer.upsert_decision(result.decision)
+        if supersedes is not None:
+            superseded_decision = ctx.decision_repo.get(space, supersedes)
+            if superseded_decision is not None:
+                indexer.upsert_decision(superseded_decision)
+
     if not _index_after_canonical_write(
         ctx=ctx,
         config=config,
         space=space,
         source_id=result.decision.id,
         source_kind="Decision",
-        upsert=lambda indexer: indexer.upsert_decision(result.decision),
+        upsert=upsert_decision_embeddings,
     ):
         return 1
 
@@ -523,13 +530,20 @@ def _cmd_remember_observation(
         print(f"Error: {e}", file=sys.stderr)
         return 1
 
+    def upsert_observation_embeddings(indexer: EmbeddingIndexer) -> None:
+        indexer.upsert_observation(result.observation)
+        if supersedes is not None:
+            superseded_observation = ctx.observation_repo.get(space, supersedes)
+            if superseded_observation is not None:
+                indexer.upsert_observation(superseded_observation)
+
     if not _index_after_canonical_write(
         ctx=ctx,
         config=config,
         space=space,
         source_id=result.observation.id,
         source_kind="Observation",
-        upsert=lambda indexer: indexer.upsert_observation(result.observation),
+        upsert=upsert_observation_embeddings,
     ):
         return 1
 
@@ -594,13 +608,20 @@ def _cmd_remember_relation(
         print(f"Error: {e}", file=sys.stderr)
         return 1
 
+    def upsert_relation_embeddings(indexer: EmbeddingIndexer) -> None:
+        indexer.upsert_relation(result.relation)
+        if supersedes is not None:
+            superseded_relation = ctx.relation_repo.get(space, supersedes)
+            if superseded_relation is not None:
+                indexer.upsert_relation(superseded_relation)
+
     if not _index_after_canonical_write(
         ctx=ctx,
         config=config,
         space=space,
         source_id=result.relation.id,
         source_kind="Relation",
-        upsert=lambda indexer: indexer.upsert_relation(result.relation),
+        upsert=upsert_relation_embeddings,
     ):
         return 1
 
@@ -811,6 +832,16 @@ def _cmd_complete_task(
         print(f"Error: {e}", file=sys.stderr)
         return 1
 
+    if not _index_after_canonical_write(
+        ctx=ctx,
+        config=config,
+        space=space,
+        source_id=result.task.id,
+        source_kind="Task",
+        upsert=lambda indexer: indexer.upsert_task(result.task),
+    ):
+        return 1
+
     print(
         json.dumps(
             {
@@ -1013,6 +1044,45 @@ def _cmd_invalidate(
         print(f"Error: {e}", file=sys.stderr)
         return 1
 
+    if record_type == "decision":
+        invalidated_decision = ctx.decision_repo.get(space, result.record_id)
+        if invalidated_decision is None:
+            print(
+                f"Error: Invalidated Decision '{result.record_id}' not found "
+                f"in MemorySpace '{space}'.",
+                file=sys.stderr,
+            )
+            return 1
+        if not _index_after_canonical_write(
+            ctx=ctx,
+            config=config,
+            space=space,
+            source_id=result.record_id,
+            source_kind="Decision",
+            upsert=lambda indexer: indexer.upsert_decision(invalidated_decision),
+        ):
+            return 1
+    elif record_type == "observation":
+        invalidated_observation = ctx.observation_repo.get(space, result.record_id)
+        if invalidated_observation is None:
+            print(
+                f"Error: Invalidated Observation '{result.record_id}' not found "
+                f"in MemorySpace '{space}'.",
+                file=sys.stderr,
+            )
+            return 1
+        if not _index_after_canonical_write(
+            ctx=ctx,
+            config=config,
+            space=space,
+            source_id=result.record_id,
+            source_kind="Observation",
+            upsert=lambda indexer: indexer.upsert_observation(
+                invalidated_observation
+            ),
+        ):
+            return 1
+
     print(
         json.dumps(
             {
@@ -1065,6 +1135,43 @@ def _cmd_correct(
     except ValueError as e:
         print(f"Error: {e}", file=sys.stderr)
         return 1
+
+    if record_type == "decision":
+        corrected_decision = ctx.decision_repo.get(space, result.record_id)
+        if corrected_decision is None:
+            print(
+                f"Error: Corrected Decision '{result.record_id}' not found "
+                f"in MemorySpace '{space}'.",
+                file=sys.stderr,
+            )
+            return 1
+        if not _index_after_canonical_write(
+            ctx=ctx,
+            config=config,
+            space=space,
+            source_id=result.record_id,
+            source_kind="Decision",
+            upsert=lambda indexer: indexer.upsert_decision(corrected_decision),
+        ):
+            return 1
+    elif record_type == "observation":
+        corrected_observation = ctx.observation_repo.get(space, result.record_id)
+        if corrected_observation is None:
+            print(
+                f"Error: Corrected Observation '{result.record_id}' not found "
+                f"in MemorySpace '{space}'.",
+                file=sys.stderr,
+            )
+            return 1
+        if not _index_after_canonical_write(
+            ctx=ctx,
+            config=config,
+            space=space,
+            source_id=result.record_id,
+            source_kind="Observation",
+            upsert=lambda indexer: indexer.upsert_observation(corrected_observation),
+        ):
+            return 1
 
     print(
         json.dumps(

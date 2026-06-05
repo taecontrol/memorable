@@ -369,11 +369,18 @@ def remember_decision_tool(
     except ValueError as e:
         return {"error": str(e)}
 
+    def upsert_decision_embeddings(indexer: EmbeddingIndexer) -> None:
+        indexer.upsert_decision(result.decision)
+        if supersedes is not None:
+            superseded_decision = _context.decision_repo.get(space, supersedes)
+            if superseded_decision is not None:
+                indexer.upsert_decision(superseded_decision)
+
     index_error = _index_after_canonical_write(
         space=space,
         source_id=result.decision.id,
         source_kind="Decision",
-        upsert=lambda indexer: indexer.upsert_decision(result.decision),
+        upsert=upsert_decision_embeddings,
     )
     if index_error is not None:
         return index_error
@@ -450,11 +457,18 @@ def remember_observation_tool(
     except ValueError as e:
         return {"error": str(e)}
 
+    def upsert_observation_embeddings(indexer: EmbeddingIndexer) -> None:
+        indexer.upsert_observation(result.observation)
+        if supersedes is not None:
+            superseded_observation = _context.observation_repo.get(space, supersedes)
+            if superseded_observation is not None:
+                indexer.upsert_observation(superseded_observation)
+
     index_error = _index_after_canonical_write(
         space=space,
         source_id=result.observation.id,
         source_kind="Observation",
-        upsert=lambda indexer: indexer.upsert_observation(result.observation),
+        upsert=upsert_observation_embeddings,
     )
     if index_error is not None:
         return index_error
@@ -531,11 +545,18 @@ def remember_relation_tool(
             return _profile_type_error(e)
         return {"error": str(e)}
 
+    def upsert_relation_embeddings(indexer: EmbeddingIndexer) -> None:
+        indexer.upsert_relation(result.relation)
+        if supersedes is not None:
+            superseded_relation = _context.relation_repo.get(space, supersedes)
+            if superseded_relation is not None:
+                indexer.upsert_relation(superseded_relation)
+
     index_error = _index_after_canonical_write(
         space=space,
         source_id=result.relation.id,
         source_kind="Relation",
-        upsert=lambda indexer: indexer.upsert_relation(result.relation),
+        upsert=upsert_relation_embeddings,
     )
     if index_error is not None:
         return index_error
@@ -849,6 +870,15 @@ def complete_task_tool(
     except ValueError as e:
         return {"error": str(e)}
 
+    index_error = _index_after_canonical_write(
+        space=space,
+        source_id=result.task.id,
+        source_kind="Task",
+        upsert=lambda indexer: indexer.upsert_task(result.task),
+    )
+    if index_error is not None:
+        return index_error
+
     return {
         "task_id": result.task.id,
         "lifecycle_state": result.task.lifecycle_state,
@@ -1153,6 +1183,60 @@ def invalidate_tool(
     except ValueError as e:
         return {"error": str(e)}
 
+    if record_type == "decision":
+        invalidated_decision = _context.decision_repo.get(space, result.record_id)
+        if invalidated_decision is None:
+            return {
+                "error": (
+                    f"Invalidated Decision '{result.record_id}' not found "
+                    f"in MemorySpace '{space}'."
+                )
+            }
+        index_error = _index_after_canonical_write(
+            space=space,
+            source_id=result.record_id,
+            source_kind="Decision",
+            upsert=lambda indexer: indexer.upsert_decision(invalidated_decision),
+        )
+        if index_error is not None:
+            return index_error
+    elif record_type == "observation":
+        invalidated_observation = _context.observation_repo.get(space, result.record_id)
+        if invalidated_observation is None:
+            return {
+                "error": (
+                    f"Invalidated Observation '{result.record_id}' not found "
+                    f"in MemorySpace '{space}'."
+                )
+            }
+        index_error = _index_after_canonical_write(
+            space=space,
+            source_id=result.record_id,
+            source_kind="Observation",
+            upsert=lambda indexer: indexer.upsert_observation(
+                invalidated_observation
+            ),
+        )
+        if index_error is not None:
+            return index_error
+    elif record_type == "relation":
+        invalidated_relation = _context.relation_repo.get(space, result.record_id)
+        if invalidated_relation is None:
+            return {
+                "error": (
+                    f"Invalidated Relation '{result.record_id}' not found "
+                    f"in MemorySpace '{space}'."
+                )
+            }
+        index_error = _index_after_canonical_write(
+            space=space,
+            source_id=result.record_id,
+            source_kind="Relation",
+            upsert=lambda indexer: indexer.upsert_relation(invalidated_relation),
+        )
+        if index_error is not None:
+            return index_error
+
     return {
         "record_id": result.record_id,
         "space": result.space,
@@ -1266,6 +1350,60 @@ def correct_tool(
         )
     except ValueError as e:
         return {"error": str(e)}
+
+    if record_type == "decision":
+        corrected_decision = _context.decision_repo.get(space, result.record_id)
+        if corrected_decision is None:
+            return {
+                "error": (
+                    f"Corrected Decision '{result.record_id}' not found "
+                    f"in MemorySpace '{space}'."
+                )
+            }
+        index_error = _index_after_canonical_write(
+            space=space,
+            source_id=result.record_id,
+            source_kind="Decision",
+            upsert=lambda indexer: indexer.upsert_decision(corrected_decision),
+        )
+        if index_error is not None:
+            return index_error
+    elif record_type == "observation":
+        corrected_observation = _context.observation_repo.get(space, result.record_id)
+        if corrected_observation is None:
+            return {
+                "error": (
+                    f"Corrected Observation '{result.record_id}' not found "
+                    f"in MemorySpace '{space}'."
+                )
+            }
+        index_error = _index_after_canonical_write(
+            space=space,
+            source_id=result.record_id,
+            source_kind="Observation",
+            upsert=lambda indexer: indexer.upsert_observation(
+                corrected_observation
+            ),
+        )
+        if index_error is not None:
+            return index_error
+    elif record_type == "relation":
+        corrected_relation = _context.relation_repo.get(space, result.record_id)
+        if corrected_relation is None:
+            return {
+                "error": (
+                    f"Corrected Relation '{result.record_id}' not found "
+                    f"in MemorySpace '{space}'."
+                )
+            }
+        index_error = _index_after_canonical_write(
+            space=space,
+            source_id=result.record_id,
+            source_kind="Relation",
+            upsert=lambda indexer: indexer.upsert_relation(corrected_relation),
+        )
+        if index_error is not None:
+            return index_error
 
     return {
         "record_id": result.record_id,
