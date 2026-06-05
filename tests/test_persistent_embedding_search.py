@@ -816,6 +816,64 @@ def test_cli_remember_upserts_embeddings_for_all_retrievable_kinds(
     }.issubset(result_ids)
 
 
+def test_indexing_service_correction_replaces_embedding_without_duplicates() -> None:
+    """Deep module: re-upserting after Indexable Text changes replaces, not appends.
+
+    The live correct/supersede/invalidate/complete wiring relies on the indexing
+    service upserting (replace-by-source) so a refreshed lifecycle record leaves
+    exactly one Embedding carrying the new Indexable Text -- never a stale
+    duplicate that would let outdated text keep matching searches.
+    """
+    from memorable.retrieval.index import InMemoryEmbeddingIndex
+    from memorable.retrieval.indexing import EmbeddingIndexer
+
+    profile = load_profile_from_yaml(PROFILE_YAML)
+    at = datetime(2026, 6, 5, 12, 0, tzinfo=UTC)
+    decision_repo = InMemoryDecisionRepository()
+    RememberDecisionService(repository=decision_repo, profile=profile).remember(
+        space="test-space",
+        decision_id="decision:lifecycle",
+        statement="Original statement indexed at write time",
+        source_id="source:lifecycle-test",
+        at=at,
+    )
+
+    index = InMemoryEmbeddingIndex()
+    indexer = EmbeddingIndexer(
+        retrieval_index=index,
+        embedding_provider=CountingEmbeddingProvider(dimensions=8),
+        dimensions=8,
+    )
+
+    # Write-time upsert: exactly one Embedding carrying the original text.
+    original = decision_repo.get("test-space", "decision:lifecycle")
+    indexer.upsert_decision(original)
+    records = index.records(space="test-space")
+    assert len(records) == 1
+    assert records[0].source_kind == "Decision"
+    assert records[0].space == "test-space"
+    original_text = records[0].indexable_text
+    original_hash = records[0].indexable_text_hash
+
+    # Correction changes the Indexable Text; re-upsert must refresh in place.
+    decision_repo.correct(
+        space="test-space",
+        record_id="decision:lifecycle",
+        new_statement="Corrected statement that changes the Indexable Text",
+    )
+    corrected = decision_repo.get("test-space", "decision:lifecycle")
+    indexer.upsert_decision(corrected)
+
+    refreshed = index.records(space="test-space")
+    assert len(refreshed) == 1  # upsert replaced -- no stale duplicate
+    assert refreshed[0].indexable_text != original_text
+    assert refreshed[0].indexable_text_hash != original_hash
+    assert (
+        refreshed[0].indexable_text_hash
+        == hashlib.sha256(refreshed[0].indexable_text.encode("utf-8")).hexdigest()
+    )
+
+
 @pytest.mark.parametrize(
     ("record_kind", "record_id", "source_kind", "remember_args"),
     [
