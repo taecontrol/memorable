@@ -1463,7 +1463,17 @@ async function runPrdWorkflowAutomation(room: AgentRoom, pi: ExtensionAPI): Prom
 		workflow.phase = "compacting";
 		await saveManifest(room);
 		await routeMessage(room, "agent-room", HUMAN_NAME, `Compacting agents after #${slice.number}.`, "compact", pi);
-		await compactResidentAgents(room, slice);
+		const { deferred } = await compactResidentAgents(room, slice);
+		if (deferred.length > 0) {
+			await routeMessage(
+				room,
+				"agent-room",
+				HUMAN_NAME,
+				`Compaction deferred for ${deferred.join(", ")} after #${slice.number} (provider overloaded past retry budget); continuing without blocking. Context will compact on the next attempt.`,
+				"compact-deferred",
+				pi,
+			);
+		}
 
 		workflow.currentSliceIndex += 1;
 		const next = currentPrdSlice(room);
@@ -1513,31 +1523,50 @@ async function commitCurrentSlice(room: AgentRoom, slice: PrdRunMetadata["ordere
 	]);
 }
 
-async function compactResidentAgents(room: AgentRoom, slice: PrdRunMetadata["orderedSlices"][number]): Promise<void> {
+// Compaction is an optimization (context trimming), not correctness. Normal agent
+// turns auto-retry transient provider overload (HTTP 529) via the agent loop, but the
+// compaction/summarization path has no built-in retry — a single overload throws.
+// Rather than wedge the whole PRD workflow in "blocked", defer compaction for any agent
+// whose overload outlasts the retry budget and let the workflow proceed; that agent's
+// context compacts on the next attempt (or via auto-compaction during its next turn).
+async function compactResidentAgents(
+	room: AgentRoom,
+	slice: PrdRunMetadata["orderedSlices"][number],
+): Promise<{ deferred: string[] }> {
 	const instructions = `Slice #${slice.number} ${slice.title} was approved and committed. Preserve AgentRoom decisions, review verdicts, files changed, verification evidence, unresolved blockers, and the next assigned slice.`;
+	const deferred: string[] = [];
 	for (const agent of room.agents.values()) {
 		if (agent.session.isStreaming) throw new Error(`Cannot compact while ${agent.role.name} is running.`);
 		agent.stats.status = "running";
 		agent.stats.currentTask = "compacting";
 		updateDashboard(room);
-		await compactWithRetry(agent.session, instructions);
+		try {
+			await compactWithRetry(agent.session, instructions);
+		} catch (error) {
+			if (!isOverloadedError(error)) throw error;
+			deferred.push(agent.role.name);
+		}
 		const fresh = statsFromSession(agent.session);
 		agent.stats = { ...fresh, inbox: pendingMessagesFor(room, agent.role.name).length };
 		updateDashboard(room);
 	}
+	return { deferred };
 }
 
-const COMPACT_MAX_ATTEMPTS = 5;
+// Overload incidents routinely outlast a few seconds, so spread retries across a few
+// minutes (1,2,4,8,16,32,60,60s ≈ 3min) before giving up and deferring compaction.
+const COMPACT_MAX_ATTEMPTS = 8;
 const COMPACT_BACKOFF_BASE_MS = 1000;
-const COMPACT_BACKOFF_CAP_MS = 30000;
+const COMPACT_BACKOFF_CAP_MS = 60000;
 
 function sleep(ms: number): Promise<void> {
 	return new Promise((resolve) => setTimeout(resolve, ms));
 }
 
 // Compaction issues a model call (turn-prefix summarization) that can hit transient
-// provider overload (HTTP 529). A single failure here used to wedge the whole PRD
-// workflow in "blocked" with no recovery, so retry transient overloads with backoff.
+// provider overload (HTTP 529). Unlike normal turns, this path has no built-in retry,
+// so retry transient overloads with backoff here; on exhaustion the caller defers
+// compaction instead of blocking the workflow.
 async function compactWithRetry(session: AgentSession, instructions: string): Promise<void> {
 	for (let attempt = 1; ; attempt += 1) {
 		try {
