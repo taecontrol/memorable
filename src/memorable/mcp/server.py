@@ -883,7 +883,18 @@ def reindex_space_tool(space: str) -> dict[str, object]:
         provider,
         dimensions=config.embeddings.dimensions,
     )
-    result = service.reindex(space)
+    try:
+        result = service.reindex(space)
+    except Exception as e:
+        return {
+            "error": (
+                f"Reindex failed for MemorySpace '{space}'. Run `memorable "
+                "doctor` to diagnose Embedding Provider and vector index "
+                "compatibility, then retry `memorable reindex --space "
+                f"{space}`. Original error: {e}"
+            ),
+            "reindex_command": f"memorable reindex --space {space}",
+        }
     return {
         "space": result.space,
         "indexed_total": result.indexed_total,
@@ -918,7 +929,10 @@ def search_memory_tool(
         as_of: ISO timestamp, required when mode is "as-of"
     """
     from memorable.retrieval.embeddings import build_embedding_provider
-    from memorable.retrieval.service import build_retrieval_service
+    from memorable.retrieval.service import (
+        EmbeddingIndexCompatibilityError,
+        build_retrieval_service,
+    )
 
     config = load_runtime_config(include_environment_overrides=True)
     try:
@@ -937,12 +951,18 @@ def search_memory_tool(
     if as_of is not None:
         as_of_dt = parse_iso_timestamp(as_of)
 
-    results = service.search(
-        space=space,
-        query=query,
-        mode=mode,
-        as_of=as_of_dt,
-    )
+    try:
+        results = service.search(
+            space=space,
+            query=query,
+            mode=mode,
+            as_of=as_of_dt,
+        )
+    except EmbeddingIndexCompatibilityError as e:
+        return {
+            "error": str(e),
+            "reindex_command": f"memorable reindex --space {space}",
+        }
 
     return {
         "query": query,

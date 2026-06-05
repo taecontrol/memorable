@@ -876,7 +876,10 @@ def _cmd_search(
     space = resolve_space(getattr(args, "space", None))
 
     from memorable.retrieval.embeddings import build_embedding_provider
-    from memorable.retrieval.service import build_retrieval_service
+    from memorable.retrieval.service import (
+        EmbeddingIndexCompatibilityError,
+        build_retrieval_service,
+    )
 
     try:
         provider = build_embedding_provider(
@@ -897,12 +900,16 @@ def _cmd_search(
     if hasattr(args, "as_of") and args.as_of is not None:
         as_of = parse_iso_timestamp(args.as_of)
 
-    results = service.search(
-        space=space,
-        query=args.query,
-        mode=mode,
-        as_of=as_of,
-    )
+    try:
+        results = service.search(
+            space=space,
+            query=args.query,
+            mode=mode,
+            as_of=as_of,
+        )
+    except EmbeddingIndexCompatibilityError as e:
+        print(f"Error: {e}", file=sys.stderr)
+        return 1
 
     output = {
         "query": args.query,
@@ -948,7 +955,17 @@ def _cmd_reindex(
         provider,
         dimensions=config.embeddings.dimensions,
     )
-    result = service.reindex(space)
+    try:
+        result = service.reindex(space)
+    except Exception as e:
+        print(
+            f"Error: Reindex failed for MemorySpace '{space}'. Run "
+            "`memorable doctor` to diagnose Embedding Provider and vector "
+            "index compatibility, then retry `memorable reindex --space "
+            f"{space}`. Original error: {e}",
+            file=sys.stderr,
+        )
+        return 1
     print(
         json.dumps(
             {

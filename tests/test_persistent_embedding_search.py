@@ -33,17 +33,25 @@ from memorable.retrieval.service import HybridRetrievalService
 
 
 class CountingEmbeddingProvider:
-    def __init__(self, dimensions: int = 8) -> None:
+    def __init__(
+        self,
+        dimensions: int = 8,
+        *,
+        provider_name: str = "counting",
+        model_name: str = "deterministic-test",
+    ) -> None:
         self.dimensions = dimensions
+        self._provider_name = provider_name
+        self._model_name = model_name
         self.calls: list[str] = []
 
     @property
     def provider_name(self) -> str:
-        return "counting"
+        return self._provider_name
 
     @property
     def model_name(self) -> str:
-        return "deterministic-test"
+        return self._model_name
 
     def embed(self, text: str) -> list[float]:
         self.calls.append(text)
@@ -54,6 +62,45 @@ class CountingEmbeddingProvider:
         if magnitude == 0.0:
             return vector
         return [value / magnitude for value in vector]
+
+
+class FailingOnSecondEmbedProvider(CountingEmbeddingProvider):
+    def embed(self, text: str) -> list[float]:
+        if self.calls:
+            self.calls.append(text)
+            raise RuntimeError("embedding provider offline")
+        return super().embed(text)
+
+
+class FailingSearchIndex:
+    def __init__(self) -> None:
+        from memorable.retrieval.index import InMemoryEmbeddingIndex
+
+        self._inner = InMemoryEmbeddingIndex()
+
+    def store(self, record: EmbeddingRecord) -> None:
+        self._inner.store(record)
+
+    def clear_space(self, space: str) -> None:
+        self._inner.clear_space(space)
+
+    def delete(self, *, space: str, source_id: str, source_kind: str) -> None:
+        self._inner.delete(space=space, source_id=source_id, source_kind=source_kind)
+
+    def records(self, *, space: str | None = None) -> list[EmbeddingRecord]:
+        return self._inner.records(space=space)
+
+    def search(
+        self,
+        space: str,
+        query_vector: list[float],
+        top_k: int = 10,
+        *,
+        provider_name: str | None = None,
+        model_name: str | None = None,
+        dimensions: int | None = None,
+    ) -> list[object]:
+        raise RuntimeError("vector index offline")
 
 
 class FailingEmbeddingIndex:
@@ -211,6 +258,44 @@ def _write_profile(tmp_path: Path) -> None:
     memorable_dir = tmp_path / ".memorable"
     memorable_dir.mkdir()
     (memorable_dir / "memory.yaml").write_text(PROFILE_YAML, encoding="utf-8")
+
+
+def test_index_coverage_reports_stale_indexable_text() -> None:
+    profile = load_profile_from_yaml(PROFILE_YAML)
+    at = datetime(2026, 6, 5, 12, 0, tzinfo=UTC)
+    decision_repo = InMemoryDecisionRepository()
+    RememberDecisionService(repository=decision_repo, profile=profile).remember(
+        space="test-space",
+        decision_id="decision:stale-coverage",
+        statement="Original statement stored in the Embedding index",
+        source_id="source:coverage-test",
+        at=at,
+    )
+
+    service = HybridRetrievalService(
+        entity_repo=InMemoryEntityRepository(),
+        decision_repo=decision_repo,
+        task_repo=InMemoryTaskRepository(),
+        observation_repo=InMemoryObservationRepository(),
+        relation_repo=InMemoryRelationRepository(),
+        embedding_provider=CountingEmbeddingProvider(dimensions=8),
+        dimensions=8,
+    )
+    service.reindex("test-space")
+
+    decision_repo.correct(
+        space="test-space",
+        record_id="decision:stale-coverage",
+        new_statement="Corrected statement that needs a fresh Embedding",
+    )
+
+    report = service.index_coverage("test-space")
+
+    assert report.expected_by_kind["Decision"] == 1
+    assert report.missing_by_kind["Decision"] == 0
+    assert report.stale_by_kind["Decision"] == 1
+    assert not report.ok
+    assert "memorable reindex --space test-space" in report.actionable_hint
 
 
 def test_reindex_preserves_embedding_metadata() -> None:
@@ -473,6 +558,252 @@ def test_cli_remember_upserts_embeddings_for_all_retrievable_kinds(
         "observation:cli-immediate-kind",
         "relation:cli-immediate-kind",
     }.issubset(result_ids)
+
+
+def test_cli_search_reports_embedding_provider_failure_with_doctor_hint(
+    tmp_path: Path,
+    monkeypatch,
+    capsys,
+) -> None:
+    from memorable.cli import main
+
+    _write_profile(tmp_path)
+    monkeypatch.chdir(tmp_path)
+
+    ctx = ApplicationContext()
+    driver = MagicMock()
+    provider = FailingOnSecondEmbedProvider(dimensions=8)
+    config = RuntimeConfig(
+        embeddings=EmbeddingSettings(provider="fake", dimensions=8),
+    )
+
+    with (
+        patch("memorable.cli.build_production_context", return_value=(ctx, driver)),
+        patch("memorable.cli.load_runtime_config", return_value=config),
+        patch(
+            "memorable.retrieval.embeddings.build_embedding_provider",
+            return_value=provider,
+        ),
+    ):
+        assert (
+            main(
+                [
+                    "remember",
+                    "decision",
+                    "--space",
+                    "test-space",
+                    "--id",
+                    "decision:search-provider-failure",
+                    "--statement",
+                    "Search should report Embedding Provider failures",
+                    "--source",
+                    "source:cli-test",
+                    "--at",
+                    "2026-06-05T12:00:00Z",
+                ]
+            )
+            == 0
+        )
+        capsys.readouterr()
+
+        assert (
+            main(
+                [
+                    "search",
+                    "--space",
+                    "test-space",
+                    "--query",
+                    "provider failure",
+                ]
+            )
+            == 1
+        )
+        search_output = capsys.readouterr()
+
+    assert "Embedding Provider" in search_output.err
+    assert "memorable doctor" in search_output.err
+    assert "embedding provider offline" in search_output.err
+
+
+def test_cli_search_reports_vector_index_failure_with_doctor_hint(
+    tmp_path: Path,
+    monkeypatch,
+    capsys,
+) -> None:
+    from memorable.cli import main
+
+    _write_profile(tmp_path)
+    monkeypatch.chdir(tmp_path)
+
+    ctx = ApplicationContext(retrieval_index=FailingSearchIndex())
+    driver = MagicMock()
+    provider = CountingEmbeddingProvider(dimensions=8)
+    config = RuntimeConfig(
+        embeddings=EmbeddingSettings(provider="fake", dimensions=8),
+    )
+
+    with (
+        patch("memorable.cli.build_production_context", return_value=(ctx, driver)),
+        patch("memorable.cli.load_runtime_config", return_value=config),
+        patch(
+            "memorable.retrieval.embeddings.build_embedding_provider",
+            return_value=provider,
+        ),
+    ):
+        assert (
+            main(
+                [
+                    "remember",
+                    "decision",
+                    "--space",
+                    "test-space",
+                    "--id",
+                    "decision:search-index-failure",
+                    "--statement",
+                    "Search should report vector index failures",
+                    "--source",
+                    "source:cli-test",
+                    "--at",
+                    "2026-06-05T12:00:00Z",
+                ]
+            )
+            == 0
+        )
+        capsys.readouterr()
+
+        assert (
+            main(
+                [
+                    "search",
+                    "--space",
+                    "test-space",
+                    "--query",
+                    "vector index failure",
+                ]
+            )
+            == 1
+        )
+        search_output = capsys.readouterr()
+
+    assert "Embedding index search failed" in search_output.err
+    assert "memorable doctor" in search_output.err
+    assert "vector index offline" in search_output.err
+
+
+def test_cli_search_reports_reindex_when_only_incompatible_embeddings_exist(
+    tmp_path: Path,
+    monkeypatch,
+    capsys,
+) -> None:
+    from memorable.cli import main
+
+    _write_profile(tmp_path)
+    monkeypatch.chdir(tmp_path)
+
+    ctx = ApplicationContext()
+    driver = MagicMock()
+    old_provider = CountingEmbeddingProvider(
+        dimensions=8,
+        provider_name="old-provider",
+        model_name="old-model",
+    )
+    active_provider = CountingEmbeddingProvider(
+        dimensions=8,
+        provider_name="active-provider",
+        model_name="active-model",
+    )
+    config = RuntimeConfig(
+        embeddings=EmbeddingSettings(provider="fake", dimensions=8),
+    )
+
+    with (
+        patch("memorable.cli.build_production_context", return_value=(ctx, driver)),
+        patch("memorable.cli.load_runtime_config", return_value=config),
+        patch(
+            "memorable.retrieval.embeddings.build_embedding_provider",
+            side_effect=[old_provider, active_provider],
+        ),
+    ):
+        assert (
+            main(
+                [
+                    "remember",
+                    "decision",
+                    "--space",
+                    "test-space",
+                    "--id",
+                    "decision:incompatible-index",
+                    "--statement",
+                    "Search should fail loud when only old Embeddings exist",
+                    "--source",
+                    "source:cli-test",
+                    "--at",
+                    "2026-06-05T12:00:00Z",
+                ]
+            )
+            == 0
+        )
+        capsys.readouterr()
+
+        assert (
+            main(
+                [
+                    "search",
+                    "--space",
+                    "test-space",
+                    "--query",
+                    "old embedding compatibility",
+                ]
+            )
+            == 1
+        )
+        search_output = capsys.readouterr()
+
+    assert "No compatible Embeddings" in search_output.err
+    assert "active-provider" in search_output.err
+    assert "active-model" in search_output.err
+    assert "memorable reindex --space test-space" in search_output.err
+
+
+def test_cli_reindex_reports_index_failure_with_doctor_hint(
+    tmp_path: Path,
+    monkeypatch,
+    capsys,
+) -> None:
+    from memorable.cli import main
+
+    _write_profile(tmp_path)
+    monkeypatch.chdir(tmp_path)
+
+    profile = load_profile_from_yaml(PROFILE_YAML)
+    ctx = ApplicationContext(retrieval_index=FailingEmbeddingIndex())
+    RememberDecisionService(repository=ctx.decision_repo, profile=profile).remember(
+        space="test-space",
+        decision_id="decision:reindex-index-failure",
+        statement="Reindex should report vector index failures",
+        source_id="source:cli-test",
+        at=datetime(2026, 6, 5, 12, 0, tzinfo=UTC),
+    )
+    driver = MagicMock()
+    provider = CountingEmbeddingProvider(dimensions=8)
+    config = RuntimeConfig(
+        embeddings=EmbeddingSettings(provider="fake", dimensions=8),
+    )
+
+    with (
+        patch("memorable.cli.build_production_context", return_value=(ctx, driver)),
+        patch("memorable.cli.load_runtime_config", return_value=config),
+        patch(
+            "memorable.retrieval.embeddings.build_embedding_provider",
+            return_value=provider,
+        ),
+    ):
+        assert main(["reindex", "--space", "test-space"]) == 1
+        output = capsys.readouterr()
+
+    assert "Reindex failed" in output.err
+    assert "memorable doctor" in output.err
+    assert "vector index unavailable" in output.err
 
 
 def test_cli_reindex_backfills_memory_for_later_search(
@@ -762,6 +1093,112 @@ def test_mcp_remember_reports_partial_state_when_embedding_upsert_fails(
         assert "Canonical memory was written" in str(result["error"])
         assert "vector index unavailable" in str(result["error"])
         assert current["record_id"] == "decision:mcp-partial-index"
+    finally:
+        set_mcp_context(default_context)
+
+
+def test_mcp_search_reports_reindex_when_only_incompatible_embeddings_exist(
+    tmp_path: Path,
+    monkeypatch,
+) -> None:
+    from memorable.core.context import default_context
+    from memorable.mcp.server import (
+        remember_decision_tool,
+        search_memory_tool,
+        set_mcp_context,
+    )
+
+    _write_profile(tmp_path)
+    monkeypatch.chdir(tmp_path)
+
+    ctx = ApplicationContext()
+    old_provider = CountingEmbeddingProvider(
+        dimensions=8,
+        provider_name="old-provider",
+        model_name="old-model",
+    )
+    active_provider = CountingEmbeddingProvider(
+        dimensions=8,
+        provider_name="active-provider",
+        model_name="active-model",
+    )
+    config = RuntimeConfig(
+        embeddings=EmbeddingSettings(provider="fake", dimensions=8),
+    )
+    set_mcp_context(ctx)
+
+    try:
+        with (
+            patch("memorable.mcp.server.load_runtime_config", return_value=config),
+            patch(
+                "memorable.retrieval.embeddings.build_embedding_provider",
+                side_effect=[old_provider, active_provider],
+            ),
+        ):
+            remember_result = remember_decision_tool(
+                space="test-space",
+                decision_id="decision:mcp-incompatible-index",
+                statement="MCP search should report incompatible Embedding coverage",
+                source="source:mcp-test",
+                at="2026-06-05T12:00:00Z",
+            )
+            assert "error" not in remember_result
+
+            search_result = search_memory_tool(
+                space="test-space",
+                query="old embedding compatibility",
+            )
+
+        assert "No compatible Embeddings" in str(search_result["error"])
+        assert "active-provider" in str(search_result["error"])
+        assert search_result["reindex_command"] == (
+            "memorable reindex --space test-space"
+        )
+    finally:
+        set_mcp_context(default_context)
+
+
+def test_mcp_reindex_reports_index_failure_with_doctor_hint(
+    tmp_path: Path,
+    monkeypatch,
+) -> None:
+    from memorable.core.context import default_context
+    from memorable.mcp.server import reindex_space_tool, set_mcp_context
+
+    _write_profile(tmp_path)
+    monkeypatch.chdir(tmp_path)
+
+    profile = load_profile_from_yaml(PROFILE_YAML)
+    ctx = ApplicationContext(retrieval_index=FailingEmbeddingIndex())
+    RememberDecisionService(repository=ctx.decision_repo, profile=profile).remember(
+        space="test-space",
+        decision_id="decision:mcp-reindex-index-failure",
+        statement="MCP reindex should report vector index failures",
+        source_id="source:mcp-test",
+        at=datetime(2026, 6, 5, 12, 0, tzinfo=UTC),
+    )
+    provider = CountingEmbeddingProvider(dimensions=8)
+    config = RuntimeConfig(
+        embeddings=EmbeddingSettings(provider="fake", dimensions=8),
+    )
+    set_mcp_context(ctx)
+
+    try:
+        with (
+            patch("memorable.mcp.server.load_runtime_config", return_value=config),
+            patch(
+                "memorable.retrieval.embeddings.build_embedding_provider",
+                return_value=provider,
+            ),
+        ):
+            result = reindex_space_tool(space="test-space")
+
+        assert "Reindex failed" in str(result["error"])
+        assert "memorable doctor" in str(result["error"])
+        assert "vector index unavailable" in str(result["error"])
+        assert result["reindex_command"] == (
+            "memorable reindex --space test-space"
+        )
     finally:
         set_mcp_context(default_context)
 
