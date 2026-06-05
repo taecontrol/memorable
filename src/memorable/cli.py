@@ -330,6 +330,39 @@ def _index_after_canonical_write(
     return True
 
 
+def _delete_after_canonical_forget(
+    *,
+    ctx: ApplicationContext,
+    space: str,
+    source_id: str,
+    source_kind: str,
+) -> bool:
+    """Delete a derived Embedding after canonical memory was forgotten."""
+    try:
+        ctx.retrieval_index.delete(
+            space=space,
+            source_id=source_id,
+            source_kind=source_kind,
+        )
+    except Exception as exc:
+        print(
+            "Error: Canonical memory was forgotten, but derived Embedding index "
+            f"maintenance failed for {source_kind} '{source_id}' in "
+            f"MemorySpace '{space}'. Run `memorable reindex --space {space}` "
+            f"to erase stale derived Embeddings. Original error: {exc}",
+            file=sys.stderr,
+        )
+        return False
+    return True
+
+
+_RECORD_EMBEDDING_SOURCE_KIND = {
+    "decision": "Decision",
+    "observation": "Observation",
+    "task": "Task",
+}
+
+
 def _cmd_remember_entity(
     args: argparse.Namespace,
     ctx: ApplicationContext,
@@ -1198,16 +1231,33 @@ def _cmd_forget(
     service = ForgetService(repository=ctx.forget_repo)
     try:
         if args.target_type == "entity":
+            cascaded_relations = list(ctx.relation_repo.list_by_entity(space, args.id))
             result = service.forget_entity(space=space, entity_id=args.id)
+            embedding_deletions = [
+                (result.record_id, "Entity"),
+                *((relation.id, "Relation") for relation in cascaded_relations),
+            ]
         else:
             result = service.forget_record(
                 space=space,
                 record_id=args.id,
                 record_kind=args.target_type,
             )
+            embedding_deletions = [
+                (result.record_id, _RECORD_EMBEDDING_SOURCE_KIND[result.record_kind])
+            ]
     except ValueError as e:
         print(f"Error: {e}", file=sys.stderr)
         return 1
+
+    for source_id, source_kind in embedding_deletions:
+        if not _delete_after_canonical_forget(
+            ctx=ctx,
+            space=space,
+            source_id=source_id,
+            source_kind=source_kind,
+        ):
+            return 1
 
     print(
         json.dumps(

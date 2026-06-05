@@ -584,6 +584,459 @@ def test_cli_remember_upserts_embeddings_for_all_retrievable_kinds(
     }.issubset(result_ids)
 
 
+@pytest.mark.parametrize(
+    ("record_kind", "record_id", "source_kind", "remember_args"),
+    [
+        (
+            "decision",
+            "decision:cli-forget-index-decision",
+            "Decision",
+            ["decision", "--statement", "Scratch decision Embedding should be erased"],
+        ),
+        (
+            "observation",
+            "observation:cli-forget-index-observation",
+            "Observation",
+            [
+                "observation",
+                "--statement",
+                "Scratch observation Embedding should be erased",
+            ],
+        ),
+        (
+            "task",
+            "task:cli-forget-index-task",
+            "Task",
+            ["task", "--title", "Scratch task Embedding should be erased"],
+        ),
+    ],
+)
+def test_cli_forget_record_erases_derived_embedding_and_keeps_entities(
+    tmp_path: Path,
+    monkeypatch,
+    capsys,
+    record_kind: str,
+    record_id: str,
+    source_kind: str,
+    remember_args: list[str],
+) -> None:
+    from memorable.cli import main
+    from memorable.retrieval.service import build_retrieval_service
+
+    _write_profile(tmp_path)
+    monkeypatch.chdir(tmp_path)
+
+    ctx = ApplicationContext()
+    driver = MagicMock()
+    provider = CountingEmbeddingProvider(dimensions=8)
+    config = RuntimeConfig(
+        embeddings=EmbeddingSettings(provider="fake", dimensions=8),
+    )
+
+    with (
+        patch("memorable.cli.build_production_context", return_value=(ctx, driver)),
+        patch("memorable.cli.load_runtime_config", return_value=config),
+        patch(
+            "memorable.retrieval.embeddings.build_embedding_provider",
+            return_value=provider,
+        ),
+    ):
+        assert (
+            main(
+                [
+                    "remember",
+                    "entity",
+                    "--space",
+                    "test-space",
+                    "--id",
+                    "entity:cli-forget-retained",
+                    "--type",
+                    "Component",
+                    "--name",
+                    "Retained independent Entity",
+                    "--source",
+                    "source:cli-test",
+                    "--at",
+                    "2026-06-05T12:00:00Z",
+                ]
+            )
+            == 0
+        )
+        capsys.readouterr()
+
+        assert (
+            main(
+                [
+                    "remember",
+                    remember_args[0],
+                    "--space",
+                    "test-space",
+                    "--id",
+                    record_id,
+                    *remember_args[1:],
+                    "--source",
+                    "source:cli-test",
+                    "--at",
+                    "2026-06-05T12:01:00Z",
+                ]
+            )
+            == 0
+        )
+        capsys.readouterr()
+
+        assert any(
+            record.source_id == record_id and record.source_kind == source_kind
+            for record in ctx.retrieval_index.records(space="test-space")
+        )
+
+        assert (
+            main(
+                [
+                    "forget",
+                    "--space",
+                    "test-space",
+                    "--target-type",
+                    record_kind,
+                    "--id",
+                    record_id,
+                ]
+            )
+            == 0
+        )
+        capsys.readouterr()
+
+        provider.calls.clear()
+        service = build_retrieval_service(ctx, provider, dimensions=8)
+        results = service.search(
+            space="test-space",
+            query="Scratch Embedding should be erased",
+        )
+        coverage = service.index_coverage("test-space")
+
+    remaining_embeddings = ctx.retrieval_index.records(space="test-space")
+    assert ctx.entity_repo.get("test-space", "entity:cli-forget-retained") is not None
+    assert any(
+        record.source_id == "entity:cli-forget-retained"
+        and record.source_kind == "Entity"
+        for record in remaining_embeddings
+    )
+    assert not any(
+        record.source_id == record_id and record.source_kind == source_kind
+        for record in remaining_embeddings
+    )
+    assert record_id not in {result.source_id for result in results}
+    assert provider.calls == ["Scratch Embedding should be erased"]
+    assert coverage.ok
+
+
+def test_cli_forget_entity_erases_entity_and_cascaded_relation_embeddings(
+    tmp_path: Path,
+    monkeypatch,
+    capsys,
+) -> None:
+    from memorable.cli import main
+    from memorable.retrieval.service import build_retrieval_service
+
+    _write_profile(tmp_path)
+    monkeypatch.chdir(tmp_path)
+
+    ctx = ApplicationContext()
+    driver = MagicMock()
+    provider = CountingEmbeddingProvider(dimensions=8)
+    config = RuntimeConfig(
+        embeddings=EmbeddingSettings(provider="fake", dimensions=8),
+    )
+
+    with (
+        patch("memorable.cli.build_production_context", return_value=(ctx, driver)),
+        patch("memorable.cli.load_runtime_config", return_value=config),
+        patch(
+            "memorable.retrieval.embeddings.build_embedding_provider",
+            return_value=provider,
+        ),
+    ):
+        for entity_id, name in [
+            ("entity:cli-forget-source", "CLI forgotten source"),
+            ("entity:cli-forget-target", "CLI retained target"),
+        ]:
+            assert (
+                main(
+                    [
+                        "remember",
+                        "entity",
+                        "--space",
+                        "test-space",
+                        "--id",
+                        entity_id,
+                        "--type",
+                        "Component",
+                        "--name",
+                        name,
+                        "--source",
+                        "source:cli-test",
+                        "--at",
+                        "2026-06-05T12:00:00Z",
+                    ]
+                )
+                == 0
+            )
+            capsys.readouterr()
+
+        assert (
+            main(
+                [
+                    "remember",
+                    "relation",
+                    "--space",
+                    "test-space",
+                    "--id",
+                    "relation:cli-cascade-erased",
+                    "--source-entity-id",
+                    "entity:cli-forget-source",
+                    "--target-entity-id",
+                    "entity:cli-forget-target",
+                    "--relation-type",
+                    "depends-on",
+                    "--statement",
+                    "Forgotten source depends on retained target",
+                    "--source",
+                    "source:cli-test",
+                    "--at",
+                    "2026-06-05T12:01:00Z",
+                ]
+            )
+            == 0
+        )
+        capsys.readouterr()
+
+        assert (
+            main(
+                [
+                    "forget",
+                    "--space",
+                    "test-space",
+                    "--target-type",
+                    "entity",
+                    "--id",
+                    "entity:cli-forget-source",
+                ]
+            )
+            == 0
+        )
+        capsys.readouterr()
+
+        provider.calls.clear()
+        service = build_retrieval_service(ctx, provider, dimensions=8)
+        results = service.search(
+            space="test-space",
+            query="Forgotten source depends on retained target",
+        )
+        coverage = service.index_coverage("test-space")
+
+    remaining_embeddings = ctx.retrieval_index.records(space="test-space")
+    remaining_sources = {
+        (record.source_kind, record.source_id) for record in remaining_embeddings
+    }
+    assert ctx.entity_repo.get("test-space", "entity:cli-forget-source") is None
+    assert ctx.relation_repo.get("test-space", "relation:cli-cascade-erased") is None
+    assert ctx.entity_repo.get("test-space", "entity:cli-forget-target") is not None
+    assert ("Entity", "entity:cli-forget-source") not in remaining_sources
+    assert ("Relation", "relation:cli-cascade-erased") not in remaining_sources
+    assert ("Entity", "entity:cli-forget-target") in remaining_sources
+    assert "relation:cli-cascade-erased" not in {
+        result.source_id for result in results
+    }
+    assert provider.calls == ["Forgotten source depends on retained target"]
+    assert coverage.ok
+
+
+def test_mcp_forget_record_erases_derived_embedding_and_keeps_entities(
+    tmp_path: Path,
+    monkeypatch,
+) -> None:
+    from memorable.core.context import default_context
+    from memorable.mcp.server import (
+        forget_record_tool,
+        remember_decision_tool,
+        remember_entity_tool,
+        set_mcp_context,
+    )
+    from memorable.retrieval.service import build_retrieval_service
+
+    _write_profile(tmp_path)
+    monkeypatch.chdir(tmp_path)
+
+    ctx = ApplicationContext()
+    provider = CountingEmbeddingProvider(dimensions=8)
+    config = RuntimeConfig(
+        embeddings=EmbeddingSettings(provider="fake", dimensions=8),
+    )
+    set_mcp_context(ctx)
+
+    try:
+        with (
+            patch("memorable.mcp.server.load_runtime_config", return_value=config),
+            patch(
+                "memorable.retrieval.embeddings.build_embedding_provider",
+                return_value=provider,
+            ),
+        ):
+            entity_result = remember_entity_tool(
+                space="test-space",
+                entity_id="entity:mcp-forget-retained",
+                entity_type="Component",
+                name="MCP retained independent Entity",
+                source="source:mcp-test",
+                at="2026-06-05T12:00:00Z",
+            )
+            assert "error" not in entity_result
+
+            decision_result = remember_decision_tool(
+                space="test-space",
+                decision_id="decision:mcp-forget-index",
+                statement="MCP scratch decision Embedding should be erased",
+                source="source:mcp-test",
+                at="2026-06-05T12:01:00Z",
+            )
+            assert "error" not in decision_result
+            assert any(
+                record.source_id == "decision:mcp-forget-index"
+                and record.source_kind == "Decision"
+                for record in ctx.retrieval_index.records(space="test-space")
+            )
+
+            forget_result = forget_record_tool(
+                space="test-space",
+                record_id="decision:mcp-forget-index",
+                record_type="decision",
+            )
+            assert "error" not in forget_result
+
+            provider.calls.clear()
+            service = build_retrieval_service(ctx, provider, dimensions=8)
+            results = service.search(
+                space="test-space",
+                query="MCP scratch decision Embedding should be erased",
+            )
+            coverage = service.index_coverage("test-space")
+
+        remaining_embeddings = ctx.retrieval_index.records(space="test-space")
+        assert (
+            ctx.entity_repo.get("test-space", "entity:mcp-forget-retained")
+            is not None
+        )
+        assert any(
+            record.source_id == "entity:mcp-forget-retained"
+            and record.source_kind == "Entity"
+            for record in remaining_embeddings
+        )
+        assert not any(
+            record.source_id == "decision:mcp-forget-index"
+            and record.source_kind == "Decision"
+            for record in remaining_embeddings
+        )
+        assert "decision:mcp-forget-index" not in {
+            result.source_id for result in results
+        }
+        assert provider.calls == ["MCP scratch decision Embedding should be erased"]
+        assert coverage.ok
+    finally:
+        set_mcp_context(default_context)
+
+
+def test_mcp_forget_entity_erases_entity_and_cascaded_relation_embeddings(
+    tmp_path: Path,
+    monkeypatch,
+) -> None:
+    from memorable.core.context import default_context
+    from memorable.mcp.server import (
+        forget_entity_tool,
+        remember_entity_tool,
+        remember_relation_tool,
+        set_mcp_context,
+    )
+    from memorable.retrieval.service import build_retrieval_service
+
+    _write_profile(tmp_path)
+    monkeypatch.chdir(tmp_path)
+
+    ctx = ApplicationContext()
+    provider = CountingEmbeddingProvider(dimensions=8)
+    config = RuntimeConfig(
+        embeddings=EmbeddingSettings(provider="fake", dimensions=8),
+    )
+    set_mcp_context(ctx)
+
+    try:
+        with (
+            patch("memorable.mcp.server.load_runtime_config", return_value=config),
+            patch(
+                "memorable.retrieval.embeddings.build_embedding_provider",
+                return_value=provider,
+            ),
+        ):
+            for entity_id, name in [
+                ("entity:mcp-forget-source", "MCP forgotten source"),
+                ("entity:mcp-forget-target", "MCP retained target"),
+            ]:
+                entity_result = remember_entity_tool(
+                    space="test-space",
+                    entity_id=entity_id,
+                    entity_type="Component",
+                    name=name,
+                    source="source:mcp-test",
+                    at="2026-06-05T12:00:00Z",
+                )
+                assert "error" not in entity_result
+
+            relation_result = remember_relation_tool(
+                space="test-space",
+                relation_id="relation:mcp-cascade-erased",
+                source_entity_id="entity:mcp-forget-source",
+                target_entity_id="entity:mcp-forget-target",
+                relation_type="depends-on",
+                statement="MCP forgotten source depends on retained target",
+                source="source:mcp-test",
+                at="2026-06-05T12:01:00Z",
+            )
+            assert "error" not in relation_result
+
+            forget_result = forget_entity_tool(
+                space="test-space",
+                entity_id="entity:mcp-forget-source",
+            )
+            assert "error" not in forget_result
+
+            provider.calls.clear()
+            service = build_retrieval_service(ctx, provider, dimensions=8)
+            results = service.search(
+                space="test-space",
+                query="MCP forgotten source depends on retained target",
+            )
+            coverage = service.index_coverage("test-space")
+
+        remaining_embeddings = ctx.retrieval_index.records(space="test-space")
+        remaining_sources = {
+            (record.source_kind, record.source_id) for record in remaining_embeddings
+        }
+        assert ctx.entity_repo.get("test-space", "entity:mcp-forget-source") is None
+        assert (
+            ctx.relation_repo.get("test-space", "relation:mcp-cascade-erased")
+            is None
+        )
+        assert ctx.entity_repo.get("test-space", "entity:mcp-forget-target") is not None
+        assert ("Entity", "entity:mcp-forget-source") not in remaining_sources
+        assert ("Relation", "relation:mcp-cascade-erased") not in remaining_sources
+        assert ("Entity", "entity:mcp-forget-target") in remaining_sources
+        assert "relation:mcp-cascade-erased" not in {
+            result.source_id for result in results
+        }
+        assert provider.calls == ["MCP forgotten source depends on retained target"]
+        assert coverage.ok
+    finally:
+        set_mcp_context(default_context)
+
+
 def test_cli_invalidate_decision_refreshes_embedding_and_current_search_filters_it(
     tmp_path: Path,
     monkeypatch,

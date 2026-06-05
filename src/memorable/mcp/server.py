@@ -117,6 +117,41 @@ def _index_after_canonical_write(
     return None
 
 
+def _delete_after_canonical_forget(
+    *,
+    space: str,
+    source_id: str,
+    source_kind: str,
+) -> dict[str, object] | None:
+    """Delete a derived Embedding after canonical memory was forgotten."""
+    try:
+        _context.retrieval_index.delete(
+            space=space,
+            source_id=source_id,
+            source_kind=source_kind,
+        )
+    except Exception as exc:
+        return {
+            "error": (
+                "Canonical memory was forgotten, but derived Embedding index "
+                f"maintenance failed for {source_kind} '{source_id}' in "
+                f"MemorySpace '{space}'. Run `memorable reindex --space "
+                f"{space}` to erase stale derived Embeddings. Original error: "
+                f"{exc}"
+            ),
+            "canonical_memory_forgotten": True,
+            "reindex_command": f"memorable reindex --space {space}",
+        }
+    return None
+
+
+_RECORD_EMBEDDING_SOURCE_KIND = {
+    "decision": "Decision",
+    "observation": "Observation",
+    "task": "Task",
+}
+
+
 def _resolve_repository(
     record_type: str,
 ) -> TemporalRecordRepository | dict[str, object]:
@@ -1456,6 +1491,14 @@ def forget_record_tool(
     except ValueError as e:
         return {"error": str(e)}
 
+    delete_error = _delete_after_canonical_forget(
+        space=space,
+        source_id=result.record_id,
+        source_kind=_RECORD_EMBEDDING_SOURCE_KIND[result.record_kind],
+    )
+    if delete_error is not None:
+        return delete_error
+
     return {
         "forgotten": True,
         "record_id": result.record_id,
@@ -1499,9 +1542,25 @@ def forget_entity_tool(
     service = ForgetService(repository=_context.forget_repo)
 
     try:
+        cascaded_relations = list(
+            _context.relation_repo.list_by_entity(space, entity_id)
+        )
         result = service.forget_entity(space=space, entity_id=entity_id)
     except ValueError as e:
         return {"error": str(e)}
+
+    embedding_deletions = [
+        (result.record_id, "Entity"),
+        *((relation.id, "Relation") for relation in cascaded_relations),
+    ]
+    for source_id, source_kind in embedding_deletions:
+        delete_error = _delete_after_canonical_forget(
+            space=space,
+            source_id=source_id,
+            source_kind=source_kind,
+        )
+        if delete_error is not None:
+            return delete_error
 
     return {
         "forgotten": True,
