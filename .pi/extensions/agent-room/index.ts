@@ -17,7 +17,7 @@ import {
 	type ExtensionContext,
 	type ToolDefinition,
 } from "@earendil-works/pi-coding-agent";
-import { Text } from "@earendil-works/pi-tui";
+import { Text, truncateToWidth, visibleWidth } from "@earendil-works/pi-tui";
 import { Type } from "typebox";
 
 const STATE_TYPE = "agent-room-state";
@@ -238,10 +238,29 @@ function oneLine(value: string): string {
 	return value.replace(/\s+/g, " ").trim();
 }
 
+function fitLine(value: string, width: number, ellipsis = ""): string {
+	const maxWidth = Math.max(0, Math.floor(width));
+	if (maxWidth === 0) return "";
+	if (visibleWidth(value) <= maxWidth) return value;
+	return truncateToWidth(value, maxWidth, ellipsis);
+}
+
+function padToWidth(value: string, width: number): string {
+	const clipped = fitLine(value, width);
+	return `${clipped}${" ".repeat(Math.max(0, Math.floor(width) - visibleWidth(clipped)))}`;
+}
+
+function borderLine(left: string, title: string, right: string, width: number): string {
+	const maxWidth = Math.max(0, Math.floor(width));
+	if (maxWidth === 0) return "";
+	if (maxWidth === 1) return left;
+	const innerWidth = Math.max(0, maxWidth - 2);
+	const clippedTitle = fitLine(title, innerWidth);
+	return `${left}${clippedTitle}${"─".repeat(Math.max(0, innerWidth - visibleWidth(clippedTitle)))}${right}`;
+}
+
 function truncate(value: string, max = MAX_TILE_MESSAGE): string {
-	const text = oneLine(value);
-	if (text.length <= max) return text;
-	return `${text.slice(0, Math.max(0, max - 1))}…`;
+	return fitLine(oneLine(value), max, "…");
 }
 
 function safeId(value: string): string {
@@ -1225,21 +1244,22 @@ function clearDashboard(ctx: ExtensionContext | ExtensionCommandContext): void {
 }
 
 function renderTiles(room: AgentRoom, width: number, theme: any): string[] {
+	const safeWidth = Math.max(0, Math.floor(width));
 	const agents = [...room.agents.values()];
-	if (agents.length === 0) return [];
+	if (agents.length === 0 || safeWidth === 0) return [];
 	const gap = 2;
-	const columns = Math.max(1, Math.min(3, Math.floor((width + gap) / 34), agents.length));
-	const tileWidth = Math.max(28, Math.floor((width - gap * (columns - 1)) / columns));
+	const columns = Math.max(1, Math.min(3, Math.floor((safeWidth + gap) / 34), agents.length));
+	const tileWidth = Math.max(1, Math.floor((safeWidth - gap * (columns - 1)) / columns));
 	const rows: string[] = [];
-	rows.push(theme.fg("accent", `AgentRoom ${room.name} (${room.id})`));
+	rows.push(theme.fg("accent", fitLine(`AgentRoom ${room.name} (${room.id})`, safeWidth, "…")));
 	if (room.manifest.prd) {
 		const prd = room.manifest.prd;
 		const slices = prd.orderedSlices.map((slice) => `#${slice.number}`).join(" → ");
-		rows.push(theme.fg("muted", `PRD #${prd.number}: ${prd.title} | slices: ${slices || "none"}`));
+		rows.push(theme.fg("muted", fitLine(`PRD #${prd.number}: ${prd.title} | slices: ${slices || "none"}`, safeWidth, "…")));
 	}
 	const humanMessage = latestHumanMessage(room);
 	if (humanMessage) {
-		rows.push(theme.fg("warning", `Human msg ${shortMessageId(humanMessage.id)} from ${humanMessage.from}: ${truncate(humanMessage.body, Math.max(40, width - 24))}`));
+		rows.push(theme.fg("warning", fitLine(`Human msg ${shortMessageId(humanMessage.id)} from ${humanMessage.from}: ${oneLine(humanMessage.body)}`, safeWidth, "…")));
 	}
 
 	for (let i = 0; i < agents.length; i += columns) {
@@ -1249,31 +1269,36 @@ function renderTiles(room: AgentRoom, width: number, theme: any): string[] {
 			rows.push(group.map((tile) => tile[line] ?? " ".repeat(tileWidth)).join(" ".repeat(gap)));
 		}
 	}
-	return rows;
+	return rows.map((line) => fitLine(line, safeWidth));
 }
 
 function renderTile(agent: ResidentAgent, width: number, theme: any, index: number): string[] {
+	const tileWidth = Math.max(1, Math.floor(width));
 	const stats = agent.stats;
 	const color = ["borderAccent", "success", "error", "warning", "accent", "muted"][index % 6];
 	const title = ` ${agent.role.title} `;
-	const top = `┌${title}${"─".repeat(Math.max(0, width - title.length - 2))}┐`;
-	const bottom = `└${"─".repeat(Math.max(0, width - 2))}┘`;
+	const top = borderLine("┌", title, "┐", tileWidth);
+	const bottom = borderLine("└", "", "┘", tileWidth);
 	const statusIcon = stats.status === "running" ? "●" : stats.status === "queued" ? "◌" : stats.status === "error" ? "✗" : "○";
 	const status = `${statusIcon} ${stats.status}`;
 	const usage = `${stats.turns} turns ↑${formatTokens(stats.input)} ↓${formatTokens(stats.output)} $${stats.cost.toFixed(4)}`;
 	const body = [
 		status,
-		truncate(stats.currentTask ?? agent.role.description, width - 4),
+		stats.currentTask ?? agent.role.description,
 		`inbox ${stats.inbox} ${usage}`,
-		truncate(stats.error ?? stats.lastMessage ?? "-", width - 4),
+		stats.error ?? stats.lastMessage ?? "-",
 	];
-	return [theme.fg(color, top), ...body.map((line) => theme.fg(color, tileLine(line, width))), theme.fg(color, bottom)];
+	return [theme.fg(color, top), ...body.map((line) => theme.fg(color, tileLine(line, tileWidth))), theme.fg(color, bottom)].map((line) => fitLine(line, tileWidth));
 }
 
 function tileLine(text: string, width: number): string {
-	const innerWidth = Math.max(0, width - 4);
-	const clipped = text.length > innerWidth ? `${text.slice(0, Math.max(0, innerWidth - 1))}…` : text;
-	return `│ ${clipped.padEnd(innerWidth, " ")} │`;
+	const maxWidth = Math.max(0, Math.floor(width));
+	if (maxWidth === 0) return "";
+	if (maxWidth === 1) return "│";
+	if (maxWidth === 2) return "││";
+	if (maxWidth === 3) return "│ │";
+	const innerWidth = Math.max(0, maxWidth - 4);
+	return `│ ${padToWidth(fitLine(oneLine(text), innerWidth, "…"), innerWidth)} │`;
 }
 
 function formatTokens(value: number): string {
