@@ -6,6 +6,7 @@ and provenance-aware explanation into ranked retrieval results.
 
 from __future__ import annotations
 
+import hashlib
 from datetime import datetime
 from typing import TYPE_CHECKING, Literal
 
@@ -20,15 +21,16 @@ from memorable.core.ports import (
     TaskRepository,
 )
 from memorable.retrieval.embeddings import EmbeddingProvider
-from memorable.retrieval.index import InMemoryEmbeddingIndex
+from memorable.retrieval.index import InMemoryEmbeddingIndex, RetrievalIndex
 from memorable.retrieval.indexable_text import (
+    INDEXABLE_TEXT_VERSION,
     indexable_text_for_decision,
     indexable_text_for_entity,
     indexable_text_for_observation,
     indexable_text_for_relation,
     indexable_text_for_task,
 )
-from memorable.retrieval.models import EmbeddingRecord, RetrievalResult
+from memorable.retrieval.models import EmbeddingRecord, ReindexResult, RetrievalResult
 
 if TYPE_CHECKING:
     from memorable.core.context import ApplicationContext
@@ -55,6 +57,7 @@ class HybridRetrievalService:
         inspect_task_service: InspectTaskService | None = None,
         relation_repo: RelationRepository | None = None,
         about_repo: AboutRepository | None = None,
+        retrieval_index: RetrievalIndex | None = None,
     ) -> None:
         self._entity_repo = entity_repo
         self._decision_repo = decision_repo
@@ -64,7 +67,11 @@ class HybridRetrievalService:
         self._about_repo = about_repo
         self._embedding_provider = embedding_provider
         self._dimensions = dimensions
-        self._index = InMemoryEmbeddingIndex()
+        self._index = (
+            retrieval_index
+            if retrieval_index is not None
+            else InMemoryEmbeddingIndex()
+        )
         self._point_in_time_service = (
             point_in_time_service
             if point_in_time_service is not None
@@ -84,94 +91,94 @@ class HybridRetrievalService:
             else None
         )
 
-    def _rebuild_index(self, space: str) -> None:
-        """Rebuild the embedding index from all records in the space.
+    def _store_embedding(
+        self,
+        *,
+        space: str,
+        source_id: str,
+        source_kind: str,
+        indexable_text: str,
+    ) -> None:
+        vector = self._embedding_provider.embed(indexable_text)
+        self._index.store(
+            EmbeddingRecord(
+                source_id=source_id,
+                source_kind=source_kind,
+                space=space,
+                indexable_text=indexable_text,
+                vector=vector,
+                provider_name=self._embedding_provider.provider_name,
+                model_name=self._embedding_provider.model_name,
+                dimensions=self._dimensions,
+                indexable_text_hash=hashlib.sha256(
+                    indexable_text.encode("utf-8")
+                ).hexdigest(),
+                indexable_text_version=INDEXABLE_TEXT_VERSION,
+            )
+        )
 
-        This is simple but correct for the tracer bullet. A production
-        system would maintain the index incrementally.
-        """
-        self._index = InMemoryEmbeddingIndex()
+    def reindex(self, space: str) -> ReindexResult:
+        """Backfill derived Embeddings for every retrievable item in a MemorySpace."""
+        self._index.clear_space(space)
+        indexed_by_kind = {
+            "Entity": 0,
+            "Decision": 0,
+            "Task": 0,
+            "Observation": 0,
+            "Relation": 0,
+        }
 
         for entity in self._entity_repo.list_by_space(space):
-            text = indexable_text_for_entity(entity)
-            vector = self._embedding_provider.embed(text)
-            self._index.store(
-                EmbeddingRecord(
-                    source_id=entity.id,
-                    source_kind="Entity",
-                    space=space,
-                    indexable_text=text,
-                    vector=vector,
-                    provider_name=self._embedding_provider.provider_name,
-                    model_name=self._embedding_provider.model_name,
-                    dimensions=self._dimensions,
-                )
+            self._store_embedding(
+                space=space,
+                source_id=entity.id,
+                source_kind="Entity",
+                indexable_text=indexable_text_for_entity(entity),
             )
+            indexed_by_kind["Entity"] += 1
 
         for decision in self._decision_repo.list_by_space(space):
-            text = indexable_text_for_decision(decision)
-            vector = self._embedding_provider.embed(text)
-            self._index.store(
-                EmbeddingRecord(
-                    source_id=decision.id,
-                    source_kind="Decision",
-                    space=space,
-                    indexable_text=text,
-                    vector=vector,
-                    provider_name=self._embedding_provider.provider_name,
-                    model_name=self._embedding_provider.model_name,
-                    dimensions=self._dimensions,
-                )
+            self._store_embedding(
+                space=space,
+                source_id=decision.id,
+                source_kind="Decision",
+                indexable_text=indexable_text_for_decision(decision),
             )
+            indexed_by_kind["Decision"] += 1
 
         for task in self._task_repo.list_by_space(space):
-            text = indexable_text_for_task(task)
-            vector = self._embedding_provider.embed(text)
-            self._index.store(
-                EmbeddingRecord(
-                    source_id=task.id,
-                    source_kind="Task",
-                    space=space,
-                    indexable_text=text,
-                    vector=vector,
-                    provider_name=self._embedding_provider.provider_name,
-                    model_name=self._embedding_provider.model_name,
-                    dimensions=self._dimensions,
-                )
+            self._store_embedding(
+                space=space,
+                source_id=task.id,
+                source_kind="Task",
+                indexable_text=indexable_text_for_task(task),
             )
+            indexed_by_kind["Task"] += 1
 
         for observation in self._observation_repo.list_by_space(space):
-            text = indexable_text_for_observation(observation)
-            vector = self._embedding_provider.embed(text)
-            self._index.store(
-                EmbeddingRecord(
-                    source_id=observation.id,
-                    source_kind="Observation",
-                    space=space,
-                    indexable_text=text,
-                    vector=vector,
-                    provider_name=self._embedding_provider.provider_name,
-                    model_name=self._embedding_provider.model_name,
-                    dimensions=self._dimensions,
-                )
+            self._store_embedding(
+                space=space,
+                source_id=observation.id,
+                source_kind="Observation",
+                indexable_text=indexable_text_for_observation(observation),
             )
+            indexed_by_kind["Observation"] += 1
 
         if self._relation_repo is not None:
             for relation in self._relation_repo.list_by_space(space):
-                text = indexable_text_for_relation(relation)
-                vector = self._embedding_provider.embed(text)
-                self._index.store(
-                    EmbeddingRecord(
-                        source_id=relation.id,
-                        source_kind="Relation",
-                        space=space,
-                        indexable_text=text,
-                        vector=vector,
-                        provider_name=self._embedding_provider.provider_name,
-                        model_name=self._embedding_provider.model_name,
-                        dimensions=self._dimensions,
-                    )
+                self._store_embedding(
+                    space=space,
+                    source_id=relation.id,
+                    source_kind="Relation",
+                    indexable_text=indexable_text_for_relation(relation),
                 )
+                indexed_by_kind["Relation"] += 1
+
+        return ReindexResult(space=space, indexed_by_kind=indexed_by_kind)
+
+    def _rebuild_index(self, space: str) -> None:
+        """Compatibility wrapper for tests that still name the old rebuild path."""
+        self.reindex(space)
 
     def search(
         self,
@@ -184,12 +191,11 @@ class HybridRetrievalService:
         """Perform hybrid GraphRAG retrieval.
 
         Steps:
-        1. Rebuild index from current repository state
-        2. Embed query and find semantic candidates
-        3. Graph expansion: find related records for each candidate
-        4. Temporal filtering based on mode
-        5. Rank by cosine similarity
-        6. Build provenance-aware explanations
+        1. Embed query and find semantic candidates in the persistent index
+        2. Graph expansion: find related records for each candidate
+        3. Temporal filtering based on mode
+        4. Rank by cosine similarity
+        5. Build provenance-aware explanations
 
         Args:
             space: MemorySpace to search
@@ -199,16 +205,18 @@ class HybridRetrievalService:
             as_of: Required when mode is "as-of"
             top_k: Maximum number of results to return
         """
-        # Step 1: Rebuild index
-        self._rebuild_index(space)
-
-        # Step 2: Semantic candidates
+        # Step 1: Semantic candidates from the persistent index.
         query_vector = self._embedding_provider.embed(query)
         candidates = self._index.search(
-            space=space, query_vector=query_vector, top_k=top_k * 2
+            space=space,
+            query_vector=query_vector,
+            top_k=top_k * 2,
+            provider_name=self._embedding_provider.provider_name,
+            model_name=self._embedding_provider.model_name,
+            dimensions=self._dimensions,
         )
 
-        # Step 3: Graph expansion -- collect related IDs
+        # Step 2: Graph expansion -- collect related IDs
         # Maps source_id → (score, source_kind) so _build_result can
         # dispatch directly without probing all repositories.
         expanded_ids: dict[str, tuple[float, str]] = {}
@@ -804,6 +812,8 @@ class HybridRetrievalService:
 def build_retrieval_service(
     context: ApplicationContext,
     embedding_provider: EmbeddingProvider,
+    *,
+    dimensions: int = 32,
 ) -> HybridRetrievalService:
     """Build a HybridRetrievalService wired to the given context's repos.
 
@@ -815,7 +825,9 @@ def build_retrieval_service(
         decision_repo=context.decision_repo,
         task_repo=context.task_repo,
         embedding_provider=embedding_provider,
+        dimensions=dimensions,
         observation_repo=context.observation_repo,
         relation_repo=context.relation_repo,
         about_repo=context.about_repo,
+        retrieval_index=context.retrieval_index,
     )

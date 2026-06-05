@@ -769,6 +769,40 @@ def complete_task_tool(
 
 
 @mcp_server.tool(
+    name="memorable_reindex_space",
+    description=(
+        "Backfill persistent Embeddings for a MemorySpace using the active "
+        "Embedding Provider, model, and dimensions. Run after upgrading or "
+        "changing Embedding settings before search."
+    ),
+)
+def reindex_space_tool(space: str) -> dict[str, object]:
+    """Backfill derived Embeddings for every retrievable item in a MemorySpace."""
+    from memorable.retrieval.embeddings import build_embedding_provider
+    from memorable.retrieval.service import build_retrieval_service
+
+    config = load_runtime_config(include_environment_overrides=True)
+    try:
+        provider = build_embedding_provider(
+            config.embeddings, api_key=config.embeddings.api_key
+        )
+    except (RuntimeError, ValueError) as e:
+        return {"error": str(e)}
+
+    service = build_retrieval_service(
+        _context,
+        provider,
+        dimensions=config.embeddings.dimensions,
+    )
+    result = service.reindex(space)
+    return {
+        "space": result.space,
+        "indexed_total": result.indexed_total,
+        "indexed_by_kind": result.indexed_by_kind,
+    }
+
+
+@mcp_server.tool(
     name="memorable_search_memory",
     description=(
         "Search memory using Hybrid Retrieval (GraphRAG). "
@@ -804,7 +838,11 @@ def search_memory_tool(
         )
     except (RuntimeError, ValueError) as e:
         return {"error": str(e)}
-    service = build_retrieval_service(_context, provider)
+    service = build_retrieval_service(
+        _context,
+        provider,
+        dimensions=config.embeddings.dimensions,
+    )
 
     as_of_dt = None
     if as_of is not None:

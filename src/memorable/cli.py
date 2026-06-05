@@ -790,7 +790,11 @@ def _cmd_search(
     except (RuntimeError, ValueError) as e:
         print(f"Error: {e}", file=sys.stderr)
         return 1
-    service = build_retrieval_service(ctx, provider)
+    service = build_retrieval_service(
+        ctx,
+        provider,
+        dimensions=config.embeddings.dimensions,
+    )
 
     raw_mode = getattr(args, "mode", "current") or "current"
     mode = cast(Literal["current", "as-of"], raw_mode)
@@ -822,6 +826,44 @@ def _cmd_search(
         ],
     }
     print(json.dumps(output, sort_keys=True, indent=2))
+    return 0
+
+
+def _cmd_reindex(
+    args: argparse.Namespace,
+    ctx: ApplicationContext,
+    config: RuntimeConfig,
+) -> int:
+    """Backfill persistent Embeddings for a MemorySpace."""
+    space = resolve_space(getattr(args, "space", None))
+
+    from memorable.retrieval.embeddings import build_embedding_provider
+    from memorable.retrieval.service import build_retrieval_service
+
+    try:
+        provider = build_embedding_provider(
+            config.embeddings, api_key=config.embeddings.api_key
+        )
+    except (RuntimeError, ValueError) as e:
+        print(f"Error: {e}", file=sys.stderr)
+        return 1
+
+    service = build_retrieval_service(
+        ctx,
+        provider,
+        dimensions=config.embeddings.dimensions,
+    )
+    result = service.reindex(space)
+    print(
+        json.dumps(
+            {
+                "space": result.space,
+                "indexed_total": result.indexed_total,
+                "indexed_by_kind": result.indexed_by_kind,
+            },
+            sort_keys=True,
+        )
+    )
     return 0
 
 
@@ -984,6 +1026,7 @@ _CONTEXT_HANDLERS: dict[
     ("inspect", "provenance"): _cmd_inspect_provenance,
     ("inspect", "history"): _cmd_inspect_history,
     ("search", None): _cmd_search,
+    ("reindex", None): _cmd_reindex,
     ("invalidate", None): _cmd_invalidate,
     ("correct", None): _cmd_correct,
     ("forget", None): _cmd_forget,
@@ -1243,6 +1286,12 @@ def main(argv: list[str] | None = None) -> int:
     search_parser.add_argument("--query", required=True)
     search_parser.add_argument("--mode", default="current")
     search_parser.add_argument("--as-of", default=None)
+
+    # reindex subcommand
+    reindex_parser = subparsers.add_parser(
+        "reindex", help="Backfill persistent Embeddings for a MemorySpace."
+    )
+    reindex_parser.add_argument("--space", default=None)
 
     # invalidate subcommand
     invalidate_parser = subparsers.add_parser(

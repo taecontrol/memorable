@@ -539,6 +539,7 @@ def _build_fixture():
         embedding_provider=provider,
         about_repo=about_repo,
     )
+    retrieval_service.reindex("memorable")
 
     return retrieval_service, entity_repo, decision_repo, task_repo
 
@@ -1105,6 +1106,7 @@ class TestCLISearch:
                 "2026-05-23T10:20:00Z",
             ]
         )
+        main(["reindex", "--space", "memorable"])
 
     def test_search_command(self, capsys) -> None:
         from memorable.cli import main
@@ -1170,6 +1172,7 @@ class TestMCPSearchTool:
 
     def _setup_fixture_via_mcp(self) -> None:
         from memorable.mcp.server import (
+            reindex_space_tool,
             remember_decision_tool,
             remember_entity_tool,
         )
@@ -1197,6 +1200,7 @@ class TestMCPSearchTool:
             at="2026-05-23T10:20:00Z",
             supersedes="decision:storage-path:v1",
         )
+        reindex_space_tool(space="memorable")
 
     def test_search_memory_tool(self) -> None:
         from memorable.mcp.server import search_memory_tool
@@ -1412,6 +1416,7 @@ class TestHybridRetrievalServiceDependencyInjection:
             embedding_provider=provider,
             point_in_time_service=spy_pit,
         )
+        service.reindex("memorable")
 
         at_query = datetime(2026, 5, 23, 10, 17, 0, tzinfo=UTC)
         service.search(
@@ -1480,6 +1485,7 @@ class TestHybridRetrievalServiceDependencyInjection:
             embedding_provider=provider,
             inspect_task_service=spy_inspect,
         )
+        service.reindex("memorable")
 
         at_query = datetime(2026, 5, 23, 10, 27, 0, tzinfo=UTC)
         service.search(
@@ -1608,6 +1614,7 @@ def _build_observation_fixture():
         embedding_provider=provider,
         about_repo=about_repo,
     )
+    service.reindex("memorable")
 
     return service, entity_repo, decision_repo, task_repo, observation_repo
 

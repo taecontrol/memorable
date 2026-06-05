@@ -6,7 +6,8 @@ used for search and ranking.
 
 from __future__ import annotations
 
-from dataclasses import dataclass
+from dataclasses import dataclass, field
+from datetime import UTC, datetime
 
 
 @dataclass(frozen=True)
@@ -25,6 +26,22 @@ class EmbeddingRecord:
     provider_name: str
     model_name: str
     dimensions: int
+    indexable_text_hash: str = ""
+    indexable_text_version: str = "1"
+    created_at: datetime = field(default_factory=lambda: datetime.now(UTC))
+    updated_at: datetime = field(default_factory=lambda: datetime.now(UTC))
+
+
+@dataclass(frozen=True)
+class ReindexResult:
+    """Result of rebuilding derived Embeddings for a MemorySpace."""
+
+    space: str
+    indexed_by_kind: dict[str, int]
+
+    @property
+    def indexed_total(self) -> int:
+        return sum(self.indexed_by_kind.values())
 
 
 @dataclass(frozen=True)

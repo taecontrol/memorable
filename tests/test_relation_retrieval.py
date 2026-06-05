@@ -160,6 +160,7 @@ def _build_relation_fixture():
         relation_repo=relation_repo,
         embedding_provider=provider,
     )
+    service.reindex("myproject")
 
     return (
         service,
