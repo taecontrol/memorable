@@ -28,6 +28,7 @@ from memorable.core.repositories import (
     InMemoryRelationRepository,
     InMemoryTaskRepository,
 )
+from memorable.retrieval.index import InMemoryEmbeddingIndex
 from memorable.retrieval.models import EmbeddingRecord
 from memorable.retrieval.service import (
     EmbeddingIndexCompatibilityError,
@@ -160,6 +161,13 @@ class FailingEmbeddingIndex:
         dimensions: int | None = None,
     ) -> list[object]:
         return []
+
+
+class DeleteFailingEmbeddingIndex(InMemoryEmbeddingIndex):
+    """Stores normally but fails loudly when asked to delete on forget."""
+
+    def delete(self, *, space: str, source_id: str, source_kind: str) -> None:
+        raise RuntimeError("vector index unavailable for delete")
 
 
 PROFILE_YAML = textwrap.dedent(
@@ -1136,6 +1144,81 @@ def test_cli_forget_entity_erases_entity_and_cascaded_relation_embeddings(
     assert "relation:cli-cascade-erased" not in {result.source_id for result in results}
     assert provider.calls == ["Forgotten source depends on retained target"]
     assert coverage.ok
+
+
+def test_cli_forget_reports_partial_state_when_embedding_delete_fails(
+    tmp_path: Path,
+    monkeypatch,
+    capsys,
+) -> None:
+    """Forget index maintenance is synchronous and fail-loud, like the write path.
+
+    When the canonical record is forgotten but its derived Embedding cannot be
+    deleted, forget must surface a visible error (non-zero exit, reindex hint)
+    rather than silently leaving a stale derived vector behind.
+    """
+    from memorable.cli import main
+
+    _write_profile(tmp_path)
+    monkeypatch.chdir(tmp_path)
+
+    ctx = ApplicationContext(retrieval_index=DeleteFailingEmbeddingIndex())
+    driver = MagicMock()
+    provider = CountingEmbeddingProvider(dimensions=8)
+    config = RuntimeConfig(
+        embeddings=EmbeddingSettings(provider="fake", dimensions=8),
+    )
+
+    with (
+        patch("memorable.cli.build_production_context", return_value=(ctx, driver)),
+        patch("memorable.cli.load_runtime_config", return_value=config),
+        patch(
+            "memorable.retrieval.embeddings.build_embedding_provider",
+            return_value=provider,
+        ),
+    ):
+        assert (
+            main(
+                [
+                    "remember",
+                    "decision",
+                    "--space",
+                    "test-space",
+                    "--id",
+                    "decision:cli-forget-fail",
+                    "--statement",
+                    "Forget must fail loud when index delete fails",
+                    "--source",
+                    "source:cli-test",
+                    "--at",
+                    "2026-06-05T12:00:00Z",
+                ]
+            )
+            == 0
+        )
+        capsys.readouterr()
+
+        assert (
+            main(
+                [
+                    "forget",
+                    "--space",
+                    "test-space",
+                    "--target-type",
+                    "decision",
+                    "--id",
+                    "decision:cli-forget-fail",
+                ]
+            )
+            == 1
+        )
+        forget_output = capsys.readouterr()
+
+    assert "Canonical memory was forgotten" in forget_output.err
+    assert "memorable reindex --space test-space" in forget_output.err
+    assert "erase stale derived Embeddings" in forget_output.err
+    # Canonical forget happened before the failing index maintenance.
+    assert ctx.decision_repo.get("test-space", "decision:cli-forget-fail") is None
 
 
 def test_mcp_forget_record_erases_derived_embedding_and_keeps_entities(
