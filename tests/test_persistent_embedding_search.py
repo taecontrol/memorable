@@ -29,7 +29,10 @@ from memorable.core.repositories import (
     InMemoryTaskRepository,
 )
 from memorable.retrieval.models import EmbeddingRecord
-from memorable.retrieval.service import HybridRetrievalService
+from memorable.retrieval.service import (
+    EmbeddingIndexCompatibilityError,
+    HybridRetrievalService,
+)
 
 
 class CountingEmbeddingProvider:
@@ -265,8 +268,19 @@ def test_reindex_backfills_all_retrievable_kinds_and_search_embeds_only_query() 
         query="persistent Embedding retention search",
         top_k=10,
     )
+    repeated_results = service.search(
+        space="test-space",
+        query="persistent Embedding retention search",
+        top_k=10,
+    )
 
-    assert provider.calls == ["persistent Embedding retention search"]
+    assert provider.calls == [
+        "persistent Embedding retention search",
+        "persistent Embedding retention search",
+    ]
+    assert {result.source_id for result in repeated_results} == {
+        result.source_id for result in results
+    }
     result_ids = {result.source_id for result in results}
     assert {
         "entity:auth",
@@ -320,6 +334,117 @@ def test_index_coverage_reports_stale_indexable_text() -> None:
     assert report.stale_by_kind["Decision"] == 1
     assert not report.ok
     assert "memorable reindex --space test-space" in report.actionable_hint
+
+
+def test_search_reports_stale_embedding_coverage_instead_of_using_it() -> None:
+    profile = load_profile_from_yaml(PROFILE_YAML)
+    at = datetime(2026, 6, 5, 12, 0, tzinfo=UTC)
+    decision_repo = InMemoryDecisionRepository()
+    RememberDecisionService(repository=decision_repo, profile=profile).remember(
+        space="test-space",
+        decision_id="decision:stale-search",
+        statement="Original statement stored in a stale Embedding",
+        source_id="source:stale-search-test",
+        at=at,
+    )
+
+    provider = CountingEmbeddingProvider(dimensions=8)
+    service = HybridRetrievalService(
+        entity_repo=InMemoryEntityRepository(),
+        decision_repo=decision_repo,
+        task_repo=InMemoryTaskRepository(),
+        observation_repo=InMemoryObservationRepository(),
+        relation_repo=InMemoryRelationRepository(),
+        embedding_provider=provider,
+        dimensions=8,
+    )
+    service.reindex("test-space")
+    provider.calls.clear()
+
+    decision_repo.correct(
+        space="test-space",
+        record_id="decision:stale-search",
+        new_statement="Corrected statement needs explicit reindex before search",
+    )
+
+    with pytest.raises(EmbeddingIndexCompatibilityError) as error:
+        service.search(
+            space="test-space",
+            query="Original statement stored in a stale Embedding",
+        )
+
+    assert "stale Decision=1" in str(error.value)
+    assert "memorable reindex --space test-space" in str(error.value)
+    assert provider.calls == ["Original statement stored in a stale Embedding"]
+
+
+def test_search_reports_incompatible_embeddings_with_active_coverage() -> None:
+    from memorable.retrieval.index import InMemoryEmbeddingIndex
+    from memorable.retrieval.indexing import EmbeddingIndexer
+
+    profile = load_profile_from_yaml(PROFILE_YAML)
+    at = datetime(2026, 6, 5, 12, 0, tzinfo=UTC)
+    decision_repo = InMemoryDecisionRepository()
+    service = RememberDecisionService(repository=decision_repo, profile=profile)
+    result = service.remember(
+        space="test-space",
+        decision_id="decision:provider-switch",
+        statement="Provider switch should require an explicit reindex",
+        source_id="source:provider-switch-test",
+        at=at,
+    )
+
+    index = InMemoryEmbeddingIndex()
+    old_provider = CountingEmbeddingProvider(
+        dimensions=8,
+        provider_name="old-provider",
+        model_name="old-model",
+    )
+    active_provider = CountingEmbeddingProvider(
+        dimensions=8,
+        provider_name="active-provider",
+        model_name="active-model",
+    )
+    old_service = HybridRetrievalService(
+        entity_repo=InMemoryEntityRepository(),
+        decision_repo=decision_repo,
+        task_repo=InMemoryTaskRepository(),
+        observation_repo=InMemoryObservationRepository(),
+        relation_repo=InMemoryRelationRepository(),
+        embedding_provider=old_provider,
+        dimensions=8,
+        retrieval_index=index,
+    )
+    old_service.reindex("test-space")
+    EmbeddingIndexer(
+        retrieval_index=index,
+        embedding_provider=active_provider,
+        dimensions=8,
+    ).upsert_decision(result.decision)
+
+    active_service = HybridRetrievalService(
+        entity_repo=InMemoryEntityRepository(),
+        decision_repo=decision_repo,
+        task_repo=InMemoryTaskRepository(),
+        observation_repo=InMemoryObservationRepository(),
+        relation_repo=InMemoryRelationRepository(),
+        embedding_provider=active_provider,
+        dimensions=8,
+        retrieval_index=index,
+    )
+    active_provider.calls.clear()
+
+    with pytest.raises(EmbeddingIndexCompatibilityError) as error:
+        active_service.search(
+            space="test-space",
+            query="Provider switch should require an explicit reindex",
+        )
+
+    assert "incompatible stored Embeddings Decision=1" in str(error.value)
+    assert "memorable reindex --space test-space" in str(error.value)
+    assert active_provider.calls == [
+        "Provider switch should require an explicit reindex"
+    ]
 
 
 def test_reindex_preserves_embedding_metadata() -> None:

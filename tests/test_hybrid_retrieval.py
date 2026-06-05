@@ -624,6 +624,7 @@ class TestTemporalFiltering:
             record_id="decision:storage-path:v2",
             invalidation_time=invalidation_time,
         )
+        service.reindex("memorable")
 
         results = service.search(
             space="memorable",
@@ -644,6 +645,7 @@ class TestTemporalFiltering:
             record_id="decision:storage-path:v2",
             invalidation_time=invalidation_time,
         )
+        service.reindex("memorable")
 
         # Query at a time after validity but before invalidation
         at_before_invalidation = datetime(2026, 5, 23, 10, 21, 0, tzinfo=UTC)
@@ -1672,8 +1674,8 @@ class TestObservationIndexableText:
 class TestObservationRetrievalIndex:
     """Observations are indexed and searchable in the hybrid retrieval pipeline."""
 
-    def test_rebuild_index_includes_observations(self) -> None:
-        """Observations get indexed during _rebuild_index."""
+    def test_reindex_includes_observations(self) -> None:
+        """Observations get indexed during explicit reindex."""
         service, *_ = _build_observation_fixture()
 
         # After search, observations should appear in results
@@ -1732,6 +1734,7 @@ class TestObservationTemporalFiltering:
             record_id="observation:coverage",
             invalidation_time=OBSERVATION_TIMESTAMPS["obs_invalidated"],
         )
+        service.reindex("memorable")
 
         results = service.search(
             space="memorable",
@@ -1893,7 +1896,7 @@ class TestSourceKindDispatch:
         ):
             # Bypass graph expansion to isolate _build_result behavior
             service._graph_expand = MagicMock(return_value=[])
-            service._rebuild_index("memorable")
+            service.reindex("memorable")
 
             # Call search which should pass source_kind through
             results = service.search(
@@ -1942,7 +1945,7 @@ class TestSourceKindDispatch:
 
         with patch.object(entity_repo, "get", wraps=entity_repo.get) as entity_get:
             service._graph_expand = MagicMock(return_value=[])
-            service._rebuild_index("memorable")
+            service.reindex("memorable")
 
             results = service.search(
                 space="memorable",

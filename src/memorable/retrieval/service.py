@@ -143,10 +143,6 @@ class HybridRetrievalService:
 
         return ReindexResult(space=space, indexed_by_kind=indexed_by_kind)
 
-    def _rebuild_index(self, space: str) -> None:
-        """Compatibility wrapper for tests that still name the old rebuild path."""
-        self.reindex(space)
-
     def _empty_kind_counts(self) -> dict[str, int]:
         return {kind: 0 for kind in SOURCE_KINDS}
 
@@ -266,7 +262,7 @@ class HybridRetrievalService:
                 "to rebuild derived Embeddings for the active settings."
             )
             raise EmbeddingIndexCompatibilityError(msg)
-        if report.unusable_total and report.unusable_total == report.active_total:
+        if not report.ok:
             raise EmbeddingIndexCompatibilityError(report.actionable_hint)
 
     def search(
@@ -328,8 +324,7 @@ class HybridRetrievalService:
                 f"Original error: {exc}"
             )
             raise EmbeddingIndexCompatibilityError(msg) from exc
-        if not candidates:
-            self._ensure_search_index_compatible(space)
+        self._ensure_search_index_compatible(space)
 
         # Step 2: Graph expansion -- collect related IDs
         # Maps source_id → (score, source_kind) so _build_result can

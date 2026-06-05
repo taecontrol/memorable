@@ -666,6 +666,7 @@ class TestRelationTemporalFilteringInSearch:
             superseded_by="relation:auth-depends-token:v2",
             invalidation_time=RELATION_TIMESTAMPS["relation_v2"],
         )
+        service.reindex("myproject")
 
         results = service.search(
             space="myproject",
@@ -684,6 +685,7 @@ class TestRelationTemporalFilteringInSearch:
             record_id="relation:auth-depends-token",
             invalidation_time=RELATION_TIMESTAMPS["relation_v2"],
         )
+        service.reindex("myproject")
 
         results = service.search(
             space="myproject",
@@ -716,6 +718,7 @@ class TestRelationTemporalFilteringInSearch:
             at=RELATION_TIMESTAMPS["relation_v2"],
             supersedes="relation:auth-depends-token",
         )
+        service.reindex("myproject")
 
         results = service.search(
             space="myproject",
@@ -749,6 +752,7 @@ class TestRelationTemporalFilteringInSearch:
             at=RELATION_TIMESTAMPS["relation_v2"],
             supersedes="relation:auth-depends-token",
         )
+        service.reindex("myproject")
 
         results = service.search(
             space="myproject",
@@ -769,6 +773,7 @@ class TestRelationTemporalFilteringInSearch:
             record_id="relation:auth-depends-token",
             invalidation_time=RELATION_TIMESTAMPS["relation_v2"],
         )
+        service.reindex("myproject")
 
         results = service.search(
             space="myproject",

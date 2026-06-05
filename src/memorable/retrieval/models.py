@@ -86,16 +86,13 @@ class EmbeddingCoverageReport:
             self.missing_total == 0
             and self.stale_total == 0
             and self.unusable_total == 0
+            and self.incompatible_total == 0
         )
 
     @property
     def search_ready(self) -> bool:
-        """Return whether search can use complete active Embedding coverage.
-
-        Search readiness treats stale Indexable Text as diagnosable but not a
-        hard blocker, because temporal filtering still resolves lifecycle truth.
-        """
-        return self.missing_total == 0 and self.unusable_total == 0
+        """Return whether search can use complete current Embedding coverage."""
+        return self.ok
 
     @property
     def actionable_hint(self) -> str:
