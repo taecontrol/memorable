@@ -24,6 +24,24 @@ def test_neo4j_config_has_sensible_defaults() -> None:
     assert config.user == "neo4j"
 
 
+def test_neo4j_config_default_uses_ipv4_loopback() -> None:
+    """Local default URI uses IPv4 loopback, not ambiguous localhost."""
+    from memorable.storage.neo4j.config import Neo4jConfig
+
+    assert Neo4jConfig.default().uri == "bolt://127.0.0.1:7687"
+
+
+def test_neo4j_config_from_env_defaults_to_ipv4_loopback(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """Without an explicit URI override, from_env uses IPv4 loopback."""
+    from memorable.storage.neo4j.config import Neo4jConfig
+
+    monkeypatch.delenv("MEMORABLE_NEO4J_URI", raising=False)
+
+    assert Neo4jConfig.from_env().uri == "bolt://127.0.0.1:7687"
+
+
 def test_neo4j_config_from_env(monkeypatch: pytest.MonkeyPatch) -> None:
     """Neo4jConfig should be constructable from environment variables."""
     from memorable.storage.neo4j.config import Neo4jConfig

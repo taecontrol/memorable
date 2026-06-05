@@ -185,6 +185,9 @@ class TestRemoteUriDetection:
     def test_localhost_127_is_local(self) -> None:
         assert is_remote_uri("bolt://127.0.0.1:7687") is False
 
+    def test_explicit_ipv6_loopback_is_local(self) -> None:
+        assert is_remote_uri("bolt://[::1]:7687") is False
+
     def test_neo4j_plus_s_is_remote(self) -> None:
         assert is_remote_uri("neo4j+s://cloud.neo4j.io:7687") is True
 

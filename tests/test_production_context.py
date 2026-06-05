@@ -97,7 +97,7 @@ def test_fail_fast_error_includes_configured_uri() -> None:
         mock_driver.verify_connectivity.side_effect = Exception("timeout")
         mock_gdb.driver.return_value = mock_driver
 
-        with pytest.raises(ConnectionError, match="bolt://localhost:7687"):
+        with pytest.raises(ConnectionError, match="bolt://127.0.0.1:7687"):
             build_production_context(config)
 
 

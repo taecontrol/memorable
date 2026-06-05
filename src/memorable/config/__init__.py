@@ -19,7 +19,7 @@ import yaml
 
 @dataclass(frozen=True)
 class Neo4jSettings:
-    uri: str = "bolt://localhost:7687"
+    uri: str = "bolt://127.0.0.1:7687"
     user: str = "neo4j"
     password: str = "memorable"
 

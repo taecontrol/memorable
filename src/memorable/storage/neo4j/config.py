@@ -22,7 +22,7 @@ class Neo4jConfig:
     def default(cls) -> Neo4jConfig:
         """Sensible defaults for local development."""
         return cls(
-            uri="bolt://localhost:7687",
+            uri="bolt://127.0.0.1:7687",
             user="neo4j",
             password="memorable",
         )
@@ -31,7 +31,7 @@ class Neo4jConfig:
     def from_env(cls) -> Neo4jConfig:
         """Build config from environment variables."""
         return cls(
-            uri=os.environ.get("MEMORABLE_NEO4J_URI", "bolt://localhost:7687"),
+            uri=os.environ.get("MEMORABLE_NEO4J_URI", "bolt://127.0.0.1:7687"),
             user=os.environ.get("MEMORABLE_NEO4J_USER", "neo4j"),
             password=os.environ.get("MEMORABLE_NEO4J_PASSWORD", "memorable"),
         )
