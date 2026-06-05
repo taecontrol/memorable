@@ -379,6 +379,94 @@ class TestEmbeddingIndex:
         scores = [r.score for r in results]
         assert scores == sorted(scores, reverse=True)
 
+    def test_delete_removes_only_the_targeted_source_item(self) -> None:
+        from memorable.retrieval.models import EmbeddingRecord
+
+        index, provider = self._make_index()
+
+        kept = EmbeddingRecord(
+            source_id="entity:kept",
+            source_kind="Entity",
+            space="memorable",
+            indexable_text="kept text",
+            vector=provider.embed("kept text"),
+            provider_name="fake",
+            model_name="hash-based",
+            dimensions=32,
+        )
+        removed = EmbeddingRecord(
+            source_id="entity:removed",
+            source_kind="Entity",
+            space="memorable",
+            indexable_text="removed text",
+            vector=provider.embed("removed text"),
+            provider_name="fake",
+            model_name="hash-based",
+            dimensions=32,
+        )
+        index.store(kept)
+        index.store(removed)
+
+        index.delete(
+            space="memorable",
+            source_id="entity:removed",
+            source_kind="Entity",
+        )
+
+        remaining = {record.source_id for record in index.records(space="memorable")}
+        assert remaining == {"entity:kept"}
+
+    def test_search_filters_to_compatible_provider_model_dimensions(self) -> None:
+        from memorable.retrieval.models import EmbeddingRecord
+
+        index, provider = self._make_index()
+        vector = provider.embed("shared text")
+
+        compatible = EmbeddingRecord(
+            source_id="entity:compatible",
+            source_kind="Entity",
+            space="memorable",
+            indexable_text="shared text",
+            vector=vector,
+            provider_name="active-provider",
+            model_name="active-model",
+            dimensions=32,
+        )
+        wrong_provider = EmbeddingRecord(
+            source_id="entity:wrong-provider",
+            source_kind="Entity",
+            space="memorable",
+            indexable_text="shared text",
+            vector=vector,
+            provider_name="old-provider",
+            model_name="active-model",
+            dimensions=32,
+        )
+        wrong_model = EmbeddingRecord(
+            source_id="entity:wrong-model",
+            source_kind="Entity",
+            space="memorable",
+            indexable_text="shared text",
+            vector=vector,
+            provider_name="active-provider",
+            model_name="old-model",
+            dimensions=32,
+        )
+        index.store(compatible)
+        index.store(wrong_provider)
+        index.store(wrong_model)
+
+        results = index.search(
+            space="memorable",
+            query_vector=vector,
+            top_k=5,
+            provider_name="active-provider",
+            model_name="active-model",
+            dimensions=32,
+        )
+
+        assert [result.source_id for result in results] == ["entity:compatible"]
+
 
 # =====================================================================
 # 4. Retrieval models tests
