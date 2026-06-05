@@ -51,7 +51,7 @@ class TestProductionWiringIncludesObservation:
         mock_driver = MagicMock()
         mock_driver.verify_connectivity.return_value = None
 
-        with patch("memorable.storage.production.GraphDatabase") as mock_gdb:
+        with patch("memorable.storage.neo4j.connection.GraphDatabase") as mock_gdb:
             mock_gdb.driver.return_value = mock_driver
             ctx, _ = build_production_context(config)
 

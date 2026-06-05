@@ -2914,7 +2914,7 @@ def test_production_context_wires_neo4j_retrieval_index() -> None:
     driver.verify_connectivity.return_value = None
 
     with patch(
-        "memorable.storage.production.GraphDatabase.driver",
+        "memorable.storage.neo4j.connection.GraphDatabase.driver",
         return_value=driver,
     ):
         ctx, returned_driver = build_production_context(RuntimeConfig())

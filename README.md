@@ -154,7 +154,7 @@ All non-secret settings live in `runtime.yaml` / `runtime.local.yaml`. Secrets
 
 | Setting | Env var | Default | Notes |
 |---|---|---|---|
-| `neo4j.uri` | `MEMORABLE_NEO4J_URI` | `bolt://localhost:7687` | Bolt URI. Use `neo4j+s://…` for cloud. |
+| `neo4j.uri` | `MEMORABLE_NEO4J_URI` | `bolt://127.0.0.1:7687` | Bolt URI (IPv4 loopback by default to avoid ambiguous `localhost` resolution). Use `neo4j+s://…` for cloud. |
 | `neo4j.user` | `MEMORABLE_NEO4J_USER` | `neo4j` | Database user. |
 | `neo4j.password` | `MEMORABLE_NEO4J_PASSWORD` | `memorable` | **Secret** — set via `.env`/env. |
 | `docker.neo4j_version` | — | `5.26` | Image tag for the local container. |

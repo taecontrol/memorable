@@ -5,12 +5,11 @@ from dataclasses import dataclass
 from pathlib import Path
 from typing import NotRequired, TypedDict
 
-from neo4j import GraphDatabase
-
 from memorable.config import RuntimeConfig
 from memorable.core.profile import load_profile_from_yaml
 from memorable.retrieval.embeddings import EmbeddingProvider, build_embedding_provider
 from memorable.retrieval.models import EmbeddingCoverageReport
+from memorable.storage.neo4j.connection import connect, resolve_bolt_uri
 from memorable.storage.neo4j.schema import (
     expected_constraint_shapes,
     expected_vector_index_shape,
@@ -54,25 +53,40 @@ FASTEMBED_DOWNLOAD_HINT = "fastembed first use may download the local model (~67
 MEMORY_PROFILE_HINT = "Fix .memorable/memory.yaml so it is valid MemoryProfile YAML."
 EMBEDDING_COVERAGE_CHECK = "embedding_index_coverage"
 
+# Bounded representative read run after basic connectivity succeeds. The Bolt
+# handshake can succeed on a defunct IPv6-first connection while a real read
+# hangs, so doctor exercises a trivial read to reflect actual runtime usage.
+# It must stay a constant-cost read: no MATCH, vector search, Embedding work,
+# GraphRAG Retrieval, or MemorySpace-specific query.
+REPRESENTATIVE_READ_QUERY = "RETURN 1"
+
+LOCAL_ENDPOINT_CHECK = "neo4j_local_endpoint"
+LOCALHOST_COMPATIBILITY_HINT = (
+    "Configured Neo4j URI uses 'localhost'; doctor connected via IPv4 loopback "
+    "({effective}) to avoid IPv6-first hangs. 'memorable db status' still "
+    "reports the configured URI."
+)
+
 
 def ping_neo4j(config: RuntimeConfig) -> None:
-    """Verify the configured Neo4j Bolt endpoint is reachable."""
-    driver = GraphDatabase.driver(
-        config.neo4j.uri,
-        auth=(config.neo4j.user, config.neo4j.password),
-    )
+    """Verify the live Neo4j runtime is reachable AND readable.
+
+    Builds the driver through the shared connection policy (IPv4 compatibility +
+    fail-fast settings), which verifies the Bolt handshake, then runs a bounded
+    representative read so a handshake-only success on a defunct connection is
+    not mistaken for a healthy runtime.
+    """
+    driver = connect(config)
     try:
-        driver.verify_connectivity()
+        with driver.session() as session:
+            session.run(REPRESENTATIVE_READ_QUERY).consume()
     finally:
         driver.close()
 
 
 def list_schema_constraints(config: RuntimeConfig) -> list[SchemaConstraint]:
     """Return live Neo4j schema constraint descriptors."""
-    driver = GraphDatabase.driver(
-        config.neo4j.uri,
-        auth=(config.neo4j.user, config.neo4j.password),
-    )
+    driver = connect(config)
     try:
         with driver.session() as session:
             result = session.run(
@@ -112,10 +126,7 @@ def schema_constraints_present(constraints: list[SchemaConstraint]) -> bool:
 
 def list_vector_indexes(config: RuntimeConfig) -> list[VectorIndex]:
     """Return live Neo4j vector index descriptors."""
-    driver = GraphDatabase.driver(
-        config.neo4j.uri,
-        auth=(config.neo4j.user, config.neo4j.password),
-    )
+    driver = connect(config)
     try:
         with driver.session() as session:
             result = session.run(
@@ -404,6 +415,25 @@ def _embedding_probe_result(
     }
 
 
+def _local_endpoint_note(config: RuntimeConfig) -> DiagnosticResult | None:
+    """Surface the localhost->IPv4 compatibility rewrite as an informational note.
+
+    The connection policy resolves a configured ``localhost`` URI to IPv4 loopback
+    for the live connection only. Doctor is the runtime diagnostic surface, so it
+    explains that interpretation. ``db status`` still reports the configured URI
+    (ADR-0016), so this note never changes configured-value reporting. Returns
+    None when the configured URI is used verbatim (IPv4, explicit IPv6, remote).
+    """
+    effective = resolve_bolt_uri(config.neo4j.uri)
+    if effective == config.neo4j.uri:
+        return None
+    return {
+        "check": LOCAL_ENDPOINT_CHECK,
+        "ok": True,
+        "hint": LOCALHOST_COMPATIBILITY_HINT.format(effective=effective),
+    }
+
+
 def run_diagnostics(
     config: RuntimeConfig,
     *,
@@ -429,6 +459,10 @@ def run_diagnostics(
             "hint": "" if connectivity_ok else NEO4J_CONNECTIVITY_HINT,
         }
     )
+
+    endpoint_note = _local_endpoint_note(config)
+    if endpoint_note is not None:
+        results.append(endpoint_note)
 
     if not connectivity_ok:
         # Neo4j is unreachable, so the schema/vector SHOW queries cannot be

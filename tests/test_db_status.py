@@ -49,7 +49,7 @@ class TestDbStatusOutput:
         neo4j_uri = output["neo4j"]["uri"]
         assert "value" in neo4j_uri
         assert "source" in neo4j_uri
-        assert neo4j_uri["value"] == "bolt://localhost:7687"
+        assert neo4j_uri["value"] == "bolt://127.0.0.1:7687"
         assert neo4j_uri["source"] == "built-in"
 
     def test_reflects_yaml_config(self, tmp_path: Path, capsys) -> None:

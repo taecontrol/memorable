@@ -43,7 +43,7 @@ Memorable uses a three-layer runtime configuration with clear separation:
 
 ```yaml
 neo4j:
-  uri: bolt://localhost:7687
+  uri: bolt://127.0.0.1:7687
   user: neo4j
 
 docker:
@@ -72,7 +72,7 @@ MEMORABLE_OPENROUTER_KEY=sk-or-...
 
 ### When files are needed
 
-- No `runtime.yaml`: use built-in defaults (bolt://localhost:7687, neo4j, etc.)
+- No `runtime.yaml`: use built-in defaults (bolt://127.0.0.1:7687, neo4j, etc.)
 - No `runtime.local.yaml`: use `runtime.yaml` as-is
 - No `.env`: read secrets from environment variables directly
 
@@ -127,3 +127,24 @@ Revisit this decision if:
 - The three layers cause frequent confusion about where a setting should go.
 - A GUI or TUI configuration interface makes file-based config secondary.
 - Team or multi-machine sync requires a different configuration distribution model.
+
+## Amendment (2026-06-05): IPv4 loopback is the built-in local default
+
+The built-in default local Neo4j URI is `bolt://127.0.0.1:7687` (IPv4 loopback)
+rather than `bolt://localhost:7687`.
+
+On some local setups (notably macOS Docker Desktop), `localhost` can resolve to
+the IPv6 loopback before IPv4. A Bolt TCP handshake can appear to succeed while a
+heavier read hangs or fails on a defunct connection, so diagnostics can report a
+healthy runtime while search stalls. Pinning the default to IPv4 loopback keeps
+the zero-config local runtime boring and reliable.
+
+This amendment changes only the built-in default and its documentation:
+
+- Existing `localhost` configurations remain accepted as local configuration.
+- Explicit IPv4 loopback, explicit IPv6 loopback (`[::1]`), custom local ports,
+  non-local hosts, and remote/cloud schemes are preserved exactly.
+- Local/remote classification is unchanged: `localhost`, `127.0.0.1`, and `::1`
+  are local; remote/cloud hosts are remote.
+- `memorable db status` continues to report configured values and their sources
+  (built-in, runtime.yaml, runtime.local.yaml, .env/environment).
