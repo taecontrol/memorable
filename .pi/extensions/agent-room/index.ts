@@ -1430,11 +1430,20 @@ async function compactResidentAgents(room: AgentRoom, slice: PrdRunMetadata["ord
 		agent.stats.status = "running";
 		agent.stats.currentTask = "compacting";
 		updateDashboard(room);
-		await agent.session.compact(instructions);
+		try {
+			await agent.session.compact(instructions);
+		} catch (error) {
+			if (!isAlreadyCompactedError(error)) throw error;
+		}
 		const fresh = statsFromSession(agent.session);
 		agent.stats = { ...fresh, inbox: pendingMessagesFor(room, agent.role.name).length };
 		updateDashboard(room);
 	}
+}
+
+function isAlreadyCompactedError(error: unknown): boolean {
+	const message = error instanceof Error ? error.message : String(error);
+	return /already compacted/i.test(message);
 }
 
 async function saveManifest(room: AgentRoom): Promise<void> {
