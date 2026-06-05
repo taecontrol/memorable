@@ -105,9 +105,7 @@ class EmbeddingCoverageReport:
         if self.stale_total:
             problems.append(f"stale {_format_nonzero_counts(self.stale_by_kind)}")
         if self.unusable_total:
-            problems.append(
-                f"unusable {_format_nonzero_counts(self.unusable_by_kind)}"
-            )
+            problems.append(f"unusable {_format_nonzero_counts(self.unusable_by_kind)}")
         if self.incompatible_total:
             problems.append(
                 "incompatible stored Embeddings "

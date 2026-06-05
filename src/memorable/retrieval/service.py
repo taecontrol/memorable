@@ -81,9 +81,7 @@ class HybridRetrievalService:
         self._embedding_provider = embedding_provider
         self._dimensions = dimensions
         self._index = (
-            retrieval_index
-            if retrieval_index is not None
-            else InMemoryEmbeddingIndex()
+            retrieval_index if retrieval_index is not None else InMemoryEmbeddingIndex()
         )
         self._point_in_time_service = (
             point_in_time_service

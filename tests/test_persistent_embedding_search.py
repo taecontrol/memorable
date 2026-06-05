@@ -484,9 +484,10 @@ def test_reindex_preserves_embedding_metadata() -> None:
     assert record.model_name == "deterministic-test"
     assert record.dimensions == 8
     assert record.indexable_text_version
-    assert record.indexable_text_hash == hashlib.sha256(
-        record.indexable_text.encode("utf-8")
-    ).hexdigest()
+    assert (
+        record.indexable_text_hash
+        == hashlib.sha256(record.indexable_text.encode("utf-8")).hexdigest()
+    )
 
 
 def test_cli_remember_decision_upserts_embedding_for_immediate_search(
@@ -695,9 +696,7 @@ def test_cli_remember_upserts_embeddings_for_all_retrievable_kinds(
         )
         search_output = json.loads(capsys.readouterr().out)
 
-    assert provider.calls == [
-        "CLI immediate Entity Decision Task Observation Relation"
-    ]
+    assert provider.calls == ["CLI immediate Entity Decision Task Observation Relation"]
     result_ids = {result["source_id"] for result in search_output["results"]}
     assert {
         "entity:cli-auth",
@@ -968,9 +967,7 @@ def test_cli_forget_entity_erases_entity_and_cascaded_relation_embeddings(
     assert ("Entity", "entity:cli-forget-source") not in remaining_sources
     assert ("Relation", "relation:cli-cascade-erased") not in remaining_sources
     assert ("Entity", "entity:cli-forget-target") in remaining_sources
-    assert "relation:cli-cascade-erased" not in {
-        result.source_id for result in results
-    }
+    assert "relation:cli-cascade-erased" not in {result.source_id for result in results}
     assert provider.calls == ["Forgotten source depends on retained target"]
     assert coverage.ok
 
@@ -1047,8 +1044,7 @@ def test_mcp_forget_record_erases_derived_embedding_and_keeps_entities(
 
         remaining_embeddings = ctx.retrieval_index.records(space="test-space")
         assert (
-            ctx.entity_repo.get("test-space", "entity:mcp-forget-retained")
-            is not None
+            ctx.entity_repo.get("test-space", "entity:mcp-forget-retained") is not None
         )
         assert any(
             record.source_id == "entity:mcp-forget-retained"
@@ -1146,8 +1142,7 @@ def test_mcp_forget_entity_erases_entity_and_cascaded_relation_embeddings(
         }
         assert ctx.entity_repo.get("test-space", "entity:mcp-forget-source") is None
         assert (
-            ctx.relation_repo.get("test-space", "relation:mcp-cascade-erased")
-            is None
+            ctx.relation_repo.get("test-space", "relation:mcp-cascade-erased") is None
         )
         assert ctx.entity_repo.get("test-space", "entity:mcp-forget-target") is not None
         assert ("Entity", "entity:mcp-forget-source") not in remaining_sources
@@ -1351,9 +1346,7 @@ def test_cli_correct_decision_refreshes_embedding_without_manual_reindex(
         )
 
     assert provider.calls == ["corrected vector needle"]
-    assert [result.source_id for result in results] == [
-        "decision:cli-correct-refresh"
-    ]
+    assert [result.source_id for result in results] == ["decision:cli-correct-refresh"]
     assert results[0].lifecycle_state == "current"
 
 
@@ -2088,16 +2081,19 @@ def test_cli_remember_reports_partial_state_when_embedding_upsert_fails(
         )
         remember_output = capsys.readouterr()
 
-        assert main(
-            [
-                "truth",
-                "current",
-                "--space",
-                "test-space",
-                "--id",
-                "decision:cli-partial-index",
-            ]
-        ) == 0
+        assert (
+            main(
+                [
+                    "truth",
+                    "current",
+                    "--space",
+                    "test-space",
+                    "--id",
+                    "decision:cli-partial-index",
+                ]
+            )
+            == 0
+        )
         truth_output = json.loads(capsys.readouterr().out)
 
     assert "Canonical memory was written" in remember_output.err
@@ -2849,9 +2845,7 @@ def test_mcp_reindex_reports_index_failure_with_doctor_hint(
         assert "Reindex failed" in str(result["error"])
         assert "memorable doctor" in str(result["error"])
         assert "vector index unavailable" in str(result["error"])
-        assert result["reindex_command"] == (
-            "memorable reindex --space test-space"
-        )
+        assert result["reindex_command"] == ("memorable reindex --space test-space")
     finally:
         set_mcp_context(default_context)
 
@@ -2984,9 +2978,7 @@ def test_neo4j_retrieval_index_returns_space_candidate_behind_global_decoys() ->
                     space=space if incompatible_provider else other_space,
                     indexable_text="Closer global decoy",
                     vector=query_vector,
-                    provider_name="other-provider"
-                    if incompatible_provider
-                    else "fake",
+                    provider_name="other-provider" if incompatible_provider else "fake",
                     model_name="unit-test",
                     dimensions=384,
                     indexable_text_hash=hashlib.sha256(

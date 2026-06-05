@@ -1110,9 +1110,7 @@ def _cmd_invalidate(
             space=space,
             source_id=result.record_id,
             source_kind="Observation",
-            upsert=lambda indexer: indexer.upsert_observation(
-                invalidated_observation
-            ),
+            upsert=lambda indexer: indexer.upsert_observation(invalidated_observation),
         ):
             return 1
 

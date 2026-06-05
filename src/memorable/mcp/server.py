@@ -1248,9 +1248,7 @@ def invalidate_tool(
             space=space,
             source_id=result.record_id,
             source_kind="Observation",
-            upsert=lambda indexer: indexer.upsert_observation(
-                invalidated_observation
-            ),
+            upsert=lambda indexer: indexer.upsert_observation(invalidated_observation),
         )
         if index_error is not None:
             return index_error
@@ -1416,9 +1414,7 @@ def correct_tool(
             space=space,
             source_id=result.record_id,
             source_kind="Observation",
-            upsert=lambda indexer: indexer.upsert_observation(
-                corrected_observation
-            ),
+            upsert=lambda indexer: indexer.upsert_observation(corrected_observation),
         )
         if index_error is not None:
             return index_error

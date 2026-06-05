@@ -568,9 +568,7 @@ def test_doctor_reports_embedding_index_coverage_failure_with_reindex_hint(
     profile_path.parent.mkdir()
     profile_path.write_text("valid profile", encoding="utf-8")
 
-    def collect_coverage(
-        _config: RuntimeConfig, space: str
-    ) -> EmbeddingCoverageReport:
+    def collect_coverage(_config: RuntimeConfig, space: str) -> EmbeddingCoverageReport:
         assert space == "test-space"
         return EmbeddingCoverageReport(
             space=space,
