@@ -34,7 +34,7 @@ Alias: `/room`.
 
 Default residents:
 
-- `implementer` — can mutate files
+- `implementer` — can mutate files; must use `.agents/skills/tdd/SKILL.md` for implementation work
 - `reviewer` — read-only review
 - `architect` — read-only architecture/product review
 

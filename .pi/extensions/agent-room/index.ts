@@ -33,6 +33,7 @@ const AGENT_PROGRESS_INSTRUCTIONS = `- Send agent_update before each major phase
 - Send agent_update for blockers, important decisions, and completion summaries.
 - Use agent_question when you need the human/coordinator to choose or unblock you; then stop and wait for a reply.
 - Keep human updates under 160 chars when possible; never include secrets or full command output.`;
+const TDD_SKILL_FILE = [".agents", "skills", "tdd", "SKILL.md"];
 const execFile = promisify(execFileCallback);
 
 type AgentStatus = "idle" | "running" | "queued" | "blocked" | "error";
@@ -191,6 +192,7 @@ Communication rules:
 - Use agent_broadcast for important implementation summaries.
 - Keep messages short but include exact files changed, commands run, and blockers.
 - Do not assume other agents saw your terminal output unless you send it.
+- Default to project TDD for implementation work: load and follow the tdd skill before coding.
 - Prefer vertical tracer-bullet work and narrow tests.
 - Never commit unless explicitly instructed by the human/coordinator.`
 	},
@@ -522,6 +524,7 @@ ${formatPrdContext(repo, prd, plan)}
 - Treat the ordered ready slices as the source of truth. Do not implement the parent PRD as one blob.
 - Before coding, check worktree status/base. If the diff is polluted or base is wrong, use agent_question and wait.
 - For each slice in order: implement only that slice, run narrow verification, request reviewer findings, fix blocking findings, then move to the next slice.
+- For each slice, follow the required tdd skill: one behavior test → failing RED run → minimal GREEN implementation → passing run → repeat/refactor.
 - Do not inspect or anticipate future slices beyond dependency/order awareness.
 - After all slices, run final verification and ask architect for final architecture review.
 - Do not commit unless explicitly instructed by the human/coordinator.
@@ -723,8 +726,25 @@ function allRoleNames(): string[] {
 	return DEFAULT_ROLES.map((role) => role.name);
 }
 
+function tddSkillPath(room: AgentRoom): string {
+	return path.join(room.controllerCwd, ...TDD_SKILL_FILE);
+}
+
+function implementerTddInstructions(room: AgentRoom): string {
+	const skillPath = tddSkillPath(room);
+	return `# Required TDD skill
+
+For implementation work, use the TDD skill at ${skillPath}.
+- Before coding each implementation task or PRD slice, read ${skillPath}; resolve referenced docs relative to that skill directory.
+- Follow vertical RED → GREEN → REFACTOR tracer bullets: one behavior test, confirm it fails, minimal code, confirm it passes, then next behavior.
+- Do not batch all tests before implementation.
+- Test observable behavior through public interfaces using Memorable domain language.
+- AgentRoom no-commit policy overrides the skill's commit steps: do not commit unless explicitly instructed; report RED/GREEN evidence via agent_update and review requests instead.`;
+}
+
 function agentSystemPrompt(room: AgentRoom, role: AgentRole): string {
-	return `${role.systemPrompt}
+	const roleSpecificInstructions = role.name === "implementer" ? `\n\n${implementerTddInstructions(room)}` : "";
+	return `${role.systemPrompt}${roleSpecificInstructions}
 
 # AgentRoom
 
@@ -863,6 +883,7 @@ async function createResidentAgent(room: AgentRoom, role: AgentRole, manifest: A
 	const resourceLoader = new DefaultResourceLoader({
 		cwd: room.cwd,
 		agentDir: getAgentDir(),
+		additionalSkillPaths: role.name === "implementer" ? [tddSkillPath(room)] : [],
 		noExtensions: true,
 		noPromptTemplates: true,
 		systemPromptOverride: (base) => `${base ?? ""}\n\n${agentSystemPrompt(room, role)}`,
