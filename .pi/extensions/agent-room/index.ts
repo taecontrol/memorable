@@ -17,6 +17,7 @@ import {
 	type ExtensionContext,
 	type ToolDefinition,
 } from "@earendil-works/pi-coding-agent";
+import { Text } from "@earendil-works/pi-tui";
 import { Type } from "typebox";
 
 const STATE_TYPE = "agent-room-state";
@@ -24,11 +25,64 @@ const WIDGET_KEY = "agent-room";
 const RUNS_DIR = [".pi", "agent-room", "runs"];
 const WORKTREES_DIR = [".pi", "agent-room", "worktrees"];
 const MAX_TILE_MESSAGE = 72;
+const HUMAN_NAME = "human";
+const HUMAN_MESSAGE_TYPE = "agent-room-human-message";
 const DEFAULT_TOOLS = ["read", "bash", "edit", "write", "grep", "find", "ls"];
 const READ_ONLY_TOOLS = ["read", "bash", "grep", "find", "ls"];
+const AGENT_PROGRESS_INSTRUCTIONS = `- Send agent_update before each major phase, before running tests, and after test results.
+- Send agent_update for blockers, important decisions, and completion summaries.
+- Use agent_question when you need the human/coordinator to choose or unblock you; then stop and wait for a reply.
+- Keep human updates under 160 chars when possible; never include secrets or full command output.`;
 const execFile = promisify(execFileCallback);
 
 type AgentStatus = "idle" | "running" | "queued" | "blocked" | "error";
+
+type IssueState = "OPEN" | "CLOSED" | string;
+
+type GhLabel = {
+	name: string;
+};
+
+type GhComment = {
+	body?: string | null;
+	author?: { login?: string | null } | null;
+	createdAt?: string | null;
+};
+
+type Issue = {
+	number: number;
+	title: string;
+	body?: string | null;
+	labels?: GhLabel[];
+	state: IssueState;
+	comments?: GhComment[];
+	url?: string;
+};
+
+type IssueRef = {
+	repo: string;
+	number: number;
+};
+
+type SkippedSlice = {
+	issue: Issue;
+	reason: string;
+};
+
+type SlicePlan = {
+	ordered: Issue[];
+	skipped: SkippedSlice[];
+	blockersBySlice: Map<number, number[]>;
+};
+
+type PrdRunMetadata = {
+	repo: string;
+	number: number;
+	title: string;
+	url?: string;
+	orderedSlices: Array<{ number: number; title: string; url?: string; blockers: number[] }>;
+	skippedSlices: Array<{ number: number; title: string; url?: string; reason: string }>;
+};
 
 type RoomStateEntry = {
 	type: string;
@@ -67,6 +121,7 @@ type RoomManifest = {
 	controllerCwd?: string;
 	workspaceCwd?: string;
 	worktree?: WorktreeInfo;
+	prd?: PrdRunMetadata;
 	createdAt: string;
 	updatedAt: string;
 	agents: AgentManifest[];
@@ -79,6 +134,7 @@ type RoomMessage = {
 	to: string;
 	kind: string;
 	body: string;
+	replyToId?: string;
 };
 
 type AgentStats = {
@@ -129,12 +185,14 @@ const DEFAULT_ROLES: AgentRole[] = [
 You keep context across turns. Own implementation work. You may edit files, run tests, and use bash.
 
 Communication rules:
+- Use agent_update to keep the human/coordinator informed before major phases, tests, blockers, and completions.
+- Use agent_question when human input is needed; then stop and wait for a reply.
 - Use agent_send to ask the reviewer for reviews or clarification.
 - Use agent_broadcast for important implementation summaries.
 - Keep messages short but include exact files changed, commands run, and blockers.
 - Do not assume other agents saw your terminal output unless you send it.
 - Prefer vertical tracer-bullet work and narrow tests.
-- Never commit unless explicitly instructed by the human/coordinator.`,
+- Never commit unless explicitly instructed by the human/coordinator.`
 	},
 	{
 		name: "reviewer",
@@ -148,6 +206,8 @@ You keep context across turns. Review implementation work and send actionable fi
 Hard rules:
 - Review only. Do not edit files.
 - Bash is read-only: git diff, git status, grep, find, test commands are allowed; no mutation commands.
+- Use agent_update for review start/completion, blockers, or questions to the human/coordinator.
+- Use agent_question when human input is needed; then stop and wait for a reply.
 - Use agent_send to return findings to implementer.
 - Classify findings as blocking or non-blocking.
 - Include exact file paths and line references when possible.`,
@@ -163,6 +223,8 @@ You keep context across turns. Focus on architecture, domain language, temporal 
 
 Hard rules:
 - Review only. Do not edit files.
+- Use agent_update for architecture start/completion, blockers, or questions to the human/coordinator.
+- Use agent_question when human input is needed; then stop and wait for a reply.
 - Use agent_broadcast for architecture decisions or risks relevant to all agents.
 - Use agent_send for targeted blockers.
 - Be concise, specific, and grounded in files/docs.`,
@@ -207,6 +269,348 @@ function worktreesRoot(cwd: string): string {
 async function git(cwd: string, args: string[]): Promise<{ stdout: string; stderr: string }> {
 	const result = await execFile("git", args, { cwd, maxBuffer: 10 * 1024 * 1024 });
 	return { stdout: String(result.stdout), stderr: String(result.stderr) };
+}
+
+async function ghJson<T>(cwd: string, args: string[]): Promise<T> {
+	const result = await execFile("gh", args, { cwd, maxBuffer: 20 * 1024 * 1024 });
+	return JSON.parse(String(result.stdout)) as T;
+}
+
+async function currentGitHubRepo(cwd: string): Promise<string> {
+	const result = await execFile("gh", ["repo", "view", "--json", "nameWithOwner", "--jq", ".nameWithOwner"], {
+		cwd,
+		maxBuffer: 1024 * 1024,
+	});
+	return String(result.stdout).trim();
+}
+
+function parseIssueInput(input: string, defaultRepo: string): IssueRef {
+	const trimmed = input.trim();
+	const urlMatch = /^https?:\/\/github\.com\/([^/]+\/[^/]+)\/issues\/(\d+)/.exec(trimmed);
+	if (urlMatch) return { repo: urlMatch[1], number: Number(urlMatch[2]) };
+
+	const repoIssueMatch = /^([^\s/#]+\/[^\s#]+)#(\d+)$/.exec(trimmed);
+	if (repoIssueMatch) return { repo: repoIssueMatch[1], number: Number(repoIssueMatch[2]) };
+
+	const numberMatch = /^#?(\d+)$/.exec(trimmed);
+	if (numberMatch) return { repo: defaultRepo, number: Number(numberMatch[1]) };
+
+	throw new Error(`Could not parse PRD issue reference: ${input}`);
+}
+
+async function fetchIssue(repo: string, number: number, cwd: string): Promise<Issue> {
+	return ghJson<Issue>(cwd, [
+		"issue",
+		"view",
+		String(number),
+		"-R",
+		repo,
+		"--comments",
+		"--json",
+		"number,title,body,labels,state,comments,url",
+	]);
+}
+
+async function fetchIssueOptional(repo: string, number: number, cwd: string): Promise<Issue | undefined> {
+	try {
+		return await fetchIssue(repo, number, cwd);
+	} catch {
+		return undefined;
+	}
+}
+
+async function loadPrdContext(cwd: string, input: string): Promise<{ repo: string; prd: Issue; plan: SlicePlan }> {
+	const defaultRepo = await currentGitHubRepo(cwd);
+	const issueRef = parseIssueInput(input, defaultRepo);
+	const prd = await fetchIssue(issueRef.repo, issueRef.number, cwd);
+	const plan = await buildSlicePlan(issueRef.repo, prd, cwd);
+	if (plan.ordered.length === 0) {
+		throw new Error(`No child slices labeled ready-for-agent for #${prd.number}.`);
+	}
+	return { repo: issueRef.repo, prd, plan };
+}
+
+async function buildSlicePlan(repo: string, prd: Issue, cwd: string): Promise<SlicePlan> {
+	const allReferenced = await ghJson<Issue[]>(cwd, [
+		"issue",
+		"list",
+		"-R",
+		repo,
+		"--state",
+		"all",
+		"--limit",
+		"200",
+		"--search",
+		`#${prd.number} in:body,comments`,
+		"--json",
+		"number,title,body,labels,state,comments,url",
+	]);
+
+	const children = allReferenced
+		.filter((issue) => issue.number !== prd.number)
+		.filter((issue) => isChildOfPrd(issue, prd.number));
+
+	const ready: Issue[] = [];
+	const skipped: SkippedSlice[] = [];
+	for (const issue of children) {
+		const labels = labelSet(issue);
+		if (labels.has("ready-for-agent")) {
+			ready.push(issue);
+			continue;
+		}
+		skipped.push({
+			issue,
+			reason: labels.has("ready-for-human") ? "ready-for-human" : "missing ready-for-agent",
+		});
+	}
+
+	const childrenByNumber = new Map(children.map((issue) => [issue.number, issue]));
+	const readyByNumber = new Map(ready.map((issue) => [issue.number, issue]));
+	const blockersBySlice = new Map<number, number[]>();
+
+	for (const slice of ready) {
+		const blockers = extractBlockers(issueBody(slice));
+		blockersBySlice.set(slice.number, blockers);
+		for (const blockerNumber of blockers) {
+			if (blockerNumber === slice.number) throw new Error(`Slice #${slice.number} blocks itself.`);
+			if (readyByNumber.has(blockerNumber)) continue;
+			const blocker = childrenByNumber.get(blockerNumber) ?? (await fetchIssueOptional(repo, blockerNumber, cwd));
+			if (!blocker) throw new Error(`Slice #${slice.number} lists missing blocker #${blockerNumber}.`);
+			if (blocker.state !== "CLOSED") {
+				throw new Error(`Slice #${slice.number} is blocked by open issue #${blockerNumber}, which is not included in this run.`);
+			}
+		}
+	}
+
+	return { ordered: topologicalOrder(ready, blockersBySlice), skipped, blockersBySlice };
+}
+
+function isChildOfPrd(issue: Issue, prdNumber: number): boolean {
+	const text = issueText(issue);
+	if (new RegExp(`\\bParent:\\s*#${prdNumber}\\b`, "i").test(text)) return true;
+
+	const parentSection = extractMarkdownSection(text, "Parent");
+	if (parentSection && issueRefs(parentSection).includes(prdNumber)) return true;
+
+	return issueRefs(text).includes(prdNumber);
+}
+
+function topologicalOrder(issues: Issue[], blockersBySlice: Map<number, number[]>): Issue[] {
+	const issueByNumber = new Map(issues.map((issue) => [issue.number, issue]));
+	const indegree = new Map(issues.map((issue) => [issue.number, 0]));
+	const dependents = new Map<number, number[]>();
+
+	for (const issue of issues) {
+		for (const blocker of blockersBySlice.get(issue.number) ?? []) {
+			if (!issueByNumber.has(blocker)) continue;
+			indegree.set(issue.number, (indegree.get(issue.number) ?? 0) + 1);
+			dependents.set(blocker, [...(dependents.get(blocker) ?? []), issue.number]);
+		}
+	}
+
+	const queue = issues.filter((issue) => indegree.get(issue.number) === 0).sort((a, b) => a.number - b.number);
+	const ordered: Issue[] = [];
+	while (queue.length > 0) {
+		const issue = queue.shift();
+		if (!issue) break;
+		ordered.push(issue);
+		for (const dependentNumber of dependents.get(issue.number) ?? []) {
+			const nextDegree = (indegree.get(dependentNumber) ?? 0) - 1;
+			indegree.set(dependentNumber, nextDegree);
+			if (nextDegree === 0) {
+				const dependent = issueByNumber.get(dependentNumber);
+				if (dependent) {
+					queue.push(dependent);
+					queue.sort((a, b) => a.number - b.number);
+				}
+			}
+		}
+	}
+
+	if (ordered.length !== issues.length) {
+		const cycle = issues
+			.filter((issue) => !ordered.some((done) => done.number === issue.number))
+			.map((issue) => `#${issue.number}`)
+			.join(", ");
+		throw new Error(`Blocked-by cycle among ready slices: ${cycle}`);
+	}
+	return ordered;
+}
+
+function prdMetadata(repo: string, prd: Issue, plan: SlicePlan): PrdRunMetadata {
+	return {
+		repo,
+		number: prd.number,
+		title: prd.title,
+		url: prd.url,
+		orderedSlices: plan.ordered.map((slice) => ({
+			number: slice.number,
+			title: slice.title,
+			url: slice.url,
+			blockers: plan.blockersBySlice.get(slice.number) ?? [],
+		})),
+		skippedSlices: plan.skipped.map((skipped) => ({
+			number: skipped.issue.number,
+			title: skipped.issue.title,
+			url: skipped.issue.url,
+			reason: skipped.reason,
+		})),
+	};
+}
+
+function formatPrdContext(repo: string, prd: Issue, plan: SlicePlan): string {
+	return `## Parent PRD
+
+Repo: ${repo}
+Issue: #${prd.number} ${prd.title}
+URL: ${prd.url ?? "unknown"}
+Labels: ${[...labelSet(prd)].join(", ") || "none"}
+
+${issueBody(prd)}
+
+## PRD Comments
+
+${formatComments(prd)}
+
+## Ordered ready slices
+
+${plan.ordered
+		.map((slice, index) => {
+			const blockers = plan.blockersBySlice.get(slice.number) ?? [];
+			return `### ${index + 1}. #${slice.number} ${slice.title}
+URL: ${slice.url ?? "unknown"}
+Blocked by: ${blockers.length ? blockers.map((number) => `#${number}`).join(", ") : "none"}
+
+${issueBody(slice)}
+
+Comments:
+${formatComments(slice)}`;
+		})
+		.join("\n\n---\n\n")}
+
+## Skipped slices
+
+${plan.skipped.length ? plan.skipped.map((skipped) => `- #${skipped.issue.number} ${skipped.issue.title}: ${skipped.reason}`).join("\n") : "None"}`;
+}
+
+function buildPrdImplementerPrompt(repo: string, prd: Issue, plan: SlicePlan): string {
+	return `You are implementing a Memorable PRD run, based on .sandcastle/implement-prd.ts.
+
+${formatPrdContext(repo, prd, plan)}
+
+## Required process
+
+- Treat the ordered ready slices as the source of truth. Do not implement the parent PRD as one blob.
+- Before coding, check worktree status/base. If the diff is polluted or base is wrong, use agent_question and wait.
+- For each slice in order: implement only that slice, run narrow verification, request reviewer findings, fix blocking findings, then move to the next slice.
+- Do not inspect or anticipate future slices beyond dependency/order awareness.
+- After all slices, run final verification and ask architect for final architecture review.
+- Do not commit unless explicitly instructed by the human/coordinator.
+- If you touch Memorable product model or domain language, read docs/product.md, docs/ubiquitous-language.md, and relevant ADRs first.
+- Use uv for Python tasks.
+
+## Human-visible progress
+
+${AGENT_PROGRESS_INSTRUCTIONS}`;
+}
+
+function buildPrdReviewerPrompt(repo: string, prd: Issue, plan: SlicePlan): string {
+	return `You are the persistent reviewer for a slice-based Memorable PRD run.
+
+${formatPrdContext(repo, prd, plan)}
+
+## Review process
+
+- Wait for implementer review requests.
+- Review only; do not modify files or commit.
+- Review the current diff against the run base, focused on the requested slice.
+- Report blocking vs non-blocking findings with exact paths/lines when possible.
+- Use agent_send to send findings to implementer.
+- Use agent_update for review start/completion and blocking findings visible to the human.
+
+## Human-visible progress
+
+${AGENT_PROGRESS_INSTRUCTIONS}`;
+}
+
+function buildPrdArchitectPrompt(repo: string, prd: Issue, plan: SlicePlan): string {
+	return `You are the persistent architect for a slice-based Memorable PRD run.
+
+${formatPrdContext(repo, prd, plan)}
+
+## Architecture process
+
+- Immediately review the PRD and ordered slices for product/domain/architecture constraints.
+- Broadcast constraints or blockers relevant to all agents.
+- Review final branch/diff when the implementer asks.
+- Review only; do not modify files or commit.
+- Use agent_update for architecture start/completion and blocking risks visible to the human.
+
+## Human-visible progress
+
+${AGENT_PROGRESS_INSTRUCTIONS}`;
+}
+
+function issueText(issue: Issue): string {
+	return `${issueBody(issue)}\n${formatComments(issue)}`;
+}
+
+function issueBody(issue: Issue): string {
+	return issue.body ?? "";
+}
+
+function formatComments(issue: Issue): string {
+	const comments = issue.comments ?? [];
+	if (comments.length === 0) return "No comments.";
+	return comments
+		.map((comment, index) => {
+			const author = comment.author?.login ? ` by ${comment.author.login}` : "";
+			const createdAt = comment.createdAt ? ` at ${comment.createdAt}` : "";
+			return `Comment ${index + 1}${author}${createdAt}:\n${comment.body ?? ""}`;
+		})
+		.join("\n\n");
+}
+
+function labelSet(issue: Issue): Set<string> {
+	return new Set((issue.labels ?? []).map((label) => label.name));
+}
+
+function extractBlockers(body: string): number[] {
+	const section = extractMarkdownSection(body, "Blocked by");
+	if (section) return issueRefs(section);
+	const lineMatch = /^Blocked by:\s*(.+)$/im.exec(body);
+	return lineMatch ? issueRefs(lineMatch[1]) : [];
+}
+
+function extractMarkdownSection(markdown: string, heading: string): string | undefined {
+	const lines = markdown.split(/\r?\n/);
+	const wanted = heading.toLowerCase();
+	const collected: string[] = [];
+	let inSection = false;
+
+	for (const line of lines) {
+		const headingMatch = /^(#{2,6})\s+(.+?)\s*$/.exec(line);
+		if (headingMatch) {
+			if (inSection) break;
+			inSection = headingMatch[2].trim().toLowerCase() === wanted;
+			continue;
+		}
+		if (inSection) collected.push(line);
+	}
+
+	return inSection || collected.length > 0 ? collected.join("\n") : undefined;
+}
+
+function issueRefs(text: string): number[] {
+	const refs = new Set<number>();
+	for (const match of text.matchAll(/#(\d+)\b/g)) refs.add(Number(match[1]));
+	return [...refs];
+}
+
+async function preparePrdBaseRef(cwd: string, options: CreateRoomOptions): Promise<CreateRoomOptions> {
+	if (options.useWorktree === false || options.baseRef) return options;
+	await git(cwd, ["fetch", "origin", "main"]);
+	return { ...options, baseRef: "origin/main" };
 }
 
 async function createGitWorktree(controllerCwd: string, runId: string, name: string, baseRef = "HEAD"): Promise<WorktreeInfo> {
@@ -314,27 +718,32 @@ ${room.manifest.worktree ? `Git worktree branch: ${room.manifest.worktree.branch
 You are resident: your Pi session persists under ${relativeToCwd(room.controllerCwd, room.runDir)} and future prompts preserve your context.
 
 Available communication tools:
-- agent_send: send a direct message to another resident agent.
+- agent_update: send a visible update to the human/coordinator.
+- agent_question: ask the human/coordinator for input; include choices when useful.
+- agent_send: send a direct message to another resident agent, or to "human".
 - agent_broadcast: send a message to all other resident agents.
 - agent_inbox: inspect recent messages addressed to you.
 - agent_room_status: inspect peer status.
 
-When sending another agent work, include enough context for them to act without reading your mind.`;
+When sending work to another agent or the human, include enough context for them to act without reading your mind.
+
+Human-visible progress expectations:
+${AGENT_PROGRESS_INSTRUCTIONS}`;
 }
 
-function buildCommunicationTools(room: AgentRoom, agentName: string): ToolDefinition[] {
+function buildCommunicationTools(room: AgentRoom, agentName: string, pi: ExtensionAPI): ToolDefinition[] {
 	return [
 		defineTool({
 			name: "agent_send",
 			label: "Agent Send",
-			description: "Send a message to another persistent AgentRoom agent.",
+			description: "Send a message to another persistent AgentRoom agent or to the human coordinator.",
 			parameters: Type.Object({
-				to: Type.String({ description: "Target agent name" }),
+				to: Type.String({ description: "Target agent name, or human" }),
 				message: Type.String({ description: "Message body" }),
 				kind: Type.Optional(Type.String({ description: "Message kind, e.g. review-request, finding, blocker, note" })),
 			}),
 			async execute(_toolCallId, params) {
-				const result = await routeMessage(room, agentName, params.to, params.message, params.kind ?? "message");
+				const result = await routeMessage(room, agentName, params.to, params.message, params.kind ?? "message", pi);
 				return { content: [{ type: "text", text: result }], details: { to: params.to } };
 			},
 		}),
@@ -349,9 +758,38 @@ function buildCommunicationTools(room: AgentRoom, agentName: string): ToolDefini
 			async execute(_toolCallId, params) {
 				const targets = [...room.agents.keys()].filter((name) => name !== agentName);
 				for (const target of targets) {
-					await routeMessage(room, agentName, target, params.message, params.kind ?? "broadcast");
+					await routeMessage(room, agentName, target, params.message, params.kind ?? "broadcast", pi);
 				}
 				return { content: [{ type: "text", text: `Broadcast sent to ${targets.join(", ") || "nobody"}.` }], details: { targets } };
+			},
+		}),
+		defineTool({
+			name: "agent_update",
+			label: "Agent Update",
+			description: "Send a short visible status update to the human/coordinator.",
+			parameters: Type.Object({
+				message: Type.String({ description: "Short human-visible update" }),
+				kind: Type.Optional(Type.String({ description: "Update kind, e.g. progress, test, blocker, done" })),
+			}),
+			async execute(_toolCallId, params) {
+				const result = await routeMessage(room, agentName, HUMAN_NAME, params.message, params.kind ?? "progress", pi);
+				return { content: [{ type: "text", text: `${result} Use agent_question if you need a reply.` }], details: { to: HUMAN_NAME } };
+			},
+		}),
+		defineTool({
+			name: "agent_question",
+			label: "Agent Question",
+			description: "Ask the human/coordinator a question and wait for a reply via /room reply.",
+			parameters: Type.Object({
+				question: Type.String({ description: "Question for the human/coordinator" }),
+				choices: Type.Optional(Type.Array(Type.String(), { description: "Optional choices" })),
+			}),
+			async execute(_toolCallId, params) {
+				const body = params.choices?.length
+					? `${params.question}\n\nChoices:\n${params.choices.map((choice, index) => `${index + 1}. ${choice}`).join("\n")}`
+					: params.question;
+				const result = await routeMessage(room, agentName, HUMAN_NAME, body, "question", pi);
+				return { content: [{ type: "text", text: `${result} Stop now and wait for the human reply.` }], details: { to: HUMAN_NAME } };
 			},
 		}),
 		defineTool({
@@ -387,7 +825,8 @@ function buildCommunicationTools(room: AgentRoom, agentName: string): ToolDefini
 }
 
 function formatMailboxMessage(message: RoomMessage): string {
-	return `From: ${message.from}\nKind: ${message.kind}\nAt: ${message.createdAt}\n\n${message.body}`;
+	const reply = message.replyToId ? `\nReply-To: ${shortMessageId(message.replyToId)}` : "";
+	return `From: ${message.from}\nKind: ${message.kind}\nAt: ${message.createdAt}${reply}\n\n${message.body}`;
 }
 
 function formatInboxPrompt(messages: RoomMessage[]): string {
@@ -417,8 +856,8 @@ async function createResidentAgent(room: AgentRoom, role: AgentRole, manifest: A
 		sessionManager,
 		model: room.lastCtx?.model,
 		thinkingLevel: pi.getThinkingLevel(),
-		tools: [...role.tools, "agent_send", "agent_broadcast", "agent_inbox", "agent_room_status"],
-		customTools: buildCommunicationTools(room, role.name),
+		tools: [...role.tools, "agent_send", "agent_broadcast", "agent_update", "agent_question", "agent_inbox", "agent_room_status"],
+		customTools: buildCommunicationTools(room, role.name, pi),
 	});
 
 	const stats = statsFromSession(session);
@@ -489,10 +928,59 @@ function pendingMessagesFor(room: AgentRoom, agentName: string): RoomMessage[] {
 	return room.messages.filter((message) => message.to === agentName && !delivered.has(message.id));
 }
 
-async function routeMessage(room: AgentRoom, from: string, to: string, body: string, kind = "message"): Promise<string> {
-	const target = room.agents.get(to);
-	if (!target) {
-		return `Unknown agent "${to}". Available: ${[...room.agents.keys()].join(", ")}`;
+function shortMessageId(id: string): string {
+	return id.slice(0, 8);
+}
+
+function humanMessages(room: AgentRoom): RoomMessage[] {
+	return room.messages.filter((message) => message.to === HUMAN_NAME);
+}
+
+function latestHumanMessage(room: AgentRoom): RoomMessage | undefined {
+	return humanMessages(room).at(-1);
+}
+
+function findMessageByIdPrefix(room: AgentRoom, prefix: string): RoomMessage | undefined {
+	const matches = room.messages.filter((message) => message.id === prefix || message.id.startsWith(prefix));
+	if (matches.length > 1) throw new Error(`Ambiguous message id prefix: ${prefix}`);
+	return matches[0];
+}
+
+function sendHumanVisibleMessage(pi: ExtensionAPI, room: AgentRoom, message: RoomMessage): void {
+	const replyHint = `/room reply ${shortMessageId(message.id)} <answer>`;
+	pi.sendMessage({
+		customType: HUMAN_MESSAGE_TYPE,
+		content: message.body,
+		display: true,
+		details: {
+			roomId: room.id,
+			roomName: room.name,
+			messageId: message.id,
+			from: message.from,
+			kind: message.kind,
+			createdAt: message.createdAt,
+			replyHint,
+		},
+	});
+	if (room.lastCtx?.hasUI) {
+		const prefix = message.kind === "question" ? "AgentRoom question" : "AgentRoom update";
+		room.lastCtx.ui.notify(`${prefix} from ${message.from}: ${truncate(message.body, 120)}\nReply: ${replyHint}`, "info");
+	}
+}
+
+async function routeMessage(
+	room: AgentRoom,
+	from: string,
+	to: string,
+	body: string,
+	kind = "message",
+	pi?: ExtensionAPI,
+	replyToId?: string,
+): Promise<string> {
+	const isHumanTarget = to === HUMAN_NAME;
+	const target = isHumanTarget ? undefined : room.agents.get(to);
+	if (!isHumanTarget && !target) {
+		return `Unknown recipient "${to}". Available: ${[...room.agents.keys(), HUMAN_NAME].join(", ")}`;
 	}
 
 	const message: RoomMessage = {
@@ -502,10 +990,21 @@ async function routeMessage(room: AgentRoom, from: string, to: string, body: str
 		to,
 		kind,
 		body,
+		replyToId,
 	};
 	room.messages.push(message);
 	await appendJsonl(room.mailboxPath, message);
-	target.stats.inbox = pendingMessagesFor(room, to).length;
+
+	const source = room.agents.get(from);
+	if (source) source.stats.lastMessage = truncate(`${kind}: ${body}`);
+
+	if (isHumanTarget) {
+		updateDashboard(room);
+		if (pi) sendHumanVisibleMessage(pi, room, message);
+		return `Message sent to ${HUMAN_NAME} (${shortMessageId(message.id)}).`;
+	}
+
+	target!.stats.inbox = pendingMessagesFor(room, to).length;
 	updateDashboard(room);
 	void deliverInbox(room, to);
 	return `Message sent to ${to}.`;
@@ -572,6 +1071,7 @@ function relativeToCwd(cwd: string, filePath: string): string {
 type CreateRoomOptions = {
 	useWorktree?: boolean;
 	baseRef?: string;
+	prd?: PrdRunMetadata;
 };
 
 async function createRoom(
@@ -596,6 +1096,7 @@ async function createRoom(
 		controllerCwd,
 		workspaceCwd,
 		worktree,
+		prd: options.prd,
 		createdAt: nowIso(),
 		updatedAt: nowIso(),
 		agents: DEFAULT_ROLES.map((role) => {
@@ -731,6 +1232,15 @@ function renderTiles(room: AgentRoom, width: number, theme: any): string[] {
 	const tileWidth = Math.max(28, Math.floor((width - gap * (columns - 1)) / columns));
 	const rows: string[] = [];
 	rows.push(theme.fg("accent", `AgentRoom ${room.name} (${room.id})`));
+	if (room.manifest.prd) {
+		const prd = room.manifest.prd;
+		const slices = prd.orderedSlices.map((slice) => `#${slice.number}`).join(" → ");
+		rows.push(theme.fg("muted", `PRD #${prd.number}: ${prd.title} | slices: ${slices || "none"}`));
+	}
+	const humanMessage = latestHumanMessage(room);
+	if (humanMessage) {
+		rows.push(theme.fg("warning", `Human msg ${shortMessageId(humanMessage.id)} from ${humanMessage.from}: ${truncate(humanMessage.body, Math.max(40, width - 24))}`));
+	}
 
 	for (let i = 0; i < agents.length; i += columns) {
 		const group = agents.slice(i, i + columns).map((agent, index) => renderTile(agent, tileWidth, theme, i + index));
@@ -787,7 +1297,9 @@ function usage(): string {
 		"/agent-room list",
 		"/agent-room status",
 		"/agent-room ask <agent|all> <message>",
-		"/agent-room send <from> <to|all> <message>",
+		"/agent-room reply <message-id|agent> <message>",
+		"/agent-room inbox",
+		"/agent-room send <from> <to|all|human> <message>",
 		"/agent-room compact <agent|all>",
 		"/agent-room stop",
 	].join("\n");
@@ -835,24 +1347,19 @@ async function handleAgentRoomCommand(pi: ExtensionAPI, args: string, ctx: Exten
 			ctx.ui.notify("Usage: /agent-room prd <issue-or-url>", "error");
 			return;
 		}
-		const room = await createRoom(pi, ctx, `prd-${safeId(prdRef)}`, options);
+		ctx.ui.notify(`Loading PRD ${prdRef} and ready slices...`, "info");
+		const { repo, prd, plan } = await loadPrdContext(ctx.cwd, prdRef);
+		const roomOptions = await preparePrdBaseRef(ctx.cwd, { ...options, prd: prdMetadata(repo, prd, plan) });
+		const room = await createRoom(pi, ctx, `prd-${prd.number}`, roomOptions);
 		await activateRoom(pi, ctx, room);
-		await promptAgent(
-			room,
-			"implementer",
-			`Prepare an implementation plan for PRD ${prdRef}. Fetch/read the issue if needed. Do not implement until you have enough context. Send reviewer and architect concise context via agent_send or agent_broadcast.`,
+		await promptAgent(room, "architect", buildPrdArchitectPrompt(repo, prd, plan));
+		await promptAgent(room, "reviewer", buildPrdReviewerPrompt(repo, prd, plan));
+		await promptAgent(room, "implementer", buildPrdImplementerPrompt(repo, prd, plan));
+		ctx.ui.notify(
+			`AgentRoom PRD run started: ${room.id}\nworkspace: ${relativeToCwd(room.controllerCwd, room.cwd)}\nslices: ${plan.ordered.map((slice) => `#${slice.number}`).join(" → ")}`,
+			"info",
 		);
-		await promptAgent(
-			room,
-			"reviewer",
-			`You are attached to PRD ${prdRef}. Wait for implementer messages. When asked, review diffs and send findings via agent_send.`,
-		);
-		await promptAgent(
-			room,
-			"architect",
-			`You are attached to PRD ${prdRef}. Review product/domain/architecture risks. Broadcast blockers or constraints.`,
-		);
-		ctx.ui.notify(`AgentRoom PRD run started: ${room.id}\nworkspace: ${relativeToCwd(room.controllerCwd, room.cwd)}`, "info");		return;
+		return;
 	}
 
 	if (command === "resume") {
@@ -910,22 +1417,61 @@ async function handleAgentRoomCommand(pi: ExtensionAPI, args: string, ctx: Exten
 		return;
 	}
 
+	if (command === "inbox") {
+		const room = requireRoom();
+		const messages = humanMessages(room).slice(-20);
+		const text = messages.length
+			? messages
+					.map((message) => `${shortMessageId(message.id)}  ${message.createdAt}  ${message.from}  ${message.kind}\n${message.body}`)
+					.join("\n\n---\n\n")
+			: "Human inbox empty.";
+		ctx.ui.notify(text, "info");
+		return;
+	}
+
+	if (command === "reply" || command === "answer") {
+		const [targetOrMessageId, ...messageParts] = rest;
+		const message = messageParts.join(" ").trim();
+		if (!targetOrMessageId || !message) {
+			ctx.ui.notify("Usage: /agent-room reply <message-id|agent> <message>", "error");
+			return;
+		}
+		const room = requireRoom();
+		let target = room.agents.has(targetOrMessageId) ? targetOrMessageId : undefined;
+		let body = message;
+		let replyToId: string | undefined;
+		if (!target) {
+			const original = findMessageByIdPrefix(room, targetOrMessageId);
+			if (!original || original.to !== HUMAN_NAME) {
+				ctx.ui.notify(`No human-directed message found for ${targetOrMessageId}. Use /agent-room inbox.`, "error");
+				return;
+			}
+			target = original.from;
+			replyToId = original.id;
+			body = `Reply to ${shortMessageId(original.id)} (${original.kind}):\n${message}`;
+		}
+		const result = await routeMessage(room, HUMAN_NAME, target, body, "human-reply", pi, replyToId);
+		ctx.ui.notify(result, "info");
+		return;
+	}
+
 	if (command === "send") {
 		const [from, to, ...messageParts] = rest;
 		const message = messageParts.join(" ").trim();
 		if (!from || !to || !message) {
-			ctx.ui.notify("Usage: /agent-room send <from> <to|all> <message>", "error");
+			ctx.ui.notify("Usage: /agent-room send <from> <to|all|human> <message>", "error");
 			return;
 		}
 		const room = requireRoom();
+		const results: string[] = [];
 		if (to === "all") {
 			for (const target of room.agents.keys()) {
-				if (target !== from) await routeMessage(room, from, target, message, "human-relay");
+				if (target !== from) results.push(await routeMessage(room, from, target, message, "human-relay", pi));
 			}
 		} else {
-			await routeMessage(room, from, to, message, "human-relay");
+			results.push(await routeMessage(room, from, to, message, "human-relay", pi));
 		}
-		ctx.ui.notify(`Sent ${from} -> ${to}.`, "info");
+		ctx.ui.notify(results.join("\n") || `No recipients for ${to}.`, "info");
 		return;
 	}
 
@@ -967,16 +1513,37 @@ function statusText(room: AgentRoom): string {
 		const sessionFile = agent.session.sessionFile ? relativeToCwd(room.controllerCwd, agent.session.sessionFile) : "in-memory";
 		return `${agent.role.name}: ${stats.status}, inbox ${stats.inbox}, turns ${stats.turns}, ${sessionFile}`;
 	});
+	const latest = latestHumanMessage(room);
 	return [
 		`AgentRoom ${room.name} (${room.id})`,
+		...(room.manifest.prd
+			? [
+					`prd: #${room.manifest.prd.number} ${room.manifest.prd.title}`,
+					`slices: ${room.manifest.prd.orderedSlices.map((slice) => `#${slice.number}`).join(" -> ")}`,
+				]
+			: []),
 		`state: ${relativeToCwd(room.controllerCwd, room.runDir)}`,
 		`workspace: ${relativeToCwd(room.controllerCwd, room.cwd)}`,
-		...(room.manifest.worktree ? [`branch: ${room.manifest.worktree.branch}`] : []),
+		...(room.manifest.worktree ? [`branch: ${room.manifest.worktree.branch}`, `base: ${room.manifest.worktree.baseRef}`] : []),
+		...(latest ? [`latest human message: ${shortMessageId(latest.id)} from ${latest.from} (${latest.kind})`] : []),
 		...rows,
 	].join("\n");
 }
 
 export default function agentRoomExtension(pi: ExtensionAPI) {
+	pi.registerMessageRenderer(HUMAN_MESSAGE_TYPE, (message, _options, theme) => {
+		const details = message.details as
+			| { roomName?: string; messageId?: string; from?: string; kind?: string; createdAt?: string; replyHint?: string }
+			| undefined;
+		const kind = details?.kind ?? "message";
+		const color = kind === "question" ? "warning" : kind.includes("blocker") || kind.includes("error") ? "error" : "accent";
+		const id = details?.messageId ? shortMessageId(details.messageId) : "????????";
+		let text = theme.fg(color, `${theme.bold("AgentRoom")} ${details?.roomName ?? ""} ${details?.from ?? "agent"} → human [${kind}] ${id}`);
+		text += `\n${String(message.content)}`;
+		if (details?.replyHint) text += `\n${theme.fg("dim", `reply: ${details.replyHint}`)}`;
+		return new Text(text, 0, 0);
+	});
+
 	pi.on("session_start", async (_event, ctx) => {
 		activeRunId = restoreActiveRun(ctx);
 		if (activeRunId) {
@@ -997,8 +1564,8 @@ export default function agentRoomExtension(pi: ExtensionAPI) {
 	pi.registerCommand("agent-room", {
 		description: "Persistent resident sub-agents with mailbox communication and TUI tiles",
 		getArgumentCompletions: (prefix: string) => {
-			const commands = ["start", "prd", "resume", "list", "status", "ask", "send", "compact", "stop", "help"];
-			const agents = activeRoom ? [...activeRoom.agents.keys(), "all"] : [];
+			const commands = ["start", "prd", "resume", "list", "status", "ask", "reply", "answer", "inbox", "send", "compact", "stop", "help"];
+			const agents = activeRoom ? [...activeRoom.agents.keys(), HUMAN_NAME, "all"] : [];
 			return [...commands, ...agents]
 				.filter((item) => item.startsWith(prefix))
 				.map((item) => ({ value: item, label: item }));
