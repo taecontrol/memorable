@@ -42,6 +42,7 @@ const AGENT_ROOM_TOOL_NAMES = [
 	"agent_room_status",
 	"agent_submit_review",
 	"agent_finish_review",
+	"agent_finish_architecture_review",
 ];
 const TDD_SKILL_FILE = [".agents", "skills", "tdd", "SKILL.md"];
 const execFile = promisify(execFileCallback);
@@ -104,6 +105,8 @@ type PrdWorkflowPhase =
 	| "approved"
 	| "committing"
 	| "compacting"
+	| "final-reviewing"
+	| "publishing"
 	| "done"
 	| "blocked";
 
@@ -152,6 +155,20 @@ type WorktreeInfo = {
 	createdAt: string;
 };
 
+type PullRequestMetadata = {
+	number: number;
+	url: string;
+	title: string;
+	createdAt: string;
+};
+
+type FinalArchitectureReviewMetadata = {
+	status: "approved" | "changes_requested";
+	findings: string;
+	verification?: string;
+	reviewedAt: string;
+};
+
 type RoomManifest = {
 	id: string;
 	name: string;
@@ -162,6 +179,8 @@ type RoomManifest = {
 	worktree?: WorktreeInfo;
 	prd?: PrdRunMetadata;
 	workflow?: PrdWorkflow;
+	pullRequest?: PullRequestMetadata;
+	finalArchitectureReview?: FinalArchitectureReviewMetadata;
 	createdAt: string;
 	updatedAt: string;
 	agents: AgentManifest[];
@@ -666,6 +685,7 @@ ${formatPrdContext(repo, prd, plan)}
 - Immediately review the PRD and ordered slices for product/domain/architecture constraints.
 - Broadcast constraints or blockers relevant to all agents.
 - Review final branch/diff when AgentRoom asks after all slices are approved and committed.
+- For final branch review, call agent_finish_architecture_review exactly once so AgentRoom can publish the PR.
 - Review only; do not modify files or commit.
 - Use agent_update for architecture start/completion and blocking risks visible to the human.
 
@@ -679,7 +699,7 @@ function buildPrdFinalArchitectPrompt(room: AgentRoom): string {
 	if (!prd) throw new Error("No PRD is active.");
 	return `All ordered slices for PRD #${prd.number} ${prd.title} are approved and committed.
 
-Run final architecture review of the branch/worktree. Review only; do not edit or commit. Report blockers to human/implementer, or confirm no blockers.
+Run final architecture review of the branch/worktree. Review only; do not edit or commit. When complete, call agent_finish_architecture_review with approved or changes_requested so AgentRoom can publish or block the PR.
 
 Committed slices: ${prd.orderedSlices.map((slice) => `#${slice.number}`).join(", ")}`;
 }
@@ -874,6 +894,7 @@ Available AgentRoom tools:
 - agent_broadcast: send a message to all other resident agents.
 - agent_submit_review: implementer submits the current PRD slice for review, then stops.
 - agent_finish_review: reviewer submits the final verdict for the current PRD slice.
+- agent_finish_architecture_review: architect submits the final branch verdict so AgentRoom can publish or block the PR.
 - agent_inbox: inspect recent messages addressed to you.
 - agent_room_status: inspect peer status.
 
@@ -1042,6 +1063,70 @@ Fix blockers for #${slice.number} only, then call agent_submit_review again. Do 
 			},
 		}),
 		defineTool({
+			name: "agent_finish_architecture_review",
+			label: "Agent Finish Architecture Review",
+			description: "Architect-only: submit final branch verdict so AgentRoom can publish or block the PR.",
+			parameters: Type.Object({
+				status: Type.String({ description: "approved or changes_requested" }),
+				findings: Type.String({ description: "Blocking findings or approval summary" }),
+				verification: Type.Optional(Type.String({ description: "Final architecture verification commands/results" })),
+			}),
+			async execute(_toolCallId, params) {
+				if (agentName !== "architect") throw new Error("Only architect may finish final architecture review.");
+				const workflow = prdWorkflow(room);
+				const prd = room.manifest.prd;
+				if (!workflow || !prd) throw new Error("No PRD workflow is active.");
+				if (workflow.phase !== "final-reviewing" && workflow.phase !== "done") {
+					throw new Error(`Final architecture review is not active; PRD workflow is ${workflow.phase}.`);
+				}
+				const status = params.status.trim().toLowerCase().replace(/[-\s]+/g, "_");
+				if (status !== "approved" && status !== "changes_requested") {
+					throw new Error("status must be approved or changes_requested.");
+				}
+
+				room.manifest.finalArchitectureReview = {
+					status,
+					findings: params.findings,
+					verification: params.verification,
+					reviewedAt: nowIso(),
+				};
+
+				if (status === "changes_requested") {
+					workflow.phase = "blocked";
+					workflow.blockedReason = `Final architecture review requested changes: ${oneLine(params.findings)}`;
+					await saveManifest(room);
+					await routeMessage(room, agentName, HUMAN_NAME, `Final architecture review blocked PRD #${prd.number}: ${params.findings}`, "architecture-blocker", pi);
+					return {
+						content: [{ type: "text", text: "Final architecture review blocked publication. Stop now and wait for human coordination." }],
+						details: { status },
+					};
+				}
+
+				workflow.phase = "publishing";
+				delete workflow.blockedReason;
+				await saveManifest(room);
+				await routeMessage(room, agentName, HUMAN_NAME, `Final architecture review approved for PRD #${prd.number}. Publishing PR.`, "architecture-approved", pi);
+
+				try {
+					const pullRequest = await publishPrdPullRequest(room);
+					room.manifest.pullRequest = pullRequest;
+					workflow.phase = "done";
+					await saveManifest(room);
+					await routeMessage(room, "agent-room", HUMAN_NAME, `PR ready for PRD #${prd.number}: ${pullRequest.url}`, "pr-ready", pi);
+					return {
+						content: [{ type: "text", text: `PR ready: ${pullRequest.url}` }],
+						details: { status, pullRequest },
+					};
+				} catch (error) {
+					workflow.phase = "blocked";
+					workflow.blockedReason = `PR publish failed: ${error instanceof Error ? error.message : String(error)}`;
+					await saveManifest(room);
+					await routeMessage(room, "agent-room", HUMAN_NAME, `PRD workflow blocked: ${workflow.blockedReason}`, "blocker", pi);
+					throw error;
+				}
+			},
+		}),
+		defineTool({
 			name: "agent_inbox",
 			label: "Agent Inbox",
 			description: "Read recent messages addressed to this agent.",
@@ -1143,13 +1228,13 @@ function handleAgentEvent(room: AgentRoom, agent: ResidentAgent, event: AgentSes
 		stats.status = "running";
 		stats.currentTask = `tool: ${event.toolName}`;
 		const workflow = prdWorkflow(room);
-		if (agent.role.name === "implementer" && workflow && workflow.phase !== "implementing" && !AGENT_ROOM_TOOL_NAMES.includes(event.toolName)) {
+		if (shouldBlockImplementerTool(agent, workflow, event.toolName)) {
 			void agent.session.abort();
 			void routeMessage(
 				room,
 				"agent-room",
 				HUMAN_NAME,
-				`Blocked implementer tool ${event.toolName}; PRD workflow is ${workflow.phase}.`,
+				`Blocked implementer tool ${event.toolName}; PRD workflow is ${workflow?.phase}.`,
 				"workflow-guard",
 				pi,
 			);
@@ -1181,6 +1266,11 @@ function handleAgentEvent(room: AgentRoom, agent: ResidentAgent, event: AgentSes
 	}
 
 	updateDashboard(room);
+}
+
+function shouldBlockImplementerTool(agent: ResidentAgent, workflow: PrdWorkflow | undefined, toolName: string): boolean {
+	if (agent.role.name !== "implementer" || !workflow || AGENT_ROOM_TOOL_NAMES.includes(toolName)) return false;
+	return !["implementing", "publishing", "done"].includes(workflow.phase);
 }
 
 function pendingMessagesFor(room: AgentRoom, agentName: string): RoomMessage[] {
@@ -1392,9 +1482,9 @@ async function runPrdWorkflowAutomation(room: AgentRoom, pi: ExtensionAPI): Prom
 			return;
 		}
 
-		workflow.phase = "done";
+		workflow.phase = "final-reviewing";
 		await saveManifest(room);
-		await routeMessage(room, "agent-room", HUMAN_NAME, `All PRD slices committed/compacted; requesting final architecture review.`, "done", pi);
+		await routeMessage(room, "agent-room", HUMAN_NAME, `All PRD slices committed/compacted; requesting final architecture review.`, "final-review", pi);
 		await promptAgent(room, "architect", buildPrdFinalArchitectPrompt(room), true);
 	} catch (error) {
 		workflow.phase = "blocked";
@@ -1444,6 +1534,142 @@ async function compactResidentAgents(room: AgentRoom, slice: PrdRunMetadata["ord
 function isAlreadyCompactedError(error: unknown): boolean {
 	const message = error instanceof Error ? error.message : String(error);
 	return /already compacted/i.test(message);
+}
+
+type GhPullRequest = {
+	number: number;
+	url: string;
+	title: string;
+	isDraft: boolean;
+};
+
+async function publishPrdPullRequest(room: AgentRoom): Promise<PullRequestMetadata> {
+	const prd = room.manifest.prd;
+	if (!prd) throw new Error("No PRD metadata available for PR publication.");
+	const status = (await git(room.cwd, ["status", "--porcelain"])).stdout.trim();
+	if (status) throw new Error(`Cannot publish PR with dirty worktree:\n${status}`);
+
+	const branch = room.manifest.worktree?.branch ?? (await git(room.cwd, ["branch", "--show-current"])).stdout.trim();
+	if (!branch) throw new Error("Cannot determine current branch for PR publication.");
+	const base = baseBranchName(room.manifest.worktree?.baseRef);
+	const title = `Implement #${prd.number}: ${prd.title}`;
+	const body = await buildPrdPullRequestBody(room);
+	const bodyFile = path.join(room.runDir, "pull-request.md");
+	await fs.writeFile(bodyFile, body, "utf8");
+
+	await git(room.cwd, ["push", "-u", "origin", branch]);
+	const priorPrUrl = room.manifest.pullRequest?.url;
+	let createdPullRequest = false;
+	let pullRequest = await findPullRequestForBranch(room.cwd, prd.repo, branch);
+	if (pullRequest) {
+		await execFile("gh", ["pr", "edit", String(pullRequest.number), "-R", prd.repo, "--title", title, "--body-file", bodyFile], {
+			cwd: room.cwd,
+			maxBuffer: 10 * 1024 * 1024,
+		});
+		if (pullRequest.isDraft) {
+			await execFile("gh", ["pr", "ready", String(pullRequest.number), "-R", prd.repo], { cwd: room.cwd, maxBuffer: 1024 * 1024 });
+		}
+		pullRequest = await viewPullRequest(room.cwd, prd.repo, pullRequest.number);
+	} else {
+		await execFile("gh", ["pr", "create", "-R", prd.repo, "--base", base, "--title", title, "--body-file", bodyFile], {
+			cwd: room.cwd,
+			maxBuffer: 10 * 1024 * 1024,
+		});
+		createdPullRequest = true;
+		pullRequest = await findPullRequestForBranch(room.cwd, prd.repo, branch);
+		if (!pullRequest) throw new Error("PR was created but could not be found by branch.");
+	}
+
+	if (createdPullRequest || (priorPrUrl && priorPrUrl !== pullRequest.url)) await commentOnPrdIssue(room, pullRequest);
+	return { number: pullRequest.number, url: pullRequest.url, title: pullRequest.title, createdAt: nowIso() };
+}
+
+function baseBranchName(baseRef: string | undefined): string {
+	const normalized = (baseRef ?? "origin/main").replace(/^refs\/heads\//, "").replace(/^remotes\/origin\//, "").replace(/^origin\//, "");
+	return normalized && normalized !== "HEAD" ? normalized : "main";
+}
+
+async function findPullRequestForBranch(cwd: string, repo: string, branch: string): Promise<GhPullRequest | undefined> {
+	const prs = await ghJson<GhPullRequest[]>(cwd, [
+		"pr",
+		"list",
+		"-R",
+		repo,
+		"--state",
+		"open",
+		"--head",
+		branch,
+		"--json",
+		"number,url,title,isDraft",
+		"--limit",
+		"1",
+	]);
+	return prs[0];
+}
+
+async function viewPullRequest(cwd: string, repo: string, number: number): Promise<GhPullRequest> {
+	return ghJson<GhPullRequest>(cwd, ["pr", "view", String(number), "-R", repo, "--json", "number,url,title,isDraft"]);
+}
+
+async function buildPrdPullRequestBody(room: AgentRoom): Promise<string> {
+	const prd = room.manifest.prd;
+	if (!prd) throw new Error("No PRD metadata available for PR body.");
+	const finalReview = room.manifest.finalArchitectureReview;
+	const prdKeyword = prd.skippedSlices.length === 0 ? "Closes" : "Refs";
+	const completedRows = await Promise.all(
+		prd.orderedSlices.map(async (slice) => {
+			const sha = await sliceCommitSha(room, prd, slice.number);
+			return `- Closes #${slice.number} - ${slice.title}${sha ? ` (${sha.slice(0, 12)})` : ""}`;
+		}),
+	);
+	const skippedRows = prd.skippedSlices.map((slice) => `- #${slice.number} - ${slice.title}: ${slice.reason}`);
+
+	return `## PRD
+
+${prdKeyword} #${prd.number}
+
+## Completed Slices
+
+${completedRows.join("\n") || "None"}
+
+## Skipped Slices
+
+${skippedRows.join("\n") || "None"}
+
+## Verification
+
+${finalReview?.verification ?? "See AgentRoom review messages. Each slice was reviewed before commit."}
+
+## Architect Review
+
+Status: ${finalReview?.status ?? "approved"}
+
+${finalReview?.findings ?? "No findings."}
+
+## AgentRoom
+
+Run: ${room.id}
+Branch: ${room.manifest.worktree?.branch ?? "current branch"}
+`;
+}
+
+async function sliceCommitSha(room: AgentRoom, prd: PrdRunMetadata, sliceNumber: number): Promise<string | undefined> {
+	const result = await git(room.cwd, ["log", "--format=%H", "--fixed-strings", "--grep", `Implement PRD #${prd.number} slice #${sliceNumber}`, "-1"]);
+	return result.stdout.trim().split("\n").find(Boolean);
+}
+
+async function commentOnPrdIssue(room: AgentRoom, pullRequest: GhPullRequest): Promise<void> {
+	const prd = room.manifest.prd;
+	if (!prd) return;
+	const implemented = prd.orderedSlices.map((slice) => `#${slice.number}`).join(", ");
+	const skipped = prd.skippedSlices.map((slice) => `#${slice.number}`).join(", ") || "none";
+	const body = `Opened PR ${pullRequest.url} implementing ${implemented || "none"}. Skipped: ${skipped}.`;
+	const bodyFile = path.join(room.runDir, "prd-comment.md");
+	await fs.writeFile(bodyFile, body, "utf8");
+	await execFile("gh", ["issue", "comment", String(prd.number), "-R", prd.repo, "--body-file", bodyFile], {
+		cwd: room.cwd,
+		maxBuffer: 1024 * 1024,
+	});
 }
 
 async function saveManifest(room: AgentRoom): Promise<void> {
@@ -1641,6 +1867,9 @@ function renderTiles(room: AgentRoom, width: number, theme: any): string[] {
 		const workflow = prdWorkflow(room);
 		if (workflow) {
 			rows.push(theme.fg("muted", fitLine(`workflow: ${workflow.phase} | current: ${currentPrdSliceLabel(room)} | queue: ${room.promptQueue.length}`, safeWidth, "…")));
+		}
+		if (room.manifest.pullRequest) {
+			rows.push(theme.fg("muted", fitLine(`PR #${room.manifest.pullRequest.number}: ${room.manifest.pullRequest.url}`, safeWidth, "…")));
 		}
 	}
 	const humanMessage = latestHumanMessage(room);
@@ -1938,6 +2167,7 @@ function statusText(room: AgentRoom): string {
 		`workspace: ${relativeToCwd(room.controllerCwd, room.cwd)}`,
 		...(room.manifest.worktree ? [`branch: ${room.manifest.worktree.branch}`, `base: ${room.manifest.worktree.baseRef}`] : []),
 		...(workflow ? [`workflow: ${workflow.phase}, current: ${currentPrdSliceLabel(room)}, queue: ${room.promptQueue.length}`] : []),
+		...(room.manifest.pullRequest ? [`pr: #${room.manifest.pullRequest.number} ${room.manifest.pullRequest.url}`] : []),
 		...(latest ? [`latest human message: ${shortMessageId(latest.id)} from ${latest.from} (${latest.kind})`] : []),
 		...rows,
 	].join("\n");

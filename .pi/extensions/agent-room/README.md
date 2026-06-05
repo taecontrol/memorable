@@ -32,6 +32,7 @@ Alias: `/room`.
 - resident prompts are serialized: only one agent runs at a time
 - PRD runs gate slices with `agent_submit_review` → reviewer `agent_finish_review`
 - approved slices are committed, then all agents are compacted before the next slice assignment
+- after the last slice, architect calls `agent_finish_architecture_review`; AgentRoom pushes the branch, opens/updates the PR, and comments on the PRD issue
 - TUI widget renders resident-agent tiles, PRD slices, workflow state, and latest human-directed message above editor
 - child sessions load Pi built-in tools plus AgentRoom communication tools
 
