@@ -105,6 +105,9 @@ class FailingSearchIndex:
 
         self._inner = InMemoryEmbeddingIndex()
 
+    def recreate_index(self, dimensions: int) -> None:
+        return None
+
     def store(self, record: EmbeddingRecord) -> None:
         self._inner.store(record)
 
@@ -131,6 +134,9 @@ class FailingSearchIndex:
 
 
 class FailingEmbeddingIndex:
+    def recreate_index(self, dimensions: int) -> None:
+        return None
+
     def store(self, record: EmbeddingRecord) -> None:
         raise RuntimeError("vector index unavailable")
 

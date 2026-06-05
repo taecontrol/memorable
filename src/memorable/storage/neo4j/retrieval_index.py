@@ -6,7 +6,11 @@ from datetime import UTC, datetime
 from typing import Any, Protocol, runtime_checkable
 
 from memorable.retrieval.models import EmbeddingRecord, SearchCandidate
-from memorable.storage.neo4j.schema import EXPECTED_VECTOR_INDEX
+from memorable.storage.neo4j.schema import (
+    EXPECTED_VECTOR_INDEX,
+    create_vector_index_cypher,
+    drop_vector_index_cypher,
+)
 
 
 @runtime_checkable
@@ -31,6 +35,17 @@ class Neo4jRetrievalIndex:
 
     def __init__(self, driver: Neo4jDriver) -> None:
         self._driver = driver
+
+    def recreate_index(self, dimensions: int) -> None:
+        """Drop and recreate the vector index at the given dimensions.
+
+        This is the storage-side of ``reindex`` drift repair: it resolves
+        embedding dimension drift in one step. Schema bootstrap stays
+        create-if-absent and never drops the index; only ``reindex`` does.
+        """
+        with self._driver.session() as session:
+            session.run(drop_vector_index_cypher())
+            session.run(create_vector_index_cypher(dimensions))
 
     def store(self, record: EmbeddingRecord) -> None:
         """Add or replace a derived Embedding for a source item."""
