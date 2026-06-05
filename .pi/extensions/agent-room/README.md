@@ -29,7 +29,10 @@ Alias: `/room`.
 - mailbox stored as append-only JSONL
 - agents can send human-visible updates/questions with `agent_update` / `agent_question`
 - human replies use `/agent-room reply <message-id|agent> <message>` and are delivered to agent inboxes
-- TUI widget renders resident-agent tiles, PRD slices, and latest human-directed message above editor
+- resident prompts are serialized: only one agent runs at a time
+- PRD runs gate slices with `agent_submit_review` → reviewer `agent_finish_review`
+- approved slices are committed, then all agents are compacted before the next slice assignment
+- TUI widget renders resident-agent tiles, PRD slices, workflow state, and latest human-directed message above editor
 - child sessions load Pi built-in tools plus AgentRoom communication tools
 
 Default residents:
