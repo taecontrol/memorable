@@ -10,6 +10,7 @@ from neo4j import GraphDatabase
 from memorable.config import RuntimeConfig
 from memorable.core.profile import load_profile_from_yaml
 from memorable.retrieval.embeddings import EmbeddingProvider, build_embedding_provider
+from memorable.retrieval.models import EmbeddingCoverageReport
 from memorable.storage.neo4j.schema import (
     expected_constraint_shapes,
     expected_vector_index_shape,
@@ -51,6 +52,7 @@ EMBEDDING_PROVIDER_CHECK = "embedding_provider_embeds"
 EMBEDDING_PROBE_TEXT = "Memorable doctor embedding probe."
 FASTEMBED_DOWNLOAD_HINT = "fastembed first use may download the local model (~67MB)."
 MEMORY_PROFILE_HINT = "Fix .memorable/memory.yaml so it is valid MemoryProfile YAML."
+EMBEDDING_COVERAGE_CHECK = "embedding_index_coverage"
 
 
 def ping_neo4j(config: RuntimeConfig) -> None:
@@ -148,6 +150,29 @@ def vector_index_present(indexes: list[VectorIndex]) -> bool:
     )
 
 
+def collect_embedding_coverage(
+    config: RuntimeConfig,
+    space: str,
+) -> EmbeddingCoverageReport:
+    """Return active Embedding coverage for a MemorySpace."""
+    from memorable.retrieval.service import build_retrieval_service
+    from memorable.storage.production import build_production_context
+
+    provider = build_embedding_provider(
+        config.embeddings, api_key=config.embeddings.api_key
+    )
+    ctx, driver = build_production_context(config)
+    try:
+        service = build_retrieval_service(
+            ctx,
+            provider,
+            dimensions=config.embeddings.dimensions,
+        )
+        return service.index_coverage(space)
+    finally:
+        driver.close()
+
+
 def live_vector_index_dimensions(indexes: list[VectorIndex]) -> int | None:
     """Return the live `vector.dimensions` of the expected Memorable index.
 
@@ -200,6 +225,9 @@ class DiagnosticProbes:
     )
     profile_path: Path | None = None
     load_profile_from_yaml: Callable[[str], object] = load_profile_from_yaml
+    collect_embedding_coverage: Callable[
+        [RuntimeConfig, str], EmbeddingCoverageReport
+    ] = collect_embedding_coverage
 
     def resolved_profile_path(self) -> Path:
         """Return the MemoryProfile path, defaulting to the cwd workspace."""
@@ -289,6 +317,38 @@ def _embedding_provider_success_hint(config: RuntimeConfig) -> str:
     if config.embeddings.provider == "fastembed":
         return FASTEMBED_DOWNLOAD_HINT
     return ""
+
+
+def _embedding_index_coverage_unreadable_hint(space: str, cause: str) -> str:
+    return (
+        f"Doctor could not inspect Embedding coverage for MemorySpace '{space}'. "
+        "Check Neo4j connectivity and Embedding settings, then run "
+        f"`memorable reindex --space {space}` to repair derived Embeddings. "
+        f"Cause: {cause}"
+    )
+
+
+def _embedding_index_coverage_result(
+    config: RuntimeConfig,
+    probes: DiagnosticProbes,
+    space: str,
+) -> DiagnosticResult:
+    try:
+        report = probes.collect_embedding_coverage(config, space)
+    except Exception as exc:
+        return {
+            "check": EMBEDDING_COVERAGE_CHECK,
+            "ok": False,
+            "hint": _embedding_index_coverage_unreadable_hint(space, str(exc)),
+        }
+
+    if report.ok:
+        return {"check": EMBEDDING_COVERAGE_CHECK, "ok": True, "hint": ""}
+    return {
+        "check": EMBEDDING_COVERAGE_CHECK,
+        "ok": False,
+        "hint": report.actionable_hint,
+    }
 
 
 def _embedding_probe_result(
@@ -419,7 +479,9 @@ def run_diagnostics(
     profile_path = probes.resolved_profile_path()
     if profile_path.exists():
         try:
-            probes.load_profile_from_yaml(profile_path.read_text(encoding="utf-8"))
+            profile = probes.load_profile_from_yaml(
+                profile_path.read_text(encoding="utf-8")
+            )
         except Exception:
             results.append(
                 {
@@ -430,6 +492,11 @@ def run_diagnostics(
             )
         else:
             results.append({"check": "memory_profile_parses", "ok": True, "hint": ""})
+            space_name = getattr(getattr(profile, "space", None), "name", None)
+            if isinstance(space_name, str) and space_name:
+                results.append(
+                    _embedding_index_coverage_result(config, probes, space_name)
+                )
 
     return results
 

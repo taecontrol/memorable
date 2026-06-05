@@ -4,6 +4,8 @@ Choose retrieval by the question you need answered.
 
 Use `memorable_search_memory` for GraphRAG similarity: "what memory is relevant to this problem?" It takes `space`, `query`, `mode`, and optionally `as_of`; it combines semantic search, graph expansion, temporal filtering, and provenance-aware explanations. Search finds useful candidates, not complete state lists.
 
+Use `memorable_reindex_space` after upgrading or changing Embedding settings to backfill derived Embeddings before search. If search reports no compatible Embeddings, run `memorable_doctor` and then reindex the MemorySpace.
+
 Use `memorable_list_records` for Memory Review and state questions: "what is open?", "what did we create this week?", "which records are about this Entity?" Pass `space`, then filter with `type`, `state`, `since`, `until`, `about`, and `limit`. It deterministically lists Decisions, Observations, Relations, and Tasks; it does not list Entities.
 
 Use `memorable_current_truth` when you already know a temporal record id and need the active version after supersession. Pass `space`, `record_id`, and `record_type` for a Decision, Observation, or Relation.

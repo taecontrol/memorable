@@ -21,6 +21,7 @@ from memorable.storage.neo4j.repository import (
     Neo4jRelationRepository,
     Neo4jTaskRepository,
 )
+from memorable.storage.neo4j.retrieval_index import Neo4jRetrievalIndex
 
 
 def build_production_context(
@@ -67,6 +68,7 @@ def build_production_context(
         about_repo=Neo4jAboutRepository(driver),
         forget_repo=Neo4jForgetRepository(driver),
         memory_space_repo=Neo4jMemorySpaceRepository(driver),
+        retrieval_index=Neo4jRetrievalIndex(driver),
     )
 
     return ctx, driver

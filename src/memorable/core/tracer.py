@@ -238,6 +238,7 @@ class TracerService:
         from memorable.retrieval.service import build_retrieval_service
 
         retrieval = build_retrieval_service(ctx, FakeEmbeddingProvider(dimensions=32))
+        retrieval.reindex("memorable")
 
         results = retrieval.search(
             space="memorable",

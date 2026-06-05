@@ -19,6 +19,7 @@ Writable Record Types: Decision, Observation, Task.
 - `memorable_inspect_provenance`: Inspect provenance for a remembered Entity.
 - `memorable_remember_task`: Remember a Task with lifecycle state and optional About Entities.
 - `memorable_complete_task`: Mark a Task completed at a Validity Time.
+- `memorable_reindex_space`: Backfill persistent Embeddings for a MemorySpace.
 - `memorable_search_memory`: Search memory by GraphRAG similarity with temporal filtering.
 - `memorable_inspect_task`: Inspect a Task's current or point-in-time lifecycle state.
 - `memorable_list_records`: List MemoryRecords deterministically for Memory Review and state questions.

@@ -78,6 +78,7 @@ EXPECTED_TOOL_NAMES = {
     "memorable_inspect_provenance",
     "memorable_remember_task",
     "memorable_complete_task",
+    "memorable_reindex_space",
     "memorable_search_memory",
     "memorable_inspect_task",
     "memorable_invalidate",
@@ -99,9 +100,9 @@ EXPECTED_GUIDE_TOPICS = [
 
 
 class TestToolRegistration:
-    def test_all_22_tools_registered(self) -> None:
+    def test_all_23_tools_registered(self) -> None:
         tool_names = _list_tool_names()
-        assert len(tool_names) == 22
+        assert len(tool_names) == 23
 
     def test_all_expected_tool_names_present(self) -> None:
         tool_names = _list_tool_names()

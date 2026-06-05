@@ -5,7 +5,7 @@ import json
 import sys
 from collections.abc import Callable
 from pathlib import Path
-from typing import Literal, cast
+from typing import TYPE_CHECKING, Literal, cast
 
 from memorable.config import RuntimeConfig, load_runtime_config
 from memorable.core.application import (
@@ -42,6 +42,9 @@ from memorable.runtime.docker import stop as docker_stop
 from memorable.runtime.doctor import all_checks_passed, run_diagnostics
 from memorable.storage.neo4j.repository import ensure_all_constraints
 from memorable.storage.production import build_production_context
+
+if TYPE_CHECKING:
+    from memorable.retrieval.indexing import EmbeddingIndexer
 
 
 def resolve_space(space_arg: str | None) -> str:
@@ -285,6 +288,81 @@ def _cmd_tracer_run(args: argparse.Namespace) -> int:
 # =====================================================================
 
 
+def _build_embedding_indexer(
+    ctx: ApplicationContext,
+    config: RuntimeConfig,
+) -> EmbeddingIndexer:
+    """Build the write-time Embedding indexer for the active runtime config."""
+    from memorable.retrieval.embeddings import build_embedding_provider
+    from memorable.retrieval.indexing import EmbeddingIndexer
+
+    provider = build_embedding_provider(
+        config.embeddings, api_key=config.embeddings.api_key
+    )
+    return EmbeddingIndexer(
+        retrieval_index=ctx.retrieval_index,
+        embedding_provider=provider,
+        dimensions=config.embeddings.dimensions,
+    )
+
+
+def _index_after_canonical_write(
+    *,
+    ctx: ApplicationContext,
+    config: RuntimeConfig,
+    space: str,
+    source_id: str,
+    source_kind: str,
+    upsert: Callable[[EmbeddingIndexer], None],
+) -> bool:
+    """Upsert a derived Embedding after canonical memory was written."""
+    try:
+        upsert(_build_embedding_indexer(ctx, config))
+    except Exception as exc:
+        print(
+            "Error: Canonical memory was written, but derived Embedding index "
+            f"maintenance failed for {source_kind} '{source_id}' in "
+            f"MemorySpace '{space}'. Run `memorable reindex --space {space}` "
+            f"to repair search. Original error: {exc}",
+            file=sys.stderr,
+        )
+        return False
+    return True
+
+
+def _delete_after_canonical_forget(
+    *,
+    ctx: ApplicationContext,
+    space: str,
+    source_id: str,
+    source_kind: str,
+) -> bool:
+    """Delete a derived Embedding after canonical memory was forgotten."""
+    try:
+        ctx.retrieval_index.delete(
+            space=space,
+            source_id=source_id,
+            source_kind=source_kind,
+        )
+    except Exception as exc:
+        print(
+            "Error: Canonical memory was forgotten, but derived Embedding index "
+            f"maintenance failed for {source_kind} '{source_id}' in "
+            f"MemorySpace '{space}'. Run `memorable reindex --space {space}` "
+            f"to erase stale derived Embeddings. Original error: {exc}",
+            file=sys.stderr,
+        )
+        return False
+    return True
+
+
+_RECORD_EMBEDDING_SOURCE_KIND = {
+    "decision": "Decision",
+    "observation": "Observation",
+    "task": "Task",
+}
+
+
 def _cmd_remember_entity(
     args: argparse.Namespace,
     ctx: ApplicationContext,
@@ -316,6 +394,16 @@ def _cmd_remember_entity(
         )
     except ValueError as e:
         print(f"Error: {e}", file=sys.stderr)
+        return 1
+
+    if not _index_after_canonical_write(
+        ctx=ctx,
+        config=config,
+        space=space,
+        source_id=result.entity.id,
+        source_kind="Entity",
+        upsert=lambda indexer: indexer.upsert_entity(result.entity),
+    ):
         return 1
 
     print(
@@ -402,6 +490,23 @@ def _cmd_remember_decision(
         print(f"Error: {e}", file=sys.stderr)
         return 1
 
+    def upsert_decision_embeddings(indexer: EmbeddingIndexer) -> None:
+        indexer.upsert_decision(result.decision)
+        if supersedes is not None:
+            superseded_decision = ctx.decision_repo.get(space, supersedes)
+            if superseded_decision is not None:
+                indexer.upsert_decision(superseded_decision)
+
+    if not _index_after_canonical_write(
+        ctx=ctx,
+        config=config,
+        space=space,
+        source_id=result.decision.id,
+        source_kind="Decision",
+        upsert=upsert_decision_embeddings,
+    ):
+        return 1
+
     print(
         json.dumps(
             {
@@ -456,6 +561,23 @@ def _cmd_remember_observation(
         )
     except ValueError as e:
         print(f"Error: {e}", file=sys.stderr)
+        return 1
+
+    def upsert_observation_embeddings(indexer: EmbeddingIndexer) -> None:
+        indexer.upsert_observation(result.observation)
+        if supersedes is not None:
+            superseded_observation = ctx.observation_repo.get(space, supersedes)
+            if superseded_observation is not None:
+                indexer.upsert_observation(superseded_observation)
+
+    if not _index_after_canonical_write(
+        ctx=ctx,
+        config=config,
+        space=space,
+        source_id=result.observation.id,
+        source_kind="Observation",
+        upsert=upsert_observation_embeddings,
+    ):
         return 1
 
     print(
@@ -517,6 +639,23 @@ def _cmd_remember_relation(
         )
     except ValueError as e:
         print(f"Error: {e}", file=sys.stderr)
+        return 1
+
+    def upsert_relation_embeddings(indexer: EmbeddingIndexer) -> None:
+        indexer.upsert_relation(result.relation)
+        if supersedes is not None:
+            superseded_relation = ctx.relation_repo.get(space, supersedes)
+            if superseded_relation is not None:
+                indexer.upsert_relation(superseded_relation)
+
+    if not _index_after_canonical_write(
+        ctx=ctx,
+        config=config,
+        space=space,
+        source_id=result.relation.id,
+        source_kind="Relation",
+        upsert=upsert_relation_embeddings,
+    ):
         return 1
 
     print(
@@ -674,6 +813,16 @@ def _cmd_remember_task(
         print(f"Error: {e}", file=sys.stderr)
         return 1
 
+    if not _index_after_canonical_write(
+        ctx=ctx,
+        config=config,
+        space=space,
+        source_id=result.task.id,
+        source_kind="Task",
+        upsert=lambda indexer: indexer.upsert_task(result.task),
+    ):
+        return 1
+
     print(
         json.dumps(
             {
@@ -714,6 +863,16 @@ def _cmd_complete_task(
         )
     except ValueError as e:
         print(f"Error: {e}", file=sys.stderr)
+        return 1
+
+    if not _index_after_canonical_write(
+        ctx=ctx,
+        config=config,
+        space=space,
+        source_id=result.task.id,
+        source_kind="Task",
+        upsert=lambda indexer: indexer.upsert_task(result.task),
+    ):
         return 1
 
     print(
@@ -781,7 +940,10 @@ def _cmd_search(
     space = resolve_space(getattr(args, "space", None))
 
     from memorable.retrieval.embeddings import build_embedding_provider
-    from memorable.retrieval.service import build_retrieval_service
+    from memorable.retrieval.service import (
+        EmbeddingIndexCompatibilityError,
+        build_retrieval_service,
+    )
 
     try:
         provider = build_embedding_provider(
@@ -790,7 +952,11 @@ def _cmd_search(
     except (RuntimeError, ValueError) as e:
         print(f"Error: {e}", file=sys.stderr)
         return 1
-    service = build_retrieval_service(ctx, provider)
+    service = build_retrieval_service(
+        ctx,
+        provider,
+        dimensions=config.embeddings.dimensions,
+    )
 
     raw_mode = getattr(args, "mode", "current") or "current"
     mode = cast(Literal["current", "as-of"], raw_mode)
@@ -798,12 +964,16 @@ def _cmd_search(
     if hasattr(args, "as_of") and args.as_of is not None:
         as_of = parse_iso_timestamp(args.as_of)
 
-    results = service.search(
-        space=space,
-        query=args.query,
-        mode=mode,
-        as_of=as_of,
-    )
+    try:
+        results = service.search(
+            space=space,
+            query=args.query,
+            mode=mode,
+            as_of=as_of,
+        )
+    except EmbeddingIndexCompatibilityError as e:
+        print(f"Error: {e}", file=sys.stderr)
+        return 1
 
     output = {
         "query": args.query,
@@ -822,6 +992,54 @@ def _cmd_search(
         ],
     }
     print(json.dumps(output, sort_keys=True, indent=2))
+    return 0
+
+
+def _cmd_reindex(
+    args: argparse.Namespace,
+    ctx: ApplicationContext,
+    config: RuntimeConfig,
+) -> int:
+    """Backfill persistent Embeddings for a MemorySpace."""
+    space = resolve_space(getattr(args, "space", None))
+
+    from memorable.retrieval.embeddings import build_embedding_provider
+    from memorable.retrieval.service import build_retrieval_service
+
+    try:
+        provider = build_embedding_provider(
+            config.embeddings, api_key=config.embeddings.api_key
+        )
+    except (RuntimeError, ValueError) as e:
+        print(f"Error: {e}", file=sys.stderr)
+        return 1
+
+    service = build_retrieval_service(
+        ctx,
+        provider,
+        dimensions=config.embeddings.dimensions,
+    )
+    try:
+        result = service.reindex(space)
+    except Exception as e:
+        print(
+            f"Error: Reindex failed for MemorySpace '{space}'. Run "
+            "`memorable doctor` to diagnose Embedding Provider and vector "
+            "index compatibility, then retry `memorable reindex --space "
+            f"{space}`. Original error: {e}",
+            file=sys.stderr,
+        )
+        return 1
+    print(
+        json.dumps(
+            {
+                "space": result.space,
+                "indexed_total": result.indexed_total,
+                "indexed_by_kind": result.indexed_by_kind,
+            },
+            sort_keys=True,
+        )
+    )
     return 0
 
 
@@ -858,6 +1076,43 @@ def _cmd_invalidate(
     except ValueError as e:
         print(f"Error: {e}", file=sys.stderr)
         return 1
+
+    if record_type == "decision":
+        invalidated_decision = ctx.decision_repo.get(space, result.record_id)
+        if invalidated_decision is None:
+            print(
+                f"Error: Invalidated Decision '{result.record_id}' not found "
+                f"in MemorySpace '{space}'.",
+                file=sys.stderr,
+            )
+            return 1
+        if not _index_after_canonical_write(
+            ctx=ctx,
+            config=config,
+            space=space,
+            source_id=result.record_id,
+            source_kind="Decision",
+            upsert=lambda indexer: indexer.upsert_decision(invalidated_decision),
+        ):
+            return 1
+    elif record_type == "observation":
+        invalidated_observation = ctx.observation_repo.get(space, result.record_id)
+        if invalidated_observation is None:
+            print(
+                f"Error: Invalidated Observation '{result.record_id}' not found "
+                f"in MemorySpace '{space}'.",
+                file=sys.stderr,
+            )
+            return 1
+        if not _index_after_canonical_write(
+            ctx=ctx,
+            config=config,
+            space=space,
+            source_id=result.record_id,
+            source_kind="Observation",
+            upsert=lambda indexer: indexer.upsert_observation(invalidated_observation),
+        ):
+            return 1
 
     print(
         json.dumps(
@@ -912,6 +1167,43 @@ def _cmd_correct(
         print(f"Error: {e}", file=sys.stderr)
         return 1
 
+    if record_type == "decision":
+        corrected_decision = ctx.decision_repo.get(space, result.record_id)
+        if corrected_decision is None:
+            print(
+                f"Error: Corrected Decision '{result.record_id}' not found "
+                f"in MemorySpace '{space}'.",
+                file=sys.stderr,
+            )
+            return 1
+        if not _index_after_canonical_write(
+            ctx=ctx,
+            config=config,
+            space=space,
+            source_id=result.record_id,
+            source_kind="Decision",
+            upsert=lambda indexer: indexer.upsert_decision(corrected_decision),
+        ):
+            return 1
+    elif record_type == "observation":
+        corrected_observation = ctx.observation_repo.get(space, result.record_id)
+        if corrected_observation is None:
+            print(
+                f"Error: Corrected Observation '{result.record_id}' not found "
+                f"in MemorySpace '{space}'.",
+                file=sys.stderr,
+            )
+            return 1
+        if not _index_after_canonical_write(
+            ctx=ctx,
+            config=config,
+            space=space,
+            source_id=result.record_id,
+            source_kind="Observation",
+            upsert=lambda indexer: indexer.upsert_observation(corrected_observation),
+        ):
+            return 1
+
     print(
         json.dumps(
             {
@@ -937,16 +1229,33 @@ def _cmd_forget(
     service = ForgetService(repository=ctx.forget_repo)
     try:
         if args.target_type == "entity":
+            cascaded_relations = list(ctx.relation_repo.list_by_entity(space, args.id))
             result = service.forget_entity(space=space, entity_id=args.id)
+            embedding_deletions = [
+                (result.record_id, "Entity"),
+                *((relation.id, "Relation") for relation in cascaded_relations),
+            ]
         else:
             result = service.forget_record(
                 space=space,
                 record_id=args.id,
                 record_kind=args.target_type,
             )
+            embedding_deletions = [
+                (result.record_id, _RECORD_EMBEDDING_SOURCE_KIND[result.record_kind])
+            ]
     except ValueError as e:
         print(f"Error: {e}", file=sys.stderr)
         return 1
+
+    for source_id, source_kind in embedding_deletions:
+        if not _delete_after_canonical_forget(
+            ctx=ctx,
+            space=space,
+            source_id=source_id,
+            source_kind=source_kind,
+        ):
+            return 1
 
     print(
         json.dumps(
@@ -984,6 +1293,7 @@ _CONTEXT_HANDLERS: dict[
     ("inspect", "provenance"): _cmd_inspect_provenance,
     ("inspect", "history"): _cmd_inspect_history,
     ("search", None): _cmd_search,
+    ("reindex", None): _cmd_reindex,
     ("invalidate", None): _cmd_invalidate,
     ("correct", None): _cmd_correct,
     ("forget", None): _cmd_forget,
@@ -1243,6 +1553,12 @@ def main(argv: list[str] | None = None) -> int:
     search_parser.add_argument("--query", required=True)
     search_parser.add_argument("--mode", default="current")
     search_parser.add_argument("--as-of", default=None)
+
+    # reindex subcommand
+    reindex_parser = subparsers.add_parser(
+        "reindex", help="Backfill persistent Embeddings for a MemorySpace."
+    )
+    reindex_parser.add_argument("--space", default=None)
 
     # invalidate subcommand
     invalidate_parser = subparsers.add_parser(

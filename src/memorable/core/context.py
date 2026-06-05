@@ -41,6 +41,7 @@ from memorable.core.repositories import (
     InMemoryRelationRepository,
     InMemoryTaskRepository,
 )
+from memorable.retrieval.index import InMemoryEmbeddingIndex, RetrievalIndex
 
 # Default profile YAML used when no .memorable/memory.yaml is found.
 # This supports the tracer fixture and tests that call remember/inspect
@@ -85,6 +86,7 @@ class ApplicationContext:
         about_repo: AboutRepository | None = None,
         forget_repo: ForgetRepository | None = None,
         memory_space_repo: MemorySpaceRepository | None = None,
+        retrieval_index: RetrievalIndex | None = None,
     ) -> None:
         record_keys: set[tuple[str, str]] = set()
         self.entity_repo = entity_repo or InMemoryEntityRepository()
@@ -104,6 +106,7 @@ class ApplicationContext:
             about_repo=self.about_repo,
         )
         self.memory_space_repo = memory_space_repo or InMemoryMemorySpaceRepository()
+        self.retrieval_index = retrieval_index or InMemoryEmbeddingIndex()
 
     def load_profile(self) -> MemoryProfile:
         """Resolve the MemoryProfile live from the current working directory.
@@ -153,6 +156,7 @@ class ApplicationContext:
             about_repo=self.about_repo,
         )
         self.memory_space_repo = InMemoryMemorySpaceRepository()
+        self.retrieval_index = InMemoryEmbeddingIndex()
 
 
 # Process-wide default context. Both CLI and MCP import this.

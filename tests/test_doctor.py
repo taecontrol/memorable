@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import json
 from pathlib import Path
+from types import SimpleNamespace
 
 from memorable.config import EmbeddingSettings, RuntimeConfig
 from memorable.runtime.doctor import DiagnosticProbes
@@ -88,16 +89,20 @@ def _probes(
     build_embedding_provider=lambda _settings, api_key=None: _EmbeddingProvider(),
     profile_path: Path | None = None,
     load_profile_from_yaml=lambda _yaml_text: object(),
+    collect_embedding_coverage=None,
 ) -> DiagnosticProbes:
     """Build a DiagnosticProbes seam with passing defaults, overriding as needed."""
-    return DiagnosticProbes(
-        ping_neo4j=ping_neo4j,
-        list_schema_constraints=list_schema_constraints,
-        list_vector_indexes=list_vector_indexes,
-        build_embedding_provider=build_embedding_provider,
-        profile_path=profile_path,
-        load_profile_from_yaml=load_profile_from_yaml,
-    )
+    kwargs = {
+        "ping_neo4j": ping_neo4j,
+        "list_schema_constraints": list_schema_constraints,
+        "list_vector_indexes": list_vector_indexes,
+        "build_embedding_provider": build_embedding_provider,
+        "profile_path": profile_path,
+        "load_profile_from_yaml": load_profile_from_yaml,
+    }
+    if collect_embedding_coverage is not None:
+        kwargs["collect_embedding_coverage"] = collect_embedding_coverage
+    return DiagnosticProbes(**kwargs)
 
 
 def _by_check(results: list) -> dict:
@@ -553,6 +558,86 @@ def test_doctor_reports_embedding_provider_wrong_dimension_failure() -> None:
     assert "provider returned 2 dimensions; runtime configured 3" in result["hint"]
 
 
+def test_doctor_reports_embedding_index_coverage_failure_with_reindex_hint(
+    tmp_path: Path,
+) -> None:
+    from memorable.retrieval.models import EmbeddingCoverageReport
+    from memorable.runtime.doctor import run_diagnostics
+
+    profile_path = tmp_path / ".memorable" / "memory.yaml"
+    profile_path.parent.mkdir()
+    profile_path.write_text("valid profile", encoding="utf-8")
+
+    def collect_coverage(_config: RuntimeConfig, space: str) -> EmbeddingCoverageReport:
+        assert space == "test-space"
+        return EmbeddingCoverageReport(
+            space=space,
+            provider_name="fake",
+            model_name="hash-based",
+            dimensions=32,
+            expected_by_kind={
+                "Entity": 0,
+                "Decision": 1,
+                "Task": 0,
+                "Observation": 0,
+                "Relation": 0,
+            },
+            active_by_kind={
+                "Entity": 0,
+                "Decision": 0,
+                "Task": 0,
+                "Observation": 0,
+                "Relation": 0,
+            },
+            missing_by_kind={
+                "Entity": 0,
+                "Decision": 1,
+                "Task": 0,
+                "Observation": 0,
+                "Relation": 0,
+            },
+            stale_by_kind={
+                "Entity": 0,
+                "Decision": 0,
+                "Task": 0,
+                "Observation": 0,
+                "Relation": 0,
+            },
+            unusable_by_kind={
+                "Entity": 0,
+                "Decision": 0,
+                "Task": 0,
+                "Observation": 0,
+                "Relation": 0,
+            },
+            incompatible_by_kind={
+                "Entity": 0,
+                "Decision": 1,
+                "Task": 0,
+                "Observation": 0,
+                "Relation": 0,
+            },
+        )
+
+    results = run_diagnostics(
+        RuntimeConfig(),
+        probes=_probes(
+            profile_path=profile_path,
+            load_profile_from_yaml=lambda _yaml_text: SimpleNamespace(
+                space=SimpleNamespace(name="test-space")
+            ),
+            collect_embedding_coverage=collect_coverage,
+        ),
+    )
+
+    result = _by_check(results)["embedding_index_coverage"]
+    assert result["check"] == "embedding_index_coverage"
+    assert result["ok"] is False
+    assert "missing Decision=1" in result["hint"]
+    assert "incompatible stored Embeddings Decision=1" in result["hint"]
+    assert "memorable reindex --space test-space" in result["hint"]
+
+
 def test_doctor_reports_memory_profile_parse_pass(tmp_path: Path) -> None:
     from memorable.runtime.doctor import run_diagnostics
 
@@ -629,6 +714,7 @@ def test_diagnostic_probes_defaults_are_the_real_module_callables() -> None:
     assert probes.list_vector_indexes is doctor.list_vector_indexes
     assert probes.build_embedding_provider is doctor.build_embedding_provider
     assert probes.load_profile_from_yaml is doctor.load_profile_from_yaml
+    assert probes.collect_embedding_coverage is doctor.collect_embedding_coverage
     assert probes.profile_path is None
 
 

@@ -539,6 +539,7 @@ def _build_fixture():
         embedding_provider=provider,
         about_repo=about_repo,
     )
+    retrieval_service.reindex("memorable")
 
     return retrieval_service, entity_repo, decision_repo, task_repo
 
@@ -623,6 +624,7 @@ class TestTemporalFiltering:
             record_id="decision:storage-path:v2",
             invalidation_time=invalidation_time,
         )
+        service.reindex("memorable")
 
         results = service.search(
             space="memorable",
@@ -643,6 +645,7 @@ class TestTemporalFiltering:
             record_id="decision:storage-path:v2",
             invalidation_time=invalidation_time,
         )
+        service.reindex("memorable")
 
         # Query at a time after validity but before invalidation
         at_before_invalidation = datetime(2026, 5, 23, 10, 21, 0, tzinfo=UTC)
@@ -1105,6 +1108,7 @@ class TestCLISearch:
                 "2026-05-23T10:20:00Z",
             ]
         )
+        main(["reindex", "--space", "memorable"])
 
     def test_search_command(self, capsys) -> None:
         from memorable.cli import main
@@ -1170,6 +1174,7 @@ class TestMCPSearchTool:
 
     def _setup_fixture_via_mcp(self) -> None:
         from memorable.mcp.server import (
+            reindex_space_tool,
             remember_decision_tool,
             remember_entity_tool,
         )
@@ -1197,6 +1202,7 @@ class TestMCPSearchTool:
             at="2026-05-23T10:20:00Z",
             supersedes="decision:storage-path:v1",
         )
+        reindex_space_tool(space="memorable")
 
     def test_search_memory_tool(self) -> None:
         from memorable.mcp.server import search_memory_tool
@@ -1412,6 +1418,7 @@ class TestHybridRetrievalServiceDependencyInjection:
             embedding_provider=provider,
             point_in_time_service=spy_pit,
         )
+        service.reindex("memorable")
 
         at_query = datetime(2026, 5, 23, 10, 17, 0, tzinfo=UTC)
         service.search(
@@ -1480,6 +1487,7 @@ class TestHybridRetrievalServiceDependencyInjection:
             embedding_provider=provider,
             inspect_task_service=spy_inspect,
         )
+        service.reindex("memorable")
 
         at_query = datetime(2026, 5, 23, 10, 27, 0, tzinfo=UTC)
         service.search(
@@ -1608,6 +1616,7 @@ def _build_observation_fixture():
         embedding_provider=provider,
         about_repo=about_repo,
     )
+    service.reindex("memorable")
 
     return service, entity_repo, decision_repo, task_repo, observation_repo
 
@@ -1665,8 +1674,8 @@ class TestObservationIndexableText:
 class TestObservationRetrievalIndex:
     """Observations are indexed and searchable in the hybrid retrieval pipeline."""
 
-    def test_rebuild_index_includes_observations(self) -> None:
-        """Observations get indexed during _rebuild_index."""
+    def test_reindex_includes_observations(self) -> None:
+        """Observations get indexed during explicit reindex."""
         service, *_ = _build_observation_fixture()
 
         # After search, observations should appear in results
@@ -1725,6 +1734,7 @@ class TestObservationTemporalFiltering:
             record_id="observation:coverage",
             invalidation_time=OBSERVATION_TIMESTAMPS["obs_invalidated"],
         )
+        service.reindex("memorable")
 
         results = service.search(
             space="memorable",
@@ -1886,7 +1896,7 @@ class TestSourceKindDispatch:
         ):
             # Bypass graph expansion to isolate _build_result behavior
             service._graph_expand = MagicMock(return_value=[])
-            service._rebuild_index("memorable")
+            service.reindex("memorable")
 
             # Call search which should pass source_kind through
             results = service.search(
@@ -1935,7 +1945,7 @@ class TestSourceKindDispatch:
 
         with patch.object(entity_repo, "get", wraps=entity_repo.get) as entity_get:
             service._graph_expand = MagicMock(return_value=[])
-            service._rebuild_index("memorable")
+            service.reindex("memorable")
 
             results = service.search(
                 space="memorable",
