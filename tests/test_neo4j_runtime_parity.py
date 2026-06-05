@@ -10,8 +10,9 @@ across the live-command boundary, rather than re-testing private helpers:
 - ``db status`` keeps reporting *configured* values and sources (ADR-0016),
   intentionally distinct from the live effective connection.
 - Remote/cloud configuration is never normalized into a local runtime path.
-- The test-harness-only ``Neo4jConfig`` shape stays out of every live module so
-  it cannot drift back into a second/third production connection-config path.
+- Driver construction lives in exactly one module (the shared connection
+  policy) so a second/third production driver-construction path cannot drift
+  back into the codebase.
 
 The policy boundary (``resolve_bolt_uri``) is used as the oracle for the
 effective URI, so coverage is deterministic without a live Neo4j.
@@ -247,28 +248,32 @@ class TestRemoteConfigurationIsNotLocalized:
         assert is_remote_uri(uri) is False
 
 
-class TestNeo4jConfigStaysOutOfLivePath:
-    """``Neo4jConfig`` is test-harness-only and must not re-enter live modules."""
+class TestDriverConstructionStaysInSingleSeam:
+    """Live driver construction (``GraphDatabase.driver``) lives in exactly one
+    module: the shared connection policy.
 
-    LIVE_MODULES = (
-        "src/memorable/storage/production.py",
-        "src/memorable/storage/neo4j/connection.py",
-        "src/memorable/runtime/doctor.py",
-        "src/memorable/cli.py",
-        "src/memorable/mcp/server.py",
-        "src/memorable/mcp/__main__.py",
-    )
+    This durable, structural invariant is the property that actually protects
+    the architecture: there is exactly one seam allowed to construct a Neo4j
+    driver, so no future change can reintroduce a second driver-construction
+    path with divergent connection policy. It replaces the earlier
+    ``Neo4jConfig`` keep-out guard and outlives that test-harness-only shape.
+    """
 
-    @pytest.mark.parametrize("rel", LIVE_MODULES)
-    def test_live_module_does_not_reference_neo4jconfig(self, rel: str) -> None:
-        text = (REPO_ROOT / rel).read_text(encoding="utf-8")
-        assert "Neo4jConfig" not in text, (
-            f"{rel} must build drivers via the shared connection policy, "
-            "not the test-harness-only Neo4jConfig"
+    SEAM = "src/memorable/storage/neo4j/connection.py"
+    SRC_ROOT = REPO_ROOT / "src"
+    NEEDLE = "GraphDatabase.driver"
+
+    def _modules_constructing_drivers(self) -> set[str]:
+        modules: set[str] = set()
+        for path in self.SRC_ROOT.rglob("*.py"):
+            if self.NEEDLE in path.read_text(encoding="utf-8"):
+                modules.add(path.relative_to(REPO_ROOT).as_posix())
+        return modules
+
+    def test_driver_constructed_in_exactly_one_module(self) -> None:
+        modules = self._modules_constructing_drivers()
+        assert modules == {self.SEAM}, (
+            "Neo4j driver construction must live in exactly one module "
+            f"({self.SEAM}); found it in: {sorted(modules)}. "
+            "Build drivers through the shared connection policy instead."
         )
-
-    def test_config_module_marks_neo4jconfig_test_harness_only(self) -> None:
-        text = (REPO_ROOT / "src/memorable/storage/neo4j/config.py").read_text(
-            encoding="utf-8"
-        )
-        assert "TEST-HARNESS-ONLY" in text
