@@ -5,9 +5,8 @@ a raw driver. It mirrors the live runtime's resolution path: connection settings
 come from the layered ``RuntimeConfig`` built by ``load_runtime_config(...)``
 (built-in defaults -> runtime.yaml -> runtime.local.yaml -> .env/os.environ),
 with process-environment overrides honored exactly as the live commands honor
-them. This removes the second, flat ``Neo4jConfig.from_env()`` precedence model
-so a passing live-Neo4j test targets the runtime the product would actually
-reach.
+them. This removes the second, flat env-read precedence model so a passing
+live-Neo4j test targets the runtime the product would actually reach.
 
 Fixtures that need a policy-free driver for setup/teardown build it here too, so
 connection-building knowledge stays in this one narrow interface rather than

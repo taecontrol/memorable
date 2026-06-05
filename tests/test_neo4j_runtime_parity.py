@@ -255,8 +255,9 @@ class TestDriverConstructionStaysInSingleSeam:
     This durable, structural invariant is the property that actually protects
     the architecture: there is exactly one seam allowed to construct a Neo4j
     driver, so no future change can reintroduce a second driver-construction
-    path with divergent connection policy. It replaces the earlier
-    ``Neo4jConfig`` keep-out guard and outlives that test-harness-only shape.
+    path with divergent connection policy. It replaces an earlier guard that
+    fenced a now-deleted test-harness-only connection-config shape out of live
+    code, and outlives that shape.
     """
 
     SEAM = "src/memorable/storage/neo4j/connection.py"
