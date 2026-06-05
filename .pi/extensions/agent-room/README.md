@@ -16,6 +16,7 @@ Project-local Pi extension for persistent resident sub-agents.
 /agent-room send <from> <to|all|human> <message>
 /agent-room compact <agent|all>
 /agent-room stop
+/agent-room destroy [run-id] [--force]
 ```
 
 Alias: `/room`.
@@ -46,3 +47,4 @@ Default residents:
 
 Runtime state is ignored by git via `.pi/agent-room/runs/` and `.pi/agent-room/worktrees/`.
 `/agent-room stop` stops sessions but keeps the worktree/branch for inspection.
+`/agent-room destroy [run-id] [--force]` stops the run, removes its AgentRoom worktree, and deletes run temp files.

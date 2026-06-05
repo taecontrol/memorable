@@ -1806,6 +1806,95 @@ async function disposeRoom(room: AgentRoom | undefined): Promise<void> {
 	await saveManifest(room);
 }
 
+async function removeAgentRoomWorktree(controllerCwd: string, worktreePath: string, force: boolean): Promise<void> {
+	try {
+		await fs.access(worktreePath);
+	} catch (error) {
+		if ((error as NodeJS.ErrnoException).code === "ENOENT") {
+			await git(controllerCwd, ["worktree", "prune"]);
+			return;
+		}
+		throw error;
+	}
+
+	const args = ["worktree", "remove", ...(force ? ["--force"] : []), worktreePath];
+	await git(controllerCwd, args);
+}
+
+function parseDestroyArgs(args: string[]): { runId?: string; force: boolean } {
+	let runId: string | undefined;
+	let force = false;
+	for (const arg of args) {
+		if (arg === "--force" || arg === "-f") {
+			force = true;
+			continue;
+		}
+		if (!runId) {
+			runId = arg;
+			continue;
+		}
+		throw new Error(`Unexpected destroy argument: ${arg}`);
+	}
+	return { runId, force };
+}
+
+async function destroyRoom(pi: ExtensionAPI, ctx: ExtensionCommandContext, args: string[]): Promise<void> {
+	const { runId, force } = parseDestroyArgs(args);
+	const targetRunId = runId ?? activeRoom?.id;
+	if (!targetRunId) throw new Error("Usage: /agent-room destroy [run-id] [--force]");
+
+	const activeTarget = activeRoom?.id === targetRunId ? activeRoom : undefined;
+	const initialRunDir = runDir(ctx.cwd, targetRunId);
+	const manifest = activeTarget?.manifest ?? (await readJson<RoomManifest>(manifestPath(initialRunDir)));
+	if (!manifest) throw new Error(`No AgentRoom manifest found for ${targetRunId}.`);
+
+	const controllerCwd = manifest.controllerCwd ?? ctx.cwd;
+	const targetRunDir = activeTarget?.runDir ?? runDir(controllerCwd, targetRunId);
+	const worktreePath = manifest.worktree?.path;
+	const worktreeLabel = worktreePath ? relativeToCwd(controllerCwd, worktreePath) : "none (in-place run)";
+
+	if (!force) {
+		if (!ctx.hasUI) throw new Error("Destroy requires confirmation; rerun with --force to skip confirmation.");
+		const confirmed = await ctx.ui.confirm(
+			"Destroy AgentRoom?",
+			[
+				`Run: ${targetRunId}`,
+				`State: ${relativeToCwd(controllerCwd, targetRunDir)}`,
+				`Worktree: ${worktreeLabel}`,
+				"This deletes resident sessions, mailbox, manifest, and the AgentRoom worktree.",
+			].join("\n"),
+		);
+		if (!confirmed) {
+			ctx.ui.notify("AgentRoom destroy cancelled.", "info");
+			return;
+		}
+	}
+
+	if (activeTarget) {
+		await disposeRoom(activeTarget);
+		activeRoom = undefined;
+		activeRunId = undefined;
+		persistActiveRun(pi, undefined);
+		clearDashboard(ctx);
+	}
+	if (worktreePath) {
+		try {
+			await removeAgentRoomWorktree(controllerCwd, worktreePath, force);
+		} catch (error) {
+			const suffix = force ? "" : ` Rerun /agent-room destroy ${targetRunId} --force to discard dirty worktree changes.`;
+			throw new Error(`Failed to remove AgentRoom worktree: ${error instanceof Error ? error.message : String(error)}.${suffix}`);
+		}
+	}
+	await fs.rm(targetRunDir, { recursive: true, force: true });
+
+	if (activeRunId === targetRunId) {
+		activeRunId = undefined;
+		persistActiveRun(pi, undefined);
+	}
+
+	ctx.ui.notify(`Destroyed AgentRoom ${targetRunId}.`, "info");
+}
+
 async function activateRoom(pi: ExtensionAPI, ctx: ExtensionCommandContext | ExtensionContext, room: AgentRoom): Promise<void> {
 	await disposeRoom(activeRoom);
 	activeRoom = room;
@@ -1942,6 +2031,7 @@ function usage(): string {
 		"/agent-room send <from> <to|all|human> <message>",
 		"/agent-room compact <agent|all>",
 		"/agent-room stop",
+		"/agent-room destroy [run-id] [--force]",
 	].join("\n");
 }
 
@@ -2144,6 +2234,11 @@ async function handleAgentRoomCommand(pi: ExtensionAPI, args: string, ctx: Exten
 		return;
 	}
 
+	if (command === "destroy") {
+		await destroyRoom(pi, ctx, rest);
+		return;
+	}
+
 	ctx.ui.notify(usage(), "error");
 }
 
@@ -2207,7 +2302,7 @@ export default function agentRoomExtension(pi: ExtensionAPI) {
 	pi.registerCommand("agent-room", {
 		description: "Persistent resident sub-agents with mailbox communication and TUI tiles",
 		getArgumentCompletions: (prefix: string) => {
-			const commands = ["start", "prd", "resume", "list", "status", "ask", "reply", "answer", "inbox", "send", "compact", "stop", "help"];
+			const commands = ["start", "prd", "resume", "list", "status", "ask", "reply", "answer", "inbox", "send", "compact", "stop", "destroy", "help"];
 			const agents = activeRoom ? [...activeRoom.agents.keys(), HUMAN_NAME, "all"] : [];
 			return [...commands, ...agents]
 				.filter((item) => item.startsWith(prefix))
