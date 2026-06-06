@@ -29,7 +29,7 @@ Self-questions:
 
 A claim about behavior isn't understood until you've checked **where the behavior is actually pinned** — not just the one source file. Sweep the usual hiding places: cited source lines, dependency resolution / lockfiles, config, CI/deploy path, persistence/migrations, git history. *(Project flavor: a string in `wrangler.jsonc` is lower-risk than one in a D1 column or KV key; check whether CI freezes the lockfile.)*
 
-If the framing touches **domain nouns**, check them against `docs/radix-agent-platform/ubiquitous-language.md` — a problem stated in drifted vocabulary is itself a finding.
+If the framing touches **domain nouns**, check them against `docs/ubiquitous-language.md` — a problem stated in drifted vocabulary is itself a finding.
 
 ## P2 — Decompose
 
@@ -45,6 +45,8 @@ Ask yourself, before declaring understanding: **what am I asserting that I haven
 
 Never bluff "yes, I understand." The unknowns list must be empty of *load-bearing* items before you declare the framing complete.
 
+**Plain-language test (strong anti-bluff check):** before declaring understanding, write the problem out in plain, jargon-free language — the way you'd explain it to the non-expert who owns it. If you can't, you don't understand it yet — loop back to P1. This explanation is a required deliverable (see Output), and it lets the user confirm the framing is actually right.
+
 ## P5 — Scope (self-checkpoint: "fix, or does this deserve an ADR?")
 
 Recommend **what kind of artifact** the problem deserves — and don't over-ceremony it:
@@ -56,6 +58,7 @@ Recommend **what kind of artifact** the problem deserves — and don't over-cere
 
 Inline by default (offer to persist only when it'll outlive the session or is handing off). A light skeleton, not a rigid template:
 
+0. **Plain-English explanation** — *lead with this.* A short, jargon-free account a non-expert owner can read and say "yes, that's the problem." Describe the problem only — never a fix. Cover, in plain words: what you can do today (the apparent feature); what actually happens (the gap); why it matters (concrete user impact); the deeper issue (symptom vs root cause); and what's tangled together vs. what to keep separate. This is a deliverable in its own right, not a substitute for the verified statement below.
 1. **Claims checked** — each → confirmed / corrected, with evidence path (`file:line`, CI rule, git ref). Drift noted.
 2. **The problem, decomposed** — independent parts, each with risk/reversibility; what's already mitigated.
 3. **Symptom vs. root cause** — and the overcorrection to avoid.
