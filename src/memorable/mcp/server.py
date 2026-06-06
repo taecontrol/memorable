@@ -995,7 +995,8 @@ def reindex_space_tool(space: str) -> dict[str, object]:
         "Search memory using Hybrid Retrieval (GraphRAG). "
         "Combines semantic similarity, graph expansion, "
         "temporal filtering, and Provenance-aware explanation. "
-        "Supports Current Truth and Point-In-Time Truth modes."
+        "Supports Current Truth and Point-In-Time Truth modes. "
+        "Pass record_type to filter by Record Subtype."
     ),
 )
 def search_memory_tool(
@@ -1003,6 +1004,7 @@ def search_memory_tool(
     query: str,
     mode: Literal["current", "as-of"] = "current",
     as_of: str | None = None,
+    record_type: str | None = None,
 ) -> dict[str, object]:
     """Search memory using hybrid GraphRAG retrieval.
 
@@ -1014,6 +1016,7 @@ def search_memory_tool(
         query: Natural language query
         mode: "current" for Current Truth, "as-of" for Point-In-Time Truth
         as_of: ISO timestamp, required when mode is "as-of"
+        record_type: Optional Record Subtype filter
     """
     from memorable.retrieval.embeddings import build_embedding_provider
     from memorable.retrieval.service import (
@@ -1044,6 +1047,7 @@ def search_memory_tool(
             query=query,
             mode=mode,
             as_of=as_of_dt,
+            record_type=record_type,
         )
     except EmbeddingIndexCompatibilityError as e:
         return {
@@ -1063,6 +1067,7 @@ def search_memory_tool(
                 "score": round(r.score, 4),
                 "explanation": r.explanation,
                 "provenance_summary": r.provenance_summary,
+                "record_type": r.record_type,
             }
             for r in results
         ],

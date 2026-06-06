@@ -84,3 +84,11 @@ def test_retrieval_guide_documents_memory_review_record_type_filter() -> None:
     assert "memorable_list_records" in rendered
     assert "Record Subtype" in rendered
     assert "record_type" in rendered
+
+
+def test_retrieval_guide_documents_search_record_type_filter() -> None:
+    rendered = render("retrieval")
+
+    assert "memorable_search_memory" in rendered
+    assert "memorable search --type" in rendered
+    assert "Record Subtype" in rendered

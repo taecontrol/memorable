@@ -1039,6 +1039,7 @@ def _cmd_search(
             query=args.query,
             mode=mode,
             as_of=as_of,
+            record_type=getattr(args, "record_type", None),
         )
     except EmbeddingIndexCompatibilityError as e:
         print(f"Error: {e}", file=sys.stderr)
@@ -1056,6 +1057,7 @@ def _cmd_search(
                 "score": round(r.score, 4),
                 "explanation": r.explanation,
                 "provenance_summary": r.provenance_summary,
+                "record_type": r.record_type,
             }
             for r in results
         ],
@@ -1649,6 +1651,12 @@ def main(argv: list[str] | None = None) -> int:
     search_parser.add_argument("--query", required=True)
     search_parser.add_argument("--mode", default="current")
     search_parser.add_argument("--as-of", default=None)
+    search_parser.add_argument(
+        "--type",
+        dest="record_type",
+        default=None,
+        help="Record Subtype to search, such as Episode or Commitment.",
+    )
 
     # reindex subcommand
     reindex_parser = subparsers.add_parser(

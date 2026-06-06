@@ -2,7 +2,7 @@
 
 Choose retrieval by the question you need answered.
 
-Use `memorable_search_memory` for GraphRAG similarity: "what memory is relevant to this problem?" It takes `space`, `query`, `mode`, and optionally `as_of`; it combines semantic search, graph expansion, temporal filtering, and provenance-aware explanations. Search finds useful candidates, not complete state lists.
+Use `memorable_search_memory` for GraphRAG similarity: "what memory is relevant to this problem?" It takes `space`, `query`, `mode`, optionally `as_of`, and optionally `record_type` to filter by Record Subtype; it combines semantic search, graph expansion, temporal filtering, and provenance-aware explanations. Search finds useful candidates, not complete state lists. In the CLI, `memorable search --type FollowUp` filters by Record Subtype.
 
 Use `memorable_reindex_space` after upgrading or changing Embedding settings to backfill derived Embeddings before search. If search reports no compatible Embeddings, run `memorable_doctor` and then reindex the MemorySpace.
 

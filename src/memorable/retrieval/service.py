@@ -276,6 +276,7 @@ class HybridRetrievalService:
         mode: Literal["current", "as-of"] = "current",
         as_of: datetime | None = None,
         top_k: int = 10,
+        record_type: str | None = None,
     ) -> list[RetrievalResult]:
         """Perform hybrid GraphRAG retrieval.
 
@@ -283,8 +284,9 @@ class HybridRetrievalService:
         1. Embed query and find semantic candidates in the persistent index
         2. Graph expansion: find related records for each candidate
         3. Temporal filtering based on mode
-        4. Rank by cosine similarity
-        5. Build provenance-aware explanations
+        4. Record Subtype filtering when requested
+        5. Rank by cosine similarity
+        6. Build provenance-aware explanations
 
         Args:
             space: MemorySpace to search
@@ -293,6 +295,7 @@ class HybridRetrievalService:
                   "as-of" for Point-In-Time Truth
             as_of: Required when mode is "as-of"
             top_k: Maximum number of results to return
+            record_type: Optional Record Subtype filter
         """
         # Step 1: Semantic candidates from the persistent index.
         try:
@@ -359,7 +362,7 @@ class HybridRetrievalService:
                     )
                     graph_expanded_ids.add(related_id)
 
-        # Step 4: Temporal filtering and result building
+        # Step 4: Temporal filtering, result building, and subtype filtering
         results: list[RetrievalResult] = []
         seen_ids: set[str] = set()
 
@@ -380,8 +383,11 @@ class HybridRetrievalService:
                 is_semantic=source_id in semantic_ids,
                 is_graph_expanded=source_id in graph_expanded_ids,
             )
-            if result is not None:
-                results.append(result)
+            if result is None:
+                continue
+            if record_type is not None and result.record_type != record_type:
+                continue
+            results.append(result)
 
         # Step 5: Final ranking by score
         results.sort(key=lambda r: r.score, reverse=True)
@@ -672,6 +678,7 @@ class HybridRetrievalService:
             score=score,
             explanation=explanation,
             provenance_summary=prov_summary,
+            record_type=decision.record_type,
         )
 
     def _build_task_result(
@@ -734,6 +741,7 @@ class HybridRetrievalService:
             score=score,
             explanation=explanation,
             provenance_summary=prov_summary,
+            record_type=task.record_type,
         )
 
     def _build_observation_result(
@@ -826,6 +834,7 @@ class HybridRetrievalService:
             score=score,
             explanation=explanation,
             provenance_summary=prov_summary,
+            record_type=observation.record_type,
         )
 
     def _build_relation_result(
