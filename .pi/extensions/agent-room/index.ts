@@ -26,6 +26,7 @@ import type {
 	CreateRoomOptions,
 	PrdRunMetadata,
 	PrdWorkflow,
+	PullRequestMetadata,
 	ResidentAgent,
 	RoomManifest,
 	RoomMessage,
@@ -404,7 +405,13 @@ Fix blockers for #${slice.number} only, then call agent_submit_review again. Do 
 				findings: Type.String({ description: "Blocking findings or approval summary" }),
 				verification: Type.Optional(Type.String({ description: "Final architecture verification commands/results" })),
 			}),
-			async execute(_toolCallId, params) {
+			async execute(
+				_toolCallId,
+				params,
+			): Promise<{
+				content: Array<{ type: "text"; text: string }>;
+				details: { status: string; pullRequest?: PullRequestMetadata };
+			}> {
 				if (agentName !== "architect") throw new Error("Only architect may finish final architecture review.");
 				const workflow = prdWorkflow(room);
 				const prd = room.manifest.prd;
