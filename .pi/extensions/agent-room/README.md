@@ -51,3 +51,41 @@ Default residents:
 Runtime state is ignored by git via `.pi/agent-room/runs/` and `.pi/agent-room/worktrees/`.
 `/agent-room stop` stops sessions but keeps the worktree/branch for inspection.
 `/agent-room destroy [run-id] [--force]` stops the run, removes its AgentRoom worktree, and deletes run temp files.
+
+## Source layout
+
+The extension is a pi directory extension: `index.ts` is the entry point and
+imports sibling `.ts` modules with explicit extensions. Pure, self-contained
+concerns are split out; `index.ts` keeps the coupled runtime core (room
+lifecycle, mailbox/prompt queue, agent sessions, tools, command router).
+
+| Module | Concern |
+| --- | --- |
+| `types.ts` | Shared type declarations |
+| `storage.ts` | JSON/JSONL persistence + run paths |
+| `github.ts` | `gh`/`git` exec wrappers + issue fetch |
+| `issues.ts` | GitHub-issue text helpers |
+| `slices.ts` | Slice discovery, planning, topological order |
+| `prompts.ts` | PRD prompt builders + context formatting |
+| `roles.ts` | `DEFAULT_ROLES`, tool sets, role lookups |
+| `dashboard.ts` | Text/tile rendering helpers |
+| `publish.ts` | PR publishing (`gh pr` create/edit, body, commits) |
+| `workflow.ts` | PRD phase machine (see below) |
+| `index.ts` | Runtime core + command router + extension registration |
+
+## PRD workflow phase machine
+
+`workflow.ts` is the single source of truth for the PRD run lifecycle. The
+phases (`implementing -> reviewing -> approved -> committing -> compacting ->
+final-reviewing -> publishing -> done`, plus `blocked`) and the legal edges
+between them live in one `PRD_TRANSITIONS` table with an ASCII diagram.
+
+Every phase write goes through `setWorkflowPhase(room, phase)`, the only mutator
+of `workflow.phase`. It validates the move against the table and **throws on an
+illegal transition** so workflow bugs fail loudly instead of silently
+corrupting run state, and it keeps `blockedReason` consistent (set on entering
+`blocked`, cleared on leaving it). Any phase may drop to `blocked` (fail-loud);
+`/agent-room unblock` re-enters from `blocked` at the last safe checkpoint.
+
+This is an internal architecture decision for the extension, not a Memorable
+Core concern, so it is documented here rather than in `docs/adr/`.

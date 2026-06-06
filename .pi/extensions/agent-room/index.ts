@@ -58,6 +58,7 @@ import {
 import { publishPrdPullRequest } from "./publish.ts";
 import { allRoleNames, DEFAULT_ROLES, roleByName } from "./roles.ts";
 import { loadPrdContext } from "./slices.ts";
+import { currentPrdSlice, currentPrdSliceLabel, prdWorkflow, setWorkflowPhase } from "./workflow.ts";
 
 const STATE_TYPE = "agent-room-state";
 const WIDGET_KEY = "agent-room";
@@ -100,20 +101,6 @@ function safeBranchPart(value: string): string {
 
 function worktreesRoot(cwd: string): string {
 	return path.join(cwd, ...WORKTREES_DIR);
-}
-
-function prdWorkflow(room: AgentRoom): PrdWorkflow | undefined {
-	return room.manifest.workflow?.kind === "prd" ? room.manifest.workflow : undefined;
-}
-
-function currentPrdSlice(room: AgentRoom): PrdRunMetadata["orderedSlices"][number] | undefined {
-	const workflow = prdWorkflow(room);
-	return workflow ? room.manifest.prd?.orderedSlices[workflow.currentSliceIndex] : undefined;
-}
-
-function currentPrdSliceLabel(room: AgentRoom): string {
-	const slice = currentPrdSlice(room);
-	return slice ? `#${slice.number} ${slice.title}` : "none";
 }
 
 function buildPrdSliceAssignment(room: AgentRoom): string {
@@ -317,7 +304,7 @@ function buildCommunicationTools(room: AgentRoom, agentName: string, pi: Extensi
 				if (params.slice_number && params.slice_number !== slice.number) {
 					throw new Error(`Current slice is #${slice.number}; refusing #${params.slice_number}.`);
 				}
-				workflow.phase = "reviewing";
+				setWorkflowPhase(room, "reviewing");
 				await saveManifest(room);
 				const files = params.files?.length ? params.files.map((file: string) => `- ${file}`).join("\n") : "Not provided.";
 				const body = `Review current PRD slice #${slice.number} ${slice.title}.
@@ -361,7 +348,7 @@ Return your final verdict with agent_finish_review. Do not start other work.`;
 				if (status !== "approved" && status !== "changes_requested") throw new Error("status must be approved or changes_requested.");
 
 				if (status === "changes_requested") {
-					workflow.phase = "implementing";
+					setWorkflowPhase(room, "implementing");
 					await saveManifest(room);
 					const body = `Review changes requested for #${slice.number} ${slice.title}.
 
@@ -379,7 +366,7 @@ Fix blockers for #${slice.number} only, then call agent_submit_review again. Do 
 					};
 				}
 
-				workflow.phase = "approved";
+				setWorkflowPhase(room, "approved");
 				if (!workflow.approvedSlices.includes(slice.number)) workflow.approvedSlices.push(slice.number);
 				await saveManifest(room);
 				await routeMessage(
@@ -432,8 +419,9 @@ Fix blockers for #${slice.number} only, then call agent_submit_review again. Do 
 				};
 
 				if (status === "changes_requested") {
-					workflow.phase = "blocked";
-					workflow.blockedReason = `Final architecture review requested changes: ${oneLine(params.findings)}`;
+					setWorkflowPhase(room, "blocked", {
+						blockedReason: `Final architecture review requested changes: ${oneLine(params.findings)}`,
+					});
 					await saveManifest(room);
 					await routeMessage(room, agentName, HUMAN_NAME, `Final architecture review blocked PRD #${prd.number}: ${params.findings}`, "architecture-blocker", pi);
 					return {
@@ -442,15 +430,14 @@ Fix blockers for #${slice.number} only, then call agent_submit_review again. Do 
 					};
 				}
 
-				workflow.phase = "publishing";
-				delete workflow.blockedReason;
+				setWorkflowPhase(room, "publishing");
 				await saveManifest(room);
 				await routeMessage(room, agentName, HUMAN_NAME, `Final architecture review approved for PRD #${prd.number}. Publishing PR.`, "architecture-approved", pi);
 
 				try {
 					const pullRequest = await publishPrdPullRequest(room);
 					room.manifest.pullRequest = pullRequest;
-					workflow.phase = "done";
+					setWorkflowPhase(room, "done");
 					await saveManifest(room);
 					await routeMessage(room, "agent-room", HUMAN_NAME, `PR ready for PRD #${prd.number}: ${pullRequest.url}`, "pr-ready", pi);
 					return {
@@ -458,10 +445,10 @@ Fix blockers for #${slice.number} only, then call agent_submit_review again. Do 
 						details: { status, pullRequest },
 					};
 				} catch (error) {
-					workflow.phase = "blocked";
-					workflow.blockedReason = `PR publish failed: ${error instanceof Error ? error.message : String(error)}`;
+					const blockedReason = `PR publish failed: ${error instanceof Error ? error.message : String(error)}`;
+					setWorkflowPhase(room, "blocked", { blockedReason });
 					await saveManifest(room);
-					await routeMessage(room, "agent-room", HUMAN_NAME, `PRD workflow blocked: ${workflow.blockedReason}`, "blocker", pi);
+					await routeMessage(room, "agent-room", HUMAN_NAME, `PRD workflow blocked: ${blockedReason}`, "blocker", pi);
 					throw error;
 				}
 			},
@@ -673,7 +660,7 @@ async function routeMessage(
 
 	const workflow = prdWorkflow(room);
 	if (workflow && from === "implementer" && to === "reviewer" && /review/i.test(kind) && workflow.phase === "implementing") {
-		workflow.phase = "reviewing";
+		setWorkflowPhase(room, "reviewing");
 		await saveManifest(room);
 	}
 
@@ -794,13 +781,13 @@ async function runPrdWorkflowAutomation(room: AgentRoom, pi: ExtensionAPI): Prom
 
 	room.automationActive = true;
 	try {
-		workflow.phase = "committing";
+		setWorkflowPhase(room, "committing");
 		await saveManifest(room);
 		await routeMessage(room, "agent-room", HUMAN_NAME, `Committing approved slice #${slice.number}.`, "commit", pi);
 		await commitCurrentSlice(room, slice);
 		if (!workflow.committedSlices.includes(slice.number)) workflow.committedSlices.push(slice.number);
 
-		workflow.phase = "compacting";
+		setWorkflowPhase(room, "compacting");
 		await saveManifest(room);
 		await routeMessage(room, "agent-room", HUMAN_NAME, `Compacting agents after #${slice.number}.`, "compact", pi);
 		const { deferred } = await compactResidentAgents(room, slice);
@@ -818,7 +805,7 @@ async function runPrdWorkflowAutomation(room: AgentRoom, pi: ExtensionAPI): Prom
 		workflow.currentSliceIndex += 1;
 		const next = currentPrdSlice(room);
 		if (next) {
-			workflow.phase = "implementing";
+			setWorkflowPhase(room, "implementing");
 			await saveManifest(room);
 			await routeMessage(
 				room,
@@ -832,15 +819,15 @@ async function runPrdWorkflowAutomation(room: AgentRoom, pi: ExtensionAPI): Prom
 			return;
 		}
 
-		workflow.phase = "final-reviewing";
+		setWorkflowPhase(room, "final-reviewing");
 		await saveManifest(room);
 		await routeMessage(room, "agent-room", HUMAN_NAME, `All PRD slices committed/compacted; requesting final architecture review.`, "final-review", pi);
 		await promptAgent(room, "architect", buildPrdFinalArchitectPrompt(room), true);
 	} catch (error) {
-		workflow.phase = "blocked";
-		workflow.blockedReason = error instanceof Error ? error.message : String(error);
+		const blockedReason = error instanceof Error ? error.message : String(error);
+		setWorkflowPhase(room, "blocked", { blockedReason });
 		await saveManifest(room);
-		await routeMessage(room, "agent-room", HUMAN_NAME, `PRD workflow blocked: ${workflow.blockedReason}`, "blocker", pi);
+		await routeMessage(room, "agent-room", HUMAN_NAME, `PRD workflow blocked: ${blockedReason}`, "blocker", pi);
 	} finally {
 		room.automationActive = false;
 		updateDashboard(room);
@@ -1343,14 +1330,12 @@ async function handleAgentRoomCommand(pi: ExtensionAPI, args: string, ctx: Exten
 		// Re-enter at the last safe checkpoint. A current slice means commit/compact/assign
 		// can be re-driven idempotently via "approved"; otherwise re-request final review.
 		if (slice) {
-			workflow.phase = "approved";
-			delete workflow.blockedReason;
+			setWorkflowPhase(room, "approved");
 			await saveManifest(room);
 			await routeMessage(room, "agent-room", HUMAN_NAME, `Unblocked PRD workflow; re-driving slice #${slice.number}. Prior reason: ${oneLine(priorReason)}`, "unblock", pi);
 			await runPrdWorkflowAutomation(room, pi);
 		} else {
-			workflow.phase = "final-reviewing";
-			delete workflow.blockedReason;
+			setWorkflowPhase(room, "final-reviewing");
 			await saveManifest(room);
 			await routeMessage(room, "agent-room", HUMAN_NAME, `Unblocked PRD workflow; re-requesting final architecture review. Prior reason: ${oneLine(priorReason)}`, "unblock", pi);
 			await promptAgent(room, "architect", buildPrdFinalArchitectPrompt(room), true);
