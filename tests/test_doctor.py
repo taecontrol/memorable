@@ -422,6 +422,51 @@ def test_doctor_fails_when_index_dimension_differs_from_config() -> None:
     assert "768" in by_check["vector_index_dimensions"]["hint"]
 
 
+def test_doctor_vector_index_dimensions_hint_recommends_reindex() -> None:
+    """Dimension drift cannot be repaired by 'memorable init' (create-if-absent
+    bootstrap), so the remediation hint must point operators at the sanctioned
+    drift-repair command 'memorable reindex'.
+    """
+    from memorable.runtime.doctor import run_diagnostics
+
+    config = RuntimeConfig(
+        embeddings=EmbeddingSettings(
+            provider="openrouter",
+            model="google/gemini-embedding-2-preview",
+            dimensions=768,
+            api_key="test-key",
+        )
+    )
+    results = run_diagnostics(
+        config,
+        probes=_probes(
+            build_embedding_provider=lambda _s, api_key=None: _EmbeddingProvider(
+                [0.0] * 768
+            ),
+            list_vector_indexes=lambda _c: [
+                {
+                    "name": "memorable_embeddings_vector",
+                    "type": "VECTOR",
+                    "labelsOrTypes": ["Embedding"],
+                    "properties": ["vector"],
+                    "options": {
+                        "indexConfig": {
+                            "vector.dimensions": 384,
+                            "vector.similarity_function": "cosine",
+                        }
+                    },
+                }
+            ],
+        ),
+    )
+    hint = _by_check(results)["vector_index_dimensions"]["hint"]
+    assert "memorable reindex" in hint
+    assert "memorable init" not in hint
+    # Still states the live-vs-configured mismatch clearly.
+    assert "384" in hint
+    assert "768" in hint
+
+
 def test_doctor_vector_index_dimensions_soft_pass_when_options_absent() -> None:
     """When Neo4j does not expose index options, doctor must not go red on
     the dimension check: it soft-passes with a 'could not read' hint.

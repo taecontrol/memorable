@@ -103,7 +103,13 @@ class HybridRetrievalService:
         )
 
     def reindex(self, space: str) -> ReindexResult:
-        """Backfill derived Embeddings for every retrievable item in a MemorySpace."""
+        """Recreate the index and backfill derived Embeddings for a MemorySpace.
+
+        Recreating the persistent vector index at the configured dimensions is
+        the sanctioned repair for embedding provider/model/dimension drift; the
+        storage-specific drop/recreate lives inside the retrieval index adapter.
+        """
+        self._index.recreate_index(self._dimensions)
         self._index.clear_space(space)
         indexed_by_kind = {
             "Entity": 0,

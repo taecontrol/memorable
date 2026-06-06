@@ -79,3 +79,12 @@ def create_vector_index_cypher(dimensions: int) -> str:
         "`vector.similarity_function`: 'cosine'"
         "}}"
     )
+
+
+def drop_vector_index_cypher() -> str:
+    """Return Cypher for dropping the expected vector index if it exists.
+
+    Dropping/recreating the vector index is reserved for explicit ``reindex``
+    drift repair, never for create-if-absent schema bootstrap.
+    """
+    return f"DROP INDEX {EXPECTED_VECTOR_INDEX.name} IF EXISTS"

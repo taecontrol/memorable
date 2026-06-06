@@ -353,6 +353,14 @@ An Embedding Provider is the local or remote service or library that creates Emb
 
 Use Embedding Provider for provider configuration, runtime diagnostics, and retrieval adapter behavior. Local providers are preferred by default. Remote providers require explicit configuration because memory content may leave the machine.
 
+### Reindex
+
+Reindex is the explicit, operator-driven maintenance operation that rebuilds a MemorySpace's derived Embeddings. It recreates the persistent Embedding index at the currently configured dimensions and then backfills an Embedding for every retrievable item (Entity, Decision, Task, Observation, Relation). Backfill is the walk-and-re-embed phase of Reindex that regenerates Indexable Text and stores a fresh Embedding per record.
+
+Run Reindex (`memorable reindex`) as the sanctioned step after changing the Embedding Provider, model, or dimensions, after upgrades, and after Indexable Text version changes. It is the only operation that may drop and recreate the vector index; schema bootstrap (`memorable init`) stays create-if-absent and never repairs drift. Reindex reports a per-kind and total count of Embeddings written so operators can confirm coverage.
+
+Reindex never changes canonical memory or Temporal Semantics; Embeddings are derived and superseded, invalidated, and completed records remain indexed.
+
 ### Append-First History
 
 Append-First History is the rule that meaningful changes normally create a new event, correction, or replacement record instead of erasing the previous state.

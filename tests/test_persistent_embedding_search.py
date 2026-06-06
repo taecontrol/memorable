@@ -28,6 +28,7 @@ from memorable.core.repositories import (
     InMemoryRelationRepository,
     InMemoryTaskRepository,
 )
+from memorable.retrieval.index import InMemoryEmbeddingIndex
 from memorable.retrieval.models import EmbeddingRecord
 from memorable.retrieval.service import (
     EmbeddingIndexCompatibilityError,
@@ -105,6 +106,9 @@ class FailingSearchIndex:
 
         self._inner = InMemoryEmbeddingIndex()
 
+    def recreate_index(self, dimensions: int) -> None:
+        return None
+
     def store(self, record: EmbeddingRecord) -> None:
         self._inner.store(record)
 
@@ -131,6 +135,9 @@ class FailingSearchIndex:
 
 
 class FailingEmbeddingIndex:
+    def recreate_index(self, dimensions: int) -> None:
+        return None
+
     def store(self, record: EmbeddingRecord) -> None:
         raise RuntimeError("vector index unavailable")
 
@@ -154,6 +161,13 @@ class FailingEmbeddingIndex:
         dimensions: int | None = None,
     ) -> list[object]:
         return []
+
+
+class DeleteFailingEmbeddingIndex(InMemoryEmbeddingIndex):
+    """Stores normally but fails loudly when asked to delete on forget."""
+
+    def delete(self, *, space: str, source_id: str, source_kind: str) -> None:
+        raise RuntimeError("vector index unavailable for delete")
 
 
 PROFILE_YAML = textwrap.dedent(
@@ -290,6 +304,108 @@ def test_reindex_backfills_all_retrievable_kinds_and_search_embeds_only_query() 
         "observation:latency",
         "relation:auth-db",
     }.issubset(result_ids)
+
+
+class _RecordingRetrievalIndex:
+    """Retrieval index that delegates to an in-memory index and records calls.
+
+    Used to prove the search read path only *reads* the persistent index: it
+    must query candidates without writing, clearing, or recreating anything.
+    """
+
+    def __init__(self) -> None:
+        from memorable.retrieval.index import InMemoryEmbeddingIndex
+
+        self._inner = InMemoryEmbeddingIndex()
+        self.events: list[str] = []
+
+    def recreate_index(self, dimensions: int) -> None:
+        self.events.append("recreate_index")
+        self._inner.recreate_index(dimensions)
+
+    def store(self, record: EmbeddingRecord) -> None:
+        self.events.append("store")
+        self._inner.store(record)
+
+    def clear_space(self, space: str) -> None:
+        self.events.append("clear_space")
+        self._inner.clear_space(space)
+
+    def delete(self, *, space: str, source_id: str, source_kind: str) -> None:
+        self.events.append("delete")
+        self._inner.delete(space=space, source_id=source_id, source_kind=source_kind)
+
+    def records(self, *, space: str | None = None) -> list[EmbeddingRecord]:
+        self.events.append("records")
+        return self._inner.records(space=space)
+
+    def search(
+        self,
+        space: str,
+        query_vector: list[float],
+        top_k: int = 10,
+        *,
+        provider_name: str | None = None,
+        model_name: str | None = None,
+        dimensions: int | None = None,
+    ) -> list[object]:
+        self.events.append("search")
+        return self._inner.search(
+            space,
+            query_vector,
+            top_k,
+            provider_name=provider_name,
+            model_name=model_name,
+            dimensions=dimensions,
+        )
+
+
+def test_search_reads_persistent_index_without_writing_or_rebuilding() -> None:
+    profile = load_profile_from_yaml(PROFILE_YAML)
+    at = datetime(2026, 6, 5, 12, 0, tzinfo=UTC)
+    source = "source:read-path-test"
+
+    decision_repo = InMemoryDecisionRepository()
+    RememberDecisionService(repository=decision_repo, profile=profile).remember(
+        space="test-space",
+        decision_id="decision:read-path",
+        statement="Keep a persistent Embedding index so search avoids rebuilds",
+        source_id=source,
+        at=at,
+    )
+
+    index = _RecordingRetrievalIndex()
+    provider = CountingEmbeddingProvider(dimensions=8)
+    service = HybridRetrievalService(
+        entity_repo=InMemoryEntityRepository(),
+        decision_repo=decision_repo,
+        task_repo=InMemoryTaskRepository(),
+        observation_repo=InMemoryObservationRepository(),
+        relation_repo=InMemoryRelationRepository(),
+        embedding_provider=provider,
+        dimensions=8,
+        retrieval_index=index,
+    )
+
+    service.reindex("test-space")
+    index.events.clear()
+    provider.calls.clear()
+
+    results = service.search(
+        space="test-space",
+        query="persistent Embedding index avoids rebuilds",
+    )
+
+    # The read path queries the persistent index for candidates...
+    assert "search" in index.events
+    # ...and embeds only the query once -- never the stored records.
+    assert provider.calls == ["persistent Embedding index avoids rebuilds"]
+    # ...and never writes, clears, or recreates the index on a read.
+    assert "store" not in index.events
+    assert "clear_space" not in index.events
+    assert "recreate_index" not in index.events
+    assert "delete" not in index.events
+    assert {result.source_id for result in results} == {"decision:read-path"}
 
 
 def _write_profile(tmp_path: Path) -> None:
@@ -708,6 +824,64 @@ def test_cli_remember_upserts_embeddings_for_all_retrievable_kinds(
     }.issubset(result_ids)
 
 
+def test_indexing_service_correction_replaces_embedding_without_duplicates() -> None:
+    """Deep module: re-upserting after Indexable Text changes replaces, not appends.
+
+    The live correct/supersede/invalidate/complete wiring relies on the indexing
+    service upserting (replace-by-source) so a refreshed lifecycle record leaves
+    exactly one Embedding carrying the new Indexable Text -- never a stale
+    duplicate that would let outdated text keep matching searches.
+    """
+    from memorable.retrieval.index import InMemoryEmbeddingIndex
+    from memorable.retrieval.indexing import EmbeddingIndexer
+
+    profile = load_profile_from_yaml(PROFILE_YAML)
+    at = datetime(2026, 6, 5, 12, 0, tzinfo=UTC)
+    decision_repo = InMemoryDecisionRepository()
+    RememberDecisionService(repository=decision_repo, profile=profile).remember(
+        space="test-space",
+        decision_id="decision:lifecycle",
+        statement="Original statement indexed at write time",
+        source_id="source:lifecycle-test",
+        at=at,
+    )
+
+    index = InMemoryEmbeddingIndex()
+    indexer = EmbeddingIndexer(
+        retrieval_index=index,
+        embedding_provider=CountingEmbeddingProvider(dimensions=8),
+        dimensions=8,
+    )
+
+    # Write-time upsert: exactly one Embedding carrying the original text.
+    original = decision_repo.get("test-space", "decision:lifecycle")
+    indexer.upsert_decision(original)
+    records = index.records(space="test-space")
+    assert len(records) == 1
+    assert records[0].source_kind == "Decision"
+    assert records[0].space == "test-space"
+    original_text = records[0].indexable_text
+    original_hash = records[0].indexable_text_hash
+
+    # Correction changes the Indexable Text; re-upsert must refresh in place.
+    decision_repo.correct(
+        space="test-space",
+        record_id="decision:lifecycle",
+        new_statement="Corrected statement that changes the Indexable Text",
+    )
+    corrected = decision_repo.get("test-space", "decision:lifecycle")
+    indexer.upsert_decision(corrected)
+
+    refreshed = index.records(space="test-space")
+    assert len(refreshed) == 1  # upsert replaced -- no stale duplicate
+    assert refreshed[0].indexable_text != original_text
+    assert refreshed[0].indexable_text_hash != original_hash
+    assert (
+        refreshed[0].indexable_text_hash
+        == hashlib.sha256(refreshed[0].indexable_text.encode("utf-8")).hexdigest()
+    )
+
+
 @pytest.mark.parametrize(
     ("record_kind", "record_id", "source_kind", "remember_args"),
     [
@@ -970,6 +1144,81 @@ def test_cli_forget_entity_erases_entity_and_cascaded_relation_embeddings(
     assert "relation:cli-cascade-erased" not in {result.source_id for result in results}
     assert provider.calls == ["Forgotten source depends on retained target"]
     assert coverage.ok
+
+
+def test_cli_forget_reports_partial_state_when_embedding_delete_fails(
+    tmp_path: Path,
+    monkeypatch,
+    capsys,
+) -> None:
+    """Forget index maintenance is synchronous and fail-loud, like the write path.
+
+    When the canonical record is forgotten but its derived Embedding cannot be
+    deleted, forget must surface a visible error (non-zero exit, reindex hint)
+    rather than silently leaving a stale derived vector behind.
+    """
+    from memorable.cli import main
+
+    _write_profile(tmp_path)
+    monkeypatch.chdir(tmp_path)
+
+    ctx = ApplicationContext(retrieval_index=DeleteFailingEmbeddingIndex())
+    driver = MagicMock()
+    provider = CountingEmbeddingProvider(dimensions=8)
+    config = RuntimeConfig(
+        embeddings=EmbeddingSettings(provider="fake", dimensions=8),
+    )
+
+    with (
+        patch("memorable.cli.build_production_context", return_value=(ctx, driver)),
+        patch("memorable.cli.load_runtime_config", return_value=config),
+        patch(
+            "memorable.retrieval.embeddings.build_embedding_provider",
+            return_value=provider,
+        ),
+    ):
+        assert (
+            main(
+                [
+                    "remember",
+                    "decision",
+                    "--space",
+                    "test-space",
+                    "--id",
+                    "decision:cli-forget-fail",
+                    "--statement",
+                    "Forget must fail loud when index delete fails",
+                    "--source",
+                    "source:cli-test",
+                    "--at",
+                    "2026-06-05T12:00:00Z",
+                ]
+            )
+            == 0
+        )
+        capsys.readouterr()
+
+        assert (
+            main(
+                [
+                    "forget",
+                    "--space",
+                    "test-space",
+                    "--target-type",
+                    "decision",
+                    "--id",
+                    "decision:cli-forget-fail",
+                ]
+            )
+            == 1
+        )
+        forget_output = capsys.readouterr()
+
+    assert "Canonical memory was forgotten" in forget_output.err
+    assert "memorable reindex --space test-space" in forget_output.err
+    assert "erase stale derived Embeddings" in forget_output.err
+    # Canonical forget happened before the failing index maintenance.
+    assert ctx.decision_repo.get("test-space", "decision:cli-forget-fail") is None
 
 
 def test_mcp_forget_record_erases_derived_embedding_and_keeps_entities(

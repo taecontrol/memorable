@@ -27,6 +27,8 @@ class RetrievalIndex(Protocol):
 
     def store(self, record: EmbeddingRecord) -> None: ...
 
+    def recreate_index(self, dimensions: int) -> None: ...
+
     def clear_space(self, space: str) -> None: ...
 
     def delete(self, *, space: str, source_id: str, source_kind: str) -> None: ...
@@ -50,6 +52,9 @@ class InMemoryEmbeddingIndex:
 
     def __init__(self) -> None:
         self._records: list[EmbeddingRecord] = []
+
+    def recreate_index(self, dimensions: int) -> None:
+        """No-op: the in-memory index has no physical vector index to rebuild."""
 
     def store(self, record: EmbeddingRecord) -> None:
         """Add or replace an Embedding record in the index."""

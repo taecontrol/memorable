@@ -275,8 +275,9 @@ def _vector_index_dimensions_hint(live_dimensions: int, config: RuntimeConfig) -
         "Live vector index 'memorable_embeddings_vector' was built for "
         f"{live_dimensions} dimensions, but the runtime is configured for "
         f"{config.embeddings.dimensions} dimensions. The index was built for a "
-        "different embedding model; re-run 'memorable init' (or migrate) so the "
-        "index matches the configured embeddings."
+        "different embedding model; run 'memorable reindex' to drop and recreate "
+        "the index at the configured dimensions and backfill Embeddings. Schema "
+        "bootstrap is create-if-absent and cannot repair this drift."
     )
 
 
