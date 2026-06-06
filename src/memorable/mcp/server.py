@@ -351,6 +351,7 @@ def remember_entity_tool(
     description=(
         "Remember a Decision with Provenance in a MemorySpace. "
         "Supports Supersession to replace an earlier Decision. "
+        "Optional record_type sets a declared Record Subtype on the Decision. "
         "Optional about links staple the Decision to existing Entities it "
         "concerns; create the Entity first. About is membership, not a "
         "Relation claim, and correctable via memorable_correct."
@@ -364,6 +365,7 @@ def remember_decision_tool(
     at: str,
     supersedes: str | None = None,
     about: list[str] | None = None,
+    record_type: str | None = None,
     writer: str = "agent:memorable",
     reason: str = "",
 ) -> dict[str, object]:
@@ -400,8 +402,11 @@ def remember_decision_tool(
             reason=reason,
             supersedes=supersedes,
             about=about,
+            record_type=record_type,
         )
     except ValueError as e:
+        if isinstance(e, UndeclaredTypeError):
+            return _profile_type_error(e)
         return {"error": str(e)}
 
     def upsert_decision_embeddings(indexer: EmbeddingIndexer) -> None:
@@ -426,6 +431,7 @@ def remember_decision_tool(
         "space": result.decision.space,
         "record_id": result.provenance.record_id,
         "record_kind": result.provenance.record_kind,
+        "record_type": result.decision.record_type,
         "source": result.provenance.source_id,
         "episode": result.provenance.episode_id,
         "creation_time": result.provenance.creation_time.isoformat(),
@@ -807,6 +813,7 @@ def inspect_provenance_tool(
     description=(
         "Remember a Task with Provenance in a MemorySpace. "
         "Tasks have a Lifecycle State and support completion transitions. "
+        "Optional record_type sets a declared Record Subtype on the Task. "
         "Optional about links staple the Task to existing Entities it "
         "concerns; create the Entity first. About is membership, not a "
         "Relation claim, and correctable via memorable_correct."
@@ -819,6 +826,7 @@ def remember_task_tool(
     source: str,
     at: str,
     about: list[str] | None = None,
+    record_type: str | None = None,
     writer: str = "agent:memorable",
     reason: str = "",
 ) -> dict[str, object]:
@@ -854,8 +862,11 @@ def remember_task_tool(
             writer=writer,
             reason=reason,
             about=about,
+            record_type=record_type,
         )
     except ValueError as e:
+        if isinstance(e, UndeclaredTypeError):
+            return _profile_type_error(e)
         return {"error": str(e)}
 
     index_error = _index_after_canonical_write(
@@ -874,6 +885,7 @@ def remember_task_tool(
         "lifecycle_state": result.task.lifecycle_state,
         "record_id": result.provenance.record_id,
         "record_kind": result.provenance.record_kind,
+        "record_type": result.task.record_type,
         "source": result.provenance.source_id,
         "episode": result.provenance.episode_id,
         "creation_time": result.provenance.creation_time.isoformat(),
@@ -926,6 +938,7 @@ def complete_task_tool(
     return {
         "task_id": result.task.id,
         "lifecycle_state": result.task.lifecycle_state,
+        "record_type": result.task.record_type,
         "event_id": result.event_id,
         "completion_time": result.completion_time.isoformat(),
     }
@@ -1089,6 +1102,7 @@ def inspect_task_tool(
         "title": task.title,
         "space": task.space,
         "lifecycle_state": task.lifecycle_state,
+        "record_type": task.record_type,
         "validity_time": task.validity_time.isoformat(),
         "completion_time": (
             task.completion_time.isoformat() if task.completion_time else None

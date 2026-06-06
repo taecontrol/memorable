@@ -128,6 +128,7 @@ class Decision:
     lifecycle_state: str
     supersedes: str | None
     superseded_by: str | None
+    record_type: str | None = None
 
     def __post_init__(self) -> None:
         if not self.id:
@@ -177,6 +178,7 @@ class Task:
     validity_time: datetime
     completion_time: datetime | None
     completion_event_id: str | None
+    record_type: str | None = None
 
     def __post_init__(self) -> None:
         if not self.id:

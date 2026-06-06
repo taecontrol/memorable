@@ -135,6 +135,45 @@ class TestInMemoryDecisionRepositoryCorrect:
         assert updated.supersedes is None
         assert updated.superseded_by is None
 
+    def test_correct_preserves_record_subtype(self) -> None:
+        from memorable.core.models import Decision, Provenance
+        from memorable.core.repositories import InMemoryDecisionRepository
+
+        repo = InMemoryDecisionRepository()
+        repo.save(
+            Decision(
+                id=DECISION_ID,
+                statement="Use Graphiti for storage.",
+                space="memorable",
+                validity_time=FIXTURE_TIMESTAMP,
+                invalidation_time=None,
+                lifecycle_state="current",
+                supersedes=None,
+                superseded_by=None,
+                record_type="ArchitectureDecision",
+            ),
+            Provenance(
+                record_id=DECISION_ID,
+                record_kind="decision",
+                source_id=SOURCE_ID,
+                episode_id="episode:agent-session:2026-05-25T09:00:00+00:00",
+                writer="agent:test",
+                reason="test decision",
+                creation_time=FIXTURE_TIMESTAMP,
+                validity_time=FIXTURE_TIMESTAMP,
+            ),
+        )
+
+        repo.correct(
+            space="memorable",
+            record_id=DECISION_ID,
+            new_statement="Use Neo4j for storage.",
+        )
+
+        updated = repo.get(space="memorable", record_id=DECISION_ID)
+        assert updated is not None
+        assert updated.record_type == "ArchitectureDecision"
+
 
 # =====================================================================
 # InMemoryObservationRepository.correct() tests

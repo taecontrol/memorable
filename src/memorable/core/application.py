@@ -268,9 +268,9 @@ class RememberDecisionService:
 
     Decision is a kernel record type: part of the universal memory kernel and
     writable without any MemoryProfile declaration. A profile ``records:`` entry
-    extending Decision (e.g. ``ArchitectureDecision extends Decision``) is an
-    optional specialization that enriches the type label; it is never a
-    precondition for writing the base kernel type.
+    extending Decision (e.g. ``ArchitectureDecision extends Decision``) declares
+    an optional Record Subtype that can be selected at write time and stored on
+    the Decision; it is never a precondition for writing the base kernel type.
 
     This is deliberately asymmetric with Entity and Relation, which are
     project-specific by definition (there is no universal Entity or Relation
@@ -301,12 +301,18 @@ class RememberDecisionService:
         reason: str = "",
         supersedes: str | None = None,
         about: list[str] | None = None,
+        record_type: str | None = None,
     ) -> RememberDecisionResult:
         """Create provenance and persist the Decision.
 
         Decision is a kernel record type, so no profile declaration is required.
         """
         _verify_about_targets(self._about_linker, space=space, about=about)
+        validated_record_type = validate_record_subtype(
+            profile=self._profile,
+            kernel_kind="decision",
+            candidate=record_type,
+        )
 
         decision = Decision(
             id=decision_id,
@@ -317,6 +323,7 @@ class RememberDecisionService:
             lifecycle_state="current",
             supersedes=supersedes,
             superseded_by=None,
+            record_type=validated_record_type,
         )
 
         episode_id = make_episode_id(source_id, at)
@@ -1028,12 +1035,18 @@ class RememberTaskService:
         writer: str = "agent:memorable",
         reason: str = "",
         about: list[str] | None = None,
+        record_type: str | None = None,
     ) -> RememberTaskResult:
         """Create provenance and persist the Task.
 
         Task is a kernel record type, so no profile declaration is required.
         """
         _verify_about_targets(self._about_linker, space=space, about=about)
+        validated_record_type = validate_record_subtype(
+            profile=self._profile,
+            kernel_kind="task",
+            candidate=record_type,
+        )
 
         task = Task(
             id=task_id,
@@ -1043,6 +1056,7 @@ class RememberTaskService:
             validity_time=at,
             completion_time=None,
             completion_event_id=None,
+            record_type=validated_record_type,
         )
 
         episode_id = make_episode_id(source_id, at)
@@ -1289,5 +1303,6 @@ class InspectTaskService:
                 validity_time=task.validity_time,
                 completion_time=None,
                 completion_event_id=None,
+                record_type=task.record_type,
             )
         return task

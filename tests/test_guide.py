@@ -67,3 +67,12 @@ def test_writing_guide_documents_observation_record_type() -> None:
     assert "Record Subtype" in rendered
     assert "memorable_remember_observation" in rendered
     assert "record_type" in rendered
+
+
+def test_writing_guide_documents_decision_and_task_record_types() -> None:
+    rendered = render("writing")
+
+    assert "ArchitectureDecision" in rendered
+    assert "Commitment" in rendered or "FollowUp" in rendered
+    assert "memorable_remember_decision" in rendered
+    assert "memorable_remember_task" in rendered

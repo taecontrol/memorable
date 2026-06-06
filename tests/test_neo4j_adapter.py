@@ -145,6 +145,7 @@ class FakeSession:
                 "lifecycle_state": params.get("lifecycle_state", ""),
                 "supersedes": params.get("supersedes"),
                 "superseded_by": params.get("superseded_by"),
+                "record_type": params.get("record_type"),
             }
             if "record_id" in params:
                 provs = self._store.setdefault("Provenance", {})
@@ -224,6 +225,7 @@ class FakeSession:
                 "validity_time": params.get("validity_time", ""),
                 "completion_time": params.get("completion_time"),
                 "completion_event_id": params.get("completion_event_id"),
+                "record_type": params.get("record_type"),
             }
             if "record_id" in params:
                 provs = self._store.setdefault("Provenance", {})
@@ -732,6 +734,7 @@ class TestNeo4jDecisionRepository:
             lifecycle_state="active",
             supersedes=None,
             superseded_by=None,
+            record_type="ArchitectureDecision",
         )
         provenance = _make_provenance("dec-1", "decision")
 
@@ -746,6 +749,7 @@ class TestNeo4jDecisionRepository:
         assert result.invalidation_time is None
         assert result.supersedes is None
         assert result.superseded_by is None
+        assert result.record_type == "ArchitectureDecision"
 
     def test_get_returns_none_for_missing(self) -> None:
         """get returns None when decision does not exist."""
@@ -997,6 +1001,7 @@ class TestNeo4jTaskRepository:
             validity_time=ts,
             completion_time=None,
             completion_event_id=None,
+            record_type="FollowUp",
         )
         provenance = _make_provenance("task-1", "task")
 
@@ -1010,6 +1015,7 @@ class TestNeo4jTaskRepository:
         assert result.lifecycle_state == "open"
         assert result.completion_time is None
         assert result.completion_event_id is None
+        assert result.record_type == "FollowUp"
 
     def test_get_returns_none_for_missing(self) -> None:
         """get returns None when task does not exist."""

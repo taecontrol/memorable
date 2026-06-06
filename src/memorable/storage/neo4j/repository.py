@@ -532,7 +532,8 @@ class Neo4jDecisionRepository:
                     "  invalidation_time: $invalidation_time, "
                     "  lifecycle_state: $lifecycle_state, "
                     "  supersedes: $supersedes, "
-                    "  superseded_by: $superseded_by"
+                    "  superseded_by: $superseded_by, "
+                    "  record_type: $record_type"
                     "}) "
                     "WITH d "
                     "CREATE (p:Provenance {"
@@ -551,6 +552,7 @@ class Neo4jDecisionRepository:
                     lifecycle_state=decision.lifecycle_state,
                     supersedes=decision.supersedes,
                     superseded_by=decision.superseded_by,
+                    record_type=decision.record_type,
                     record_id=provenance.record_id,
                     record_kind=provenance.record_kind,
                     source_id=provenance.source_id,
@@ -580,7 +582,8 @@ class Neo4jDecisionRepository:
                 "       d.invalidation_time AS invalidation_time, "
                 "       d.lifecycle_state AS lifecycle_state, "
                 "       d.supersedes AS supersedes, "
-                "       d.superseded_by AS superseded_by",
+                "       d.superseded_by AS superseded_by, "
+                "       d.record_type AS record_type",
                 space=space,
                 id=record_id,
             )
@@ -596,6 +599,7 @@ class Neo4jDecisionRepository:
                 lifecycle_state=record["lifecycle_state"],
                 supersedes=record["supersedes"],
                 superseded_by=record["superseded_by"],
+                record_type=record["record_type"],
             )
 
     def get_provenance(self, space: str, record_id: str) -> Provenance | None:
@@ -637,7 +641,8 @@ class Neo4jDecisionRepository:
                 "       d.invalidation_time AS invalidation_time, "
                 "       d.lifecycle_state AS lifecycle_state, "
                 "       d.supersedes AS supersedes, "
-                "       d.superseded_by AS superseded_by",
+                "       d.superseded_by AS superseded_by, "
+                "       d.record_type AS record_type",
                 space=space,
             )
             return [
@@ -650,6 +655,7 @@ class Neo4jDecisionRepository:
                     lifecycle_state=record["lifecycle_state"],
                     supersedes=record["supersedes"],
                     superseded_by=record["superseded_by"],
+                    record_type=record["record_type"],
                 )
                 for record in result
             ]
@@ -1059,7 +1065,8 @@ class Neo4jTaskRepository:
                     "  lifecycle_state: $lifecycle_state, "
                     "  validity_time: $validity_time, "
                     "  completion_time: $completion_time, "
-                    "  completion_event_id: $completion_event_id"
+                    "  completion_event_id: $completion_event_id, "
+                    "  record_type: $record_type"
                     "}) "
                     "WITH t "
                     "CREATE (p:Provenance {"
@@ -1077,6 +1084,7 @@ class Neo4jTaskRepository:
                     validity_time=_to_iso(task.validity_time),
                     completion_time=_to_iso(task.completion_time),
                     completion_event_id=task.completion_event_id,
+                    record_type=task.record_type,
                     record_id=provenance.record_id,
                     record_kind=provenance.record_kind,
                     source_id=provenance.source_id,
@@ -1105,7 +1113,8 @@ class Neo4jTaskRepository:
                 "       t.lifecycle_state AS lifecycle_state, "
                 "       t.validity_time AS validity_time, "
                 "       t.completion_time AS completion_time, "
-                "       t.completion_event_id AS completion_event_id",
+                "       t.completion_event_id AS completion_event_id, "
+                "       t.record_type AS record_type",
                 space=space,
                 id=task_id,
             )
@@ -1120,6 +1129,7 @@ class Neo4jTaskRepository:
                 validity_time=_from_iso(record["validity_time"]),
                 completion_time=_from_iso(record["completion_time"]),
                 completion_event_id=record["completion_event_id"],
+                record_type=record["record_type"],
             )
 
     def get_provenance(self, *, space: str, task_id: str) -> Provenance | None:
@@ -1214,7 +1224,8 @@ class Neo4jTaskRepository:
                 "       t.lifecycle_state AS lifecycle_state, "
                 "       t.validity_time AS validity_time, "
                 "       t.completion_time AS completion_time, "
-                "       t.completion_event_id AS completion_event_id",
+                "       t.completion_event_id AS completion_event_id, "
+                "       t.record_type AS record_type",
                 space=space,
             )
             return [
@@ -1226,6 +1237,7 @@ class Neo4jTaskRepository:
                     validity_time=_from_iso(record["validity_time"]),
                     completion_time=_from_iso(record["completion_time"]),
                     completion_event_id=record["completion_event_id"],
+                    record_type=record["record_type"],
                 )
                 for record in result
             ]

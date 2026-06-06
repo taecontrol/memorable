@@ -485,6 +485,7 @@ def _cmd_remember_decision(
             writer=getattr(args, "writer", "agent:memorable"),
             reason=getattr(args, "reason", ""),
             supersedes=supersedes,
+            record_type=getattr(args, "record_type", None),
         )
     except ValueError as e:
         print(f"Error: {e}", file=sys.stderr)
@@ -515,6 +516,7 @@ def _cmd_remember_decision(
                 "space": result.decision.space,
                 "record_id": result.provenance.record_id,
                 "record_kind": result.provenance.record_kind,
+                "record_type": result.decision.record_type,
                 "source": result.provenance.source_id,
                 "episode": result.provenance.episode_id,
                 "creation_time": result.provenance.creation_time.isoformat(),
@@ -707,6 +709,7 @@ def _cmd_truth_current(
                 "statement": decision.statement,
                 "space": decision.space,
                 "lifecycle_state": decision.lifecycle_state,
+                "record_type": decision.record_type,
                 "validity_time": decision.validity_time.isoformat(),
             },
             sort_keys=True,
@@ -742,6 +745,7 @@ def _cmd_truth_as_of(
                 "statement": decision.statement,
                 "space": decision.space,
                 "lifecycle_state": decision.lifecycle_state,
+                "record_type": decision.record_type,
                 "validity_time": decision.validity_time.isoformat(),
             },
             sort_keys=True,
@@ -772,6 +776,8 @@ def _cmd_inspect_history(
     for i, decision in enumerate(history):
         print(f"  [{i + 1}] {decision.id}")
         print(f"      Statement: {decision.statement}")
+        if decision.record_type is not None:
+            print(f"      Record Subtype: {decision.record_type}")
         print(f"      Lifecycle: {decision.lifecycle_state}")
         print(f"      Valid from: {decision.validity_time.isoformat()}")
         if decision.invalidation_time:
@@ -810,6 +816,7 @@ def _cmd_remember_task(
             at=at,
             writer=getattr(args, "writer", "agent:memorable"),
             reason=getattr(args, "reason", ""),
+            record_type=getattr(args, "record_type", None),
         )
     except ValueError as e:
         print(f"Error: {e}", file=sys.stderr)
@@ -834,6 +841,7 @@ def _cmd_remember_task(
                 "lifecycle_state": result.task.lifecycle_state,
                 "record_id": result.provenance.record_id,
                 "record_kind": result.provenance.record_kind,
+                "record_type": result.task.record_type,
                 "source": result.provenance.source_id,
                 "episode": result.provenance.episode_id,
                 "creation_time": result.provenance.creation_time.isoformat(),
@@ -882,6 +890,7 @@ def _cmd_complete_task(
             {
                 "task_id": result.task.id,
                 "lifecycle_state": result.task.lifecycle_state,
+                "record_type": result.task.record_type,
                 "event_id": result.event_id,
                 "completion_time": result.completion_time.isoformat(),
             },
@@ -921,6 +930,7 @@ def _cmd_task_inspect(
                 "title": task.title,
                 "space": task.space,
                 "lifecycle_state": task.lifecycle_state,
+                "record_type": task.record_type,
                 "validity_time": task.validity_time.isoformat(),
                 "completion_time": (
                     task.completion_time.isoformat() if task.completion_time else None
@@ -1443,6 +1453,7 @@ def main(argv: list[str] | None = None) -> int:
     task_rem_parser.add_argument("--title", required=True)
     task_rem_parser.add_argument("--source", required=True)
     task_rem_parser.add_argument("--at", required=True)
+    task_rem_parser.add_argument("--type", dest="record_type", default=None)
     task_rem_parser.add_argument("--writer", default="agent:memorable")
     task_rem_parser.add_argument("--reason", default="")
 
@@ -1456,6 +1467,7 @@ def main(argv: list[str] | None = None) -> int:
     decision_parser.add_argument("--source", required=True)
     decision_parser.add_argument("--at", required=True)
     decision_parser.add_argument("--supersedes", default=None)
+    decision_parser.add_argument("--type", dest="record_type", default=None)
     decision_parser.add_argument("--writer", default="agent:memorable")
     decision_parser.add_argument("--reason", default="")
 

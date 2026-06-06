@@ -43,6 +43,8 @@ VALID_PROFILE_YAML = textwrap.dedent("""\
     records:
       - name: ArchitectureDecision
         extends: Decision
+      - name: FollowUp
+        extends: Task
 """)
 
 V1_ID = "decision:storage-path:v1"
@@ -353,6 +355,69 @@ class TestRememberDecisionService:
 
         stored = repo.get(space="memorable", record_id=V1_ID)
         assert stored is not None
+
+    def test_remember_decision_with_declared_subtype_survives_supersession(
+        self,
+    ) -> None:
+        service, repo = self._make_service()
+
+        result = service.remember(
+            space="memorable",
+            decision_id=V1_ID,
+            statement=STATEMENT_V1,
+            source_id=SOURCE_ID,
+            at=FIXTURE_TIMESTAMP_V1,
+            record_type="ArchitectureDecision",
+        )
+
+        assert result.decision.record_type == "ArchitectureDecision"
+        stored = repo.get(space="memorable", record_id=V1_ID)
+        assert stored is not None
+        assert stored.record_type == "ArchitectureDecision"
+
+        service.remember(
+            space="memorable",
+            decision_id=V2_ID,
+            statement=STATEMENT_V2,
+            source_id=SOURCE_ID,
+            at=FIXTURE_TIMESTAMP_V2,
+            supersedes=V1_ID,
+        )
+
+        superseded = repo.get(space="memorable", record_id=V1_ID)
+        assert superseded is not None
+        assert superseded.lifecycle_state == "superseded"
+        assert superseded.record_type == "ArchitectureDecision"
+
+    @pytest.mark.parametrize(
+        ("record_type", "expected"),
+        [
+            ("Pattern", "Record Subtype 'Pattern' is not declared"),
+            ("FollowUp", "Record Subtype 'FollowUp' extends Task, not Decision"),
+        ],
+    )
+    def test_remember_decision_with_invalid_subtype_fails_loud(
+        self,
+        record_type: str,
+        expected: str,
+    ) -> None:
+        from memorable.core.application import UndeclaredTypeError
+
+        service, _repo = self._make_service()
+
+        with pytest.raises(UndeclaredTypeError) as error:
+            service.remember(
+                space="memorable",
+                decision_id=V1_ID,
+                statement=STATEMENT_V1,
+                source_id=SOURCE_ID,
+                at=FIXTURE_TIMESTAMP_V1,
+                record_type=record_type,
+            )
+
+        message = str(error.value)
+        assert expected in message
+        assert "ArchitectureDecision" in message
 
     def test_remember_decision_with_supersession(self) -> None:
         service, repo = self._make_service()
@@ -793,6 +858,50 @@ class TestCLIRememberDecision:
         assert output["record_id"] == V1_ID
         assert output["record_kind"] == "decision"
 
+    def test_remember_decision_with_type_outputs_record_type(self, capsys) -> None:
+        import json
+
+        from memorable.cli import main
+
+        exit_code = main(
+            [
+                "remember",
+                "decision",
+                "--space",
+                "memorable",
+                "--id",
+                V1_ID,
+                "--statement",
+                STATEMENT_V1,
+                "--type",
+                "ArchitectureDecision",
+                "--source",
+                SOURCE_ID,
+                "--at",
+                "2026-05-23T10:15:00Z",
+            ]
+        )
+
+        assert exit_code == 0
+        output = json.loads(capsys.readouterr().out)
+        assert output["record_kind"] == "decision"
+        assert output["record_type"] == "ArchitectureDecision"
+
+        exit_code = main(
+            [
+                "truth",
+                "current",
+                "--space",
+                "memorable",
+                "--id",
+                V1_ID,
+            ]
+        )
+
+        assert exit_code == 0
+        truth_output = json.loads(capsys.readouterr().out)
+        assert truth_output["record_type"] == "ArchitectureDecision"
+
     def test_remember_decision_with_supersession(self, capsys) -> None:
         from memorable.cli import main
 
@@ -1043,6 +1152,31 @@ class TestMCPRememberDecision:
         assert result["decision_id"] == V1_ID
         assert result["source"] == SOURCE_ID
         assert "error" not in result
+
+    def test_remember_decision_tool_with_record_type_reads_back(self) -> None:
+        from memorable.mcp.server import current_truth_tool, remember_decision_tool
+
+        remember_result = remember_decision_tool(
+            space="memorable",
+            decision_id=V1_ID,
+            statement=STATEMENT_V1,
+            source=SOURCE_ID,
+            at="2026-05-23T10:15:00Z",
+            record_type="ArchitectureDecision",
+        )
+
+        assert "error" not in remember_result
+        assert remember_result["record_kind"] == "decision"
+        assert remember_result["record_type"] == "ArchitectureDecision"
+
+        truth_result = current_truth_tool(
+            space="memorable",
+            record_id=V1_ID,
+            record_type="decision",
+        )
+
+        assert "error" not in truth_result
+        assert truth_result["record_type"] == "ArchitectureDecision"
 
     def test_remember_decision_tool_includes_unified_provenance_fields(self) -> None:
         """MCP remember_decision_tool response includes record_id and record_kind."""

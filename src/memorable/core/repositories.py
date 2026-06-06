@@ -555,6 +555,7 @@ class InMemoryTaskRepository:
             validity_time=old.validity_time,
             completion_time=completion_time,
             completion_event_id=completion_event_id,
+            record_type=old.record_type,
         )
         self._tasks[key] = updated
 
