@@ -1,8 +1,6 @@
-import { execFile as execFileCallback } from "node:child_process";
 import { randomUUID } from "node:crypto";
 import fs from "node:fs/promises";
 import path from "node:path";
-import { promisify } from "node:util";
 
 import {
 	createAgentSession,
@@ -17,22 +15,54 @@ import {
 	type ExtensionContext,
 	type ToolDefinition,
 } from "@earendil-works/pi-coding-agent";
-import { Text, truncateToWidth, visibleWidth } from "@earendil-works/pi-tui";
+import { Text } from "@earendil-works/pi-tui";
 import { Type } from "typebox";
+
+import type {
+	AgentManifest,
+	AgentRole,
+	AgentRoom,
+	AgentStats,
+	CreateRoomOptions,
+	PrdRunMetadata,
+	PrdWorkflow,
+	ResidentAgent,
+	RoomManifest,
+	RoomMessage,
+	RoomStateEntry,
+	WorktreeInfo,
+} from "./types.ts";
+import {
+	appendJsonl,
+	ensureDir,
+	mailboxPath,
+	manifestPath,
+	nowIso,
+	readJson,
+	readMailbox,
+	runDir,
+	runsRoot,
+	writeJson,
+} from "./storage.ts";
+import { fitLine, oneLine, renderTile, truncate } from "./dashboard.ts";
+import { git } from "./github.ts";
+import { formatComments, issueBody, labelSet } from "./issues.ts";
+import {
+	AGENT_PROGRESS_INSTRUCTIONS,
+	buildPrdArchitectPrompt,
+	buildPrdImplementerPrompt,
+	buildPrdReviewerPrompt,
+	prdMetadata,
+} from "./prompts.ts";
+import { publishPrdPullRequest } from "./publish.ts";
+import { allRoleNames, DEFAULT_ROLES, roleByName } from "./roles.ts";
+import { loadPrdContext } from "./slices.ts";
 
 const STATE_TYPE = "agent-room-state";
 const WIDGET_KEY = "agent-room";
-const RUNS_DIR = [".pi", "agent-room", "runs"];
 const WORKTREES_DIR = [".pi", "agent-room", "worktrees"];
-const MAX_TILE_MESSAGE = 72;
 const HUMAN_NAME = "human";
 const HUMAN_MESSAGE_TYPE = "agent-room-human-message";
-const DEFAULT_TOOLS = ["read", "bash", "edit", "write", "grep", "find", "ls"];
-const READ_ONLY_TOOLS = ["read", "bash", "grep", "find", "ls"];
-const AGENT_PROGRESS_INSTRUCTIONS = `- Send agent_update before each major phase, before running tests, and after test results.
-- Send agent_update for blockers, important decisions, and completion summaries.
-- Use agent_question when you need the human/coordinator to choose or unblock you; then stop and wait for a reply.
-- Keep human updates under 160 chars when possible; never include secrets or full command output.`;
 const AGENT_ROOM_TOOL_NAMES = [
 	"agent_send",
 	"agent_broadcast",
@@ -45,287 +75,9 @@ const AGENT_ROOM_TOOL_NAMES = [
 	"agent_finish_architecture_review",
 ];
 const TDD_SKILL_FILE = [".agents", "skills", "tdd", "SKILL.md"];
-const execFile = promisify(execFileCallback);
-
-type AgentStatus = "idle" | "running" | "queued" | "blocked" | "error";
-
-type IssueState = "OPEN" | "CLOSED" | string;
-
-type GhLabel = {
-	name: string;
-};
-
-type GhComment = {
-	body?: string | null;
-	author?: { login?: string | null } | null;
-	createdAt?: string | null;
-};
-
-type Issue = {
-	number: number;
-	title: string;
-	body?: string | null;
-	labels?: GhLabel[];
-	state: IssueState;
-	comments?: GhComment[];
-	url?: string;
-};
-
-type IssueRef = {
-	repo: string;
-	number: number;
-};
-
-type SkippedSlice = {
-	issue: Issue;
-	reason: string;
-};
-
-type SlicePlan = {
-	ordered: Issue[];
-	skipped: SkippedSlice[];
-	blockersBySlice: Map<number, number[]>;
-};
-
-type PrdRunMetadata = {
-	repo: string;
-	number: number;
-	title: string;
-	url?: string;
-	context?: string;
-	orderedSlices: Array<{ number: number; title: string; url?: string; blockers: number[] }>;
-	skippedSlices: Array<{ number: number; title: string; url?: string; reason: string }>;
-};
-
-type PrdWorkflowPhase =
-	| "architecting"
-	| "reviewer-setup"
-	| "implementing"
-	| "reviewing"
-	| "approved"
-	| "committing"
-	| "compacting"
-	| "final-reviewing"
-	| "publishing"
-	| "done"
-	| "blocked";
-
-type PrdWorkflow = {
-	kind: "prd";
-	currentSliceIndex: number;
-	phase: PrdWorkflowPhase;
-	approvedSlices: number[];
-	committedSlices: number[];
-	blockedReason?: string;
-};
-
-type AgentPromptRequest = {
-	id: string;
-	agentName: string;
-	prompt: string;
-	deliveredMessageIds: string[];
-};
-
-type RoomStateEntry = {
-	type: string;
-	customType?: string;
-	data?: { activeRunId?: string | null };
-};
-
-type AgentRole = {
-	name: string;
-	title: string;
-	description: string;
-	tools: string[];
-	systemPrompt: string;
-};
-
-type AgentManifest = {
-	name: string;
-	title: string;
-	description: string;
-	sessionFile: string;
-	deliveredMessageIds: string[];
-};
-
-type WorktreeInfo = {
-	path: string;
-	branch: string;
-	baseRef: string;
-	createdAt: string;
-};
-
-type PullRequestMetadata = {
-	number: number;
-	url: string;
-	title: string;
-	createdAt: string;
-};
-
-type FinalArchitectureReviewMetadata = {
-	status: "approved" | "changes_requested";
-	findings: string;
-	verification?: string;
-	reviewedAt: string;
-};
-
-type RoomManifest = {
-	id: string;
-	name: string;
-	/** Agent workspace cwd. Kept as cwd for older manifests and status readability. */
-	cwd: string;
-	controllerCwd?: string;
-	workspaceCwd?: string;
-	worktree?: WorktreeInfo;
-	prd?: PrdRunMetadata;
-	workflow?: PrdWorkflow;
-	pullRequest?: PullRequestMetadata;
-	finalArchitectureReview?: FinalArchitectureReviewMetadata;
-	createdAt: string;
-	updatedAt: string;
-	agents: AgentManifest[];
-};
-
-type RoomMessage = {
-	id: string;
-	createdAt: string;
-	from: string;
-	to: string;
-	kind: string;
-	body: string;
-	replyToId?: string;
-};
-
-type AgentStats = {
-	status: AgentStatus;
-	currentTask?: string;
-	lastMessage?: string;
-	turns: number;
-	input: number;
-	output: number;
-	cost: number;
-	inbox: number;
-	error?: string;
-};
-
-type ResidentAgent = {
-	role: AgentRole;
-	manifest: AgentManifest;
-	session: AgentSession;
-	unsubscribe?: () => void;
-	stats: AgentStats;
-};
-
-type AgentRoom = {
-	id: string;
-	name: string;
-	/** Agent workspace cwd. */
-	cwd: string;
-	/** Pi session cwd that owns AgentRoom runtime state. */
-	controllerCwd: string;
-	runDir: string;
-	mailboxPath: string;
-	manifestPath: string;
-	manifest: RoomManifest;
-	messages: RoomMessage[];
-	agents: Map<string, ResidentAgent>;
-	promptQueue: AgentPromptRequest[];
-	queuedMessageIds: Set<string>;
-	activeAgentName?: string;
-	automationActive: boolean;
-	lastCtx?: ExtensionContext;
-	stopped: boolean;
-};
-
-const DEFAULT_ROLES: AgentRole[] = [
-	{
-		name: "implementer",
-		title: "Implementer",
-		description: "Persistent coding agent. Owns file mutations and implementation memory.",
-		tools: DEFAULT_TOOLS,
-		systemPrompt: `You are the persistent Implementer in an AgentRoom.
-
-You keep context across turns. Own implementation work. You may edit files, run tests, and use bash.
-
-Communication rules:
-- Use agent_update to keep the human/coordinator informed before major phases, tests, blockers, and completions.
-- Use agent_question when human input is needed; then stop and wait for a reply.
-- Use agent_send to ask the reviewer for reviews or clarification.
-- Use agent_broadcast for important implementation summaries.
-- Keep messages short but include exact files changed, commands run, and blockers.
-- Do not assume other agents saw your terminal output unless you send it.
-- Default to project TDD for implementation work: load and follow the tdd skill before coding.
-- Prefer vertical tracer-bullet work and narrow tests.
-- Never commit unless explicitly instructed by the human/coordinator.`
-	},
-	{
-		name: "reviewer",
-		title: "Reviewer",
-		description: "Persistent code reviewer. Remembers prior findings and review context.",
-		tools: READ_ONLY_TOOLS,
-		systemPrompt: `You are the persistent Reviewer in an AgentRoom.
-
-You keep context across turns. Review implementation work and send actionable findings back to implementer.
-
-Hard rules:
-- Review only. Do not edit files.
-- Bash is read-only: git diff, git status, grep, find, test commands are allowed; no mutation commands.
-- Use agent_update for review start/completion, blockers, or questions to the human/coordinator.
-- Use agent_question when human input is needed; then stop and wait for a reply.
-- Use agent_send to return findings to implementer.
-- Classify findings as blocking or non-blocking.
-- Include exact file paths and line references when possible.`,
-	},
-	{
-		name: "architect",
-		title: "Architect",
-		description: "Persistent architecture reviewer. Tracks cross-slice/product risks.",
-		tools: READ_ONLY_TOOLS,
-		systemPrompt: `You are the persistent Architect in an AgentRoom.
-
-You keep context across turns. Focus on architecture, domain language, temporal semantics, boundaries, and maintainability.
-
-Hard rules:
-- Review only. Do not edit files.
-- Use agent_update for architecture start/completion, blockers, or questions to the human/coordinator.
-- Use agent_question when human input is needed; then stop and wait for a reply.
-- Use agent_broadcast for architecture decisions or risks relevant to all agents.
-- Use agent_send for targeted blockers.
-- Be concise, specific, and grounded in files/docs.`,
-	},
-];
 
 let activeRoom: AgentRoom | undefined;
 let activeRunId: string | undefined;
-
-function oneLine(value: string): string {
-	return value.replace(/\s+/g, " ").trim();
-}
-
-function fitLine(value: string, width: number, ellipsis = ""): string {
-	const maxWidth = Math.max(0, Math.floor(width));
-	if (maxWidth === 0) return "";
-	if (visibleWidth(value) <= maxWidth) return value;
-	return truncateToWidth(value, maxWidth, ellipsis);
-}
-
-function padToWidth(value: string, width: number): string {
-	const clipped = fitLine(value, width);
-	return `${clipped}${" ".repeat(Math.max(0, Math.floor(width) - visibleWidth(clipped)))}`;
-}
-
-function borderLine(left: string, title: string, right: string, width: number): string {
-	const maxWidth = Math.max(0, Math.floor(width));
-	if (maxWidth === 0) return "";
-	if (maxWidth === 1) return left;
-	const innerWidth = Math.max(0, maxWidth - 2);
-	const clippedTitle = fitLine(title, innerWidth);
-	return `${left}${clippedTitle}${"─".repeat(Math.max(0, innerWidth - visibleWidth(clippedTitle)))}${right}`;
-}
-
-function truncate(value: string, max = MAX_TILE_MESSAGE): string {
-	return fitLine(oneLine(value), max, "…");
-}
 
 function safeId(value: string): string {
 	return value
@@ -347,234 +99,6 @@ function safeBranchPart(value: string): string {
 
 function worktreesRoot(cwd: string): string {
 	return path.join(cwd, ...WORKTREES_DIR);
-}
-
-async function git(cwd: string, args: string[]): Promise<{ stdout: string; stderr: string }> {
-	const result = await execFile("git", args, { cwd, maxBuffer: 10 * 1024 * 1024 });
-	return { stdout: String(result.stdout), stderr: String(result.stderr) };
-}
-
-async function ghJson<T>(cwd: string, args: string[]): Promise<T> {
-	const result = await execFile("gh", args, { cwd, maxBuffer: 20 * 1024 * 1024 });
-	return JSON.parse(String(result.stdout)) as T;
-}
-
-async function currentGitHubRepo(cwd: string): Promise<string> {
-	const result = await execFile("gh", ["repo", "view", "--json", "nameWithOwner", "--jq", ".nameWithOwner"], {
-		cwd,
-		maxBuffer: 1024 * 1024,
-	});
-	return String(result.stdout).trim();
-}
-
-function parseIssueInput(input: string, defaultRepo: string): IssueRef {
-	const trimmed = input.trim();
-	const urlMatch = /^https?:\/\/github\.com\/([^/]+\/[^/]+)\/issues\/(\d+)/.exec(trimmed);
-	if (urlMatch) return { repo: urlMatch[1], number: Number(urlMatch[2]) };
-
-	const repoIssueMatch = /^([^\s/#]+\/[^\s#]+)#(\d+)$/.exec(trimmed);
-	if (repoIssueMatch) return { repo: repoIssueMatch[1], number: Number(repoIssueMatch[2]) };
-
-	const numberMatch = /^#?(\d+)$/.exec(trimmed);
-	if (numberMatch) return { repo: defaultRepo, number: Number(numberMatch[1]) };
-
-	throw new Error(`Could not parse PRD issue reference: ${input}`);
-}
-
-async function fetchIssue(repo: string, number: number, cwd: string): Promise<Issue> {
-	return ghJson<Issue>(cwd, [
-		"issue",
-		"view",
-		String(number),
-		"-R",
-		repo,
-		"--comments",
-		"--json",
-		"number,title,body,labels,state,comments,url",
-	]);
-}
-
-async function fetchIssueOptional(repo: string, number: number, cwd: string): Promise<Issue | undefined> {
-	try {
-		return await fetchIssue(repo, number, cwd);
-	} catch {
-		return undefined;
-	}
-}
-
-async function loadPrdContext(cwd: string, input: string): Promise<{ repo: string; prd: Issue; plan: SlicePlan }> {
-	const defaultRepo = await currentGitHubRepo(cwd);
-	const issueRef = parseIssueInput(input, defaultRepo);
-	const prd = await fetchIssue(issueRef.repo, issueRef.number, cwd);
-	const plan = await buildSlicePlan(issueRef.repo, prd, cwd);
-	if (plan.ordered.length === 0) {
-		throw new Error(`No child slices labeled ready-for-agent for #${prd.number}.`);
-	}
-	return { repo: issueRef.repo, prd, plan };
-}
-
-async function buildSlicePlan(repo: string, prd: Issue, cwd: string): Promise<SlicePlan> {
-	const allReferenced = await ghJson<Issue[]>(cwd, [
-		"issue",
-		"list",
-		"-R",
-		repo,
-		"--state",
-		"all",
-		"--limit",
-		"200",
-		"--search",
-		`#${prd.number} in:body,comments`,
-		"--json",
-		"number,title,body,labels,state,comments,url",
-	]);
-
-	const children = allReferenced
-		.filter((issue) => issue.number !== prd.number)
-		.filter((issue) => isChildOfPrd(issue, prd.number));
-
-	const ready: Issue[] = [];
-	const skipped: SkippedSlice[] = [];
-	for (const issue of children) {
-		const labels = labelSet(issue);
-		if (labels.has("ready-for-agent")) {
-			ready.push(issue);
-			continue;
-		}
-		skipped.push({
-			issue,
-			reason: labels.has("ready-for-human") ? "ready-for-human" : "missing ready-for-agent",
-		});
-	}
-
-	const childrenByNumber = new Map(children.map((issue) => [issue.number, issue]));
-	const readyByNumber = new Map(ready.map((issue) => [issue.number, issue]));
-	const blockersBySlice = new Map<number, number[]>();
-
-	for (const slice of ready) {
-		const blockers = extractBlockers(issueBody(slice));
-		blockersBySlice.set(slice.number, blockers);
-		for (const blockerNumber of blockers) {
-			if (blockerNumber === slice.number) throw new Error(`Slice #${slice.number} blocks itself.`);
-			if (readyByNumber.has(blockerNumber)) continue;
-			const blocker = childrenByNumber.get(blockerNumber) ?? (await fetchIssueOptional(repo, blockerNumber, cwd));
-			if (!blocker) throw new Error(`Slice #${slice.number} lists missing blocker #${blockerNumber}.`);
-			if (blocker.state !== "CLOSED") {
-				throw new Error(`Slice #${slice.number} is blocked by open issue #${blockerNumber}, which is not included in this run.`);
-			}
-		}
-	}
-
-	return { ordered: topologicalOrder(ready, blockersBySlice), skipped, blockersBySlice };
-}
-
-function isChildOfPrd(issue: Issue, prdNumber: number): boolean {
-	const text = issueText(issue);
-	if (new RegExp(`\\bParent:\\s*#${prdNumber}\\b`, "i").test(text)) return true;
-
-	const parentSection = extractMarkdownSection(text, "Parent");
-	if (parentSection && issueRefs(parentSection).includes(prdNumber)) return true;
-
-	return issueRefs(text).includes(prdNumber);
-}
-
-function topologicalOrder(issues: Issue[], blockersBySlice: Map<number, number[]>): Issue[] {
-	const issueByNumber = new Map(issues.map((issue) => [issue.number, issue]));
-	const indegree = new Map(issues.map((issue) => [issue.number, 0]));
-	const dependents = new Map<number, number[]>();
-
-	for (const issue of issues) {
-		for (const blocker of blockersBySlice.get(issue.number) ?? []) {
-			if (!issueByNumber.has(blocker)) continue;
-			indegree.set(issue.number, (indegree.get(issue.number) ?? 0) + 1);
-			dependents.set(blocker, [...(dependents.get(blocker) ?? []), issue.number]);
-		}
-	}
-
-	const queue = issues.filter((issue) => indegree.get(issue.number) === 0).sort((a, b) => a.number - b.number);
-	const ordered: Issue[] = [];
-	while (queue.length > 0) {
-		const issue = queue.shift();
-		if (!issue) break;
-		ordered.push(issue);
-		for (const dependentNumber of dependents.get(issue.number) ?? []) {
-			const nextDegree = (indegree.get(dependentNumber) ?? 0) - 1;
-			indegree.set(dependentNumber, nextDegree);
-			if (nextDegree === 0) {
-				const dependent = issueByNumber.get(dependentNumber);
-				if (dependent) {
-					queue.push(dependent);
-					queue.sort((a, b) => a.number - b.number);
-				}
-			}
-		}
-	}
-
-	if (ordered.length !== issues.length) {
-		const cycle = issues
-			.filter((issue) => !ordered.some((done) => done.number === issue.number))
-			.map((issue) => `#${issue.number}`)
-			.join(", ");
-		throw new Error(`Blocked-by cycle among ready slices: ${cycle}`);
-	}
-	return ordered;
-}
-
-function prdMetadata(repo: string, prd: Issue, plan: SlicePlan): PrdRunMetadata {
-	return {
-		repo,
-		number: prd.number,
-		title: prd.title,
-		url: prd.url,
-		context: formatPrdContext(repo, prd, plan),
-		orderedSlices: plan.ordered.map((slice) => ({
-			number: slice.number,
-			title: slice.title,
-			url: slice.url,
-			blockers: plan.blockersBySlice.get(slice.number) ?? [],
-		})),
-		skippedSlices: plan.skipped.map((skipped) => ({
-			number: skipped.issue.number,
-			title: skipped.issue.title,
-			url: skipped.issue.url,
-			reason: skipped.reason,
-		})),
-	};
-}
-
-function formatPrdContext(repo: string, prd: Issue, plan: SlicePlan): string {
-	return `## Parent PRD
-
-Repo: ${repo}
-Issue: #${prd.number} ${prd.title}
-URL: ${prd.url ?? "unknown"}
-Labels: ${[...labelSet(prd)].join(", ") || "none"}
-
-${issueBody(prd)}
-
-## PRD Comments
-
-${formatComments(prd)}
-
-## Ordered ready slices
-
-${plan.ordered
-		.map((slice, index) => {
-			const blockers = plan.blockersBySlice.get(slice.number) ?? [];
-			return `### ${index + 1}. #${slice.number} ${slice.title}
-URL: ${slice.url ?? "unknown"}
-Blocked by: ${blockers.length ? blockers.map((number) => `#${number}`).join(", ") : "none"}
-
-${issueBody(slice)}
-
-Comments:
-${formatComments(slice)}`;
-		})
-		.join("\n\n---\n\n")}
-
-## Skipped slices
-
-${plan.skipped.length ? plan.skipped.map((skipped) => `- #${skipped.issue.number} ${skipped.issue.title}: ${skipped.reason}`).join("\n") : "None"}`;
 }
 
 function prdWorkflow(room: AgentRoom): PrdWorkflow | undefined {
@@ -624,76 +148,6 @@ ${prd.context ?? `Ordered slices: ${prd.orderedSlices.map((item) => `#${item.num
 ${AGENT_PROGRESS_INSTRUCTIONS}`;
 }
 
-function buildPrdImplementerPrompt(repo: string, prd: Issue, plan: SlicePlan): string {
-	const firstSlice = plan.ordered[0];
-	return `You are implementing a Memorable PRD run, based on .sandcastle/implement-prd.ts.
-
-${formatPrdContext(repo, prd, plan)}
-
-## Required process
-
-- Treat the ordered ready slices as the source of truth. Do not implement the parent PRD as one blob.
-- AgentRoom assigns one current slice at a time. Start with #${firstSlice.number} ${firstSlice.title}.
-- Implement only the assigned current slice; never start a later slice on your own.
-- Before coding, check worktree status/base. If the diff is polluted or base is wrong, use agent_question and wait.
-- For the assigned slice, follow the required tdd skill: one behavior test → failing RED run → minimal GREEN implementation → passing run → repeat/refactor.
-- When the assigned slice is ready, call agent_submit_review with files changed and verification evidence, then stop.
-- Do not continue because the reviewer is quiet. Wait for AgentRoom to commit, compact, and send the next slice assignment.
-- Do not inspect or anticipate future slices beyond dependency/order awareness.
-- Do not commit. AgentRoom commits approved slices after reviewer approval.
-- If you touch Memorable product model or domain language, read docs/product.md, docs/ubiquitous-language.md, and relevant ADRs first.
-- Use uv for Python tasks.
-
-## Current slice assignment
-
-#${firstSlice.number} ${firstSlice.title}
-
-## Human-visible progress
-
-${AGENT_PROGRESS_INSTRUCTIONS}`;
-}
-
-function buildPrdReviewerPrompt(repo: string, prd: Issue, plan: SlicePlan): string {
-	return `You are the persistent reviewer for a slice-based Memorable PRD run.
-
-${formatPrdContext(repo, prd, plan)}
-
-## Review process
-
-- Wait for implementer review requests.
-- Review only; do not modify files or commit.
-- Review the current diff against the run base, focused on the requested slice.
-- Report blocking vs non-blocking findings with exact paths/lines when possible.
-- When review is complete, call agent_finish_review exactly once:
-  - status=changes_requested when blockers remain; include actionable findings.
-  - status=approved only when there are no blocking findings.
-- Do not use agent_send as the final review verdict; AgentRoom needs agent_finish_review to gate the next slice.
-- Use agent_update for review start/completion and blocking findings visible to the human.
-
-## Human-visible progress
-
-${AGENT_PROGRESS_INSTRUCTIONS}`;
-}
-
-function buildPrdArchitectPrompt(repo: string, prd: Issue, plan: SlicePlan): string {
-	return `You are the persistent architect for a slice-based Memorable PRD run.
-
-${formatPrdContext(repo, prd, plan)}
-
-## Architecture process
-
-- Immediately review the PRD and ordered slices for product/domain/architecture constraints.
-- Broadcast constraints or blockers relevant to all agents.
-- Review final branch/diff when AgentRoom asks after all slices are approved and committed.
-- For final branch review, call agent_finish_architecture_review exactly once so AgentRoom can publish the PR.
-- Review only; do not modify files or commit.
-- Use agent_update for architecture start/completion and blocking risks visible to the human.
-
-## Human-visible progress
-
-${AGENT_PROGRESS_INSTRUCTIONS}`;
-}
-
 function buildPrdFinalArchitectPrompt(room: AgentRoom): string {
 	const prd = room.manifest.prd;
 	if (!prd) throw new Error("No PRD is active.");
@@ -702,62 +156,6 @@ function buildPrdFinalArchitectPrompt(room: AgentRoom): string {
 Run final architecture review of the branch/worktree. Review only; do not edit or commit. When complete, call agent_finish_architecture_review with approved or changes_requested so AgentRoom can publish or block the PR.
 
 Committed slices: ${prd.orderedSlices.map((slice) => `#${slice.number}`).join(", ")}`;
-}
-
-function issueText(issue: Issue): string {
-	return `${issueBody(issue)}\n${formatComments(issue)}`;
-}
-
-function issueBody(issue: Issue): string {
-	return issue.body ?? "";
-}
-
-function formatComments(issue: Issue): string {
-	const comments = issue.comments ?? [];
-	if (comments.length === 0) return "No comments.";
-	return comments
-		.map((comment, index) => {
-			const author = comment.author?.login ? ` by ${comment.author.login}` : "";
-			const createdAt = comment.createdAt ? ` at ${comment.createdAt}` : "";
-			return `Comment ${index + 1}${author}${createdAt}:\n${comment.body ?? ""}`;
-		})
-		.join("\n\n");
-}
-
-function labelSet(issue: Issue): Set<string> {
-	return new Set((issue.labels ?? []).map((label) => label.name));
-}
-
-function extractBlockers(body: string): number[] {
-	const section = extractMarkdownSection(body, "Blocked by");
-	if (section) return issueRefs(section);
-	const lineMatch = /^Blocked by:\s*(.+)$/im.exec(body);
-	return lineMatch ? issueRefs(lineMatch[1]) : [];
-}
-
-function extractMarkdownSection(markdown: string, heading: string): string | undefined {
-	const lines = markdown.split(/\r?\n/);
-	const wanted = heading.toLowerCase();
-	const collected: string[] = [];
-	let inSection = false;
-
-	for (const line of lines) {
-		const headingMatch = /^(#{2,6})\s+(.+?)\s*$/.exec(line);
-		if (headingMatch) {
-			if (inSection) break;
-			inSection = headingMatch[2].trim().toLowerCase() === wanted;
-			continue;
-		}
-		if (inSection) collected.push(line);
-	}
-
-	return inSection || collected.length > 0 ? collected.join("\n") : undefined;
-}
-
-function issueRefs(text: string): number[] {
-	const refs = new Set<number>();
-	for (const match of text.matchAll(/#(\d+)\b/g)) refs.add(Number(match[1]));
-	return [...refs];
 }
 
 async function preparePrdBaseRef(cwd: string, options: CreateRoomOptions): Promise<CreateRoomOptions> {
@@ -779,63 +177,6 @@ function splitCommand(args: string): string[] {
 	return args.trim().split(/\s+/).filter(Boolean);
 }
 
-function nowIso(): string {
-	return new Date().toISOString();
-}
-
-function runsRoot(cwd: string): string {
-	return path.join(cwd, ...RUNS_DIR);
-}
-
-function runDir(cwd: string, runId: string): string {
-	return path.join(runsRoot(cwd), runId);
-}
-
-function manifestPath(runDirPath: string): string {
-	return path.join(runDirPath, "manifest.json");
-}
-
-function mailboxPath(runDirPath: string): string {
-	return path.join(runDirPath, "mailbox.jsonl");
-}
-
-async function ensureDir(dir: string): Promise<void> {
-	await fs.mkdir(dir, { recursive: true });
-}
-
-async function readJson<T>(filePath: string): Promise<T | undefined> {
-	try {
-		return JSON.parse(await fs.readFile(filePath, "utf8")) as T;
-	} catch (error) {
-		if ((error as NodeJS.ErrnoException).code === "ENOENT") return undefined;
-		throw error;
-	}
-}
-
-async function writeJson(filePath: string, value: unknown): Promise<void> {
-	await ensureDir(path.dirname(filePath));
-	await fs.writeFile(filePath, `${JSON.stringify(value, null, 2)}\n`, "utf8");
-}
-
-async function appendJsonl(filePath: string, value: unknown): Promise<void> {
-	await ensureDir(path.dirname(filePath));
-	await fs.appendFile(filePath, `${JSON.stringify(value)}\n`, "utf8");
-}
-
-async function readMailbox(filePath: string): Promise<RoomMessage[]> {
-	try {
-		const content = await fs.readFile(filePath, "utf8");
-		return content
-			.split(/\r?\n/)
-			.map((line) => line.trim())
-			.filter(Boolean)
-			.map((line) => JSON.parse(line) as RoomMessage);
-	} catch (error) {
-		if ((error as NodeJS.ErrnoException).code === "ENOENT") return [];
-		throw error;
-	}
-}
-
 function restoreActiveRun(ctx: ExtensionContext): string | undefined {
 	let runId: string | undefined;
 	for (const entry of ctx.sessionManager.getBranch() as RoomStateEntry[]) {
@@ -847,14 +188,6 @@ function restoreActiveRun(ctx: ExtensionContext): string | undefined {
 
 function persistActiveRun(pi: ExtensionAPI, runId: string | undefined): void {
 	pi.appendEntry(STATE_TYPE, { activeRunId: runId ?? null });
-}
-
-function roleByName(name: string): AgentRole | undefined {
-	return DEFAULT_ROLES.find((role) => role.name === name);
-}
-
-function allRoleNames(): string[] {
-	return DEFAULT_ROLES.map((role) => role.name);
 }
 
 function tddSkillPath(room: AgentRoom): string {
@@ -1592,141 +925,6 @@ function isOverloadedError(error: unknown): boolean {
 	return /overloaded_error|\boverloaded\b|\b529\b/i.test(message);
 }
 
-type GhPullRequest = {
-	number: number;
-	url: string;
-	title: string;
-	isDraft: boolean;
-};
-
-async function publishPrdPullRequest(room: AgentRoom): Promise<PullRequestMetadata> {
-	const prd = room.manifest.prd;
-	if (!prd) throw new Error("No PRD metadata available for PR publication.");
-	const status = (await git(room.cwd, ["status", "--porcelain"])).stdout.trim();
-	if (status) throw new Error(`Cannot publish PR with dirty worktree:\n${status}`);
-
-	const branch = room.manifest.worktree?.branch ?? (await git(room.cwd, ["branch", "--show-current"])).stdout.trim();
-	if (!branch) throw new Error("Cannot determine current branch for PR publication.");
-	const base = baseBranchName(room.manifest.worktree?.baseRef);
-	const title = `Implement #${prd.number}: ${prd.title}`;
-	const body = await buildPrdPullRequestBody(room);
-	const bodyFile = path.join(room.runDir, "pull-request.md");
-	await fs.writeFile(bodyFile, body, "utf8");
-
-	await git(room.cwd, ["push", "-u", "origin", branch]);
-	const priorPrUrl = room.manifest.pullRequest?.url;
-	let createdPullRequest = false;
-	let pullRequest = await findPullRequestForBranch(room.cwd, prd.repo, branch);
-	if (pullRequest) {
-		await execFile("gh", ["pr", "edit", String(pullRequest.number), "-R", prd.repo, "--title", title, "--body-file", bodyFile], {
-			cwd: room.cwd,
-			maxBuffer: 10 * 1024 * 1024,
-		});
-		if (pullRequest.isDraft) {
-			await execFile("gh", ["pr", "ready", String(pullRequest.number), "-R", prd.repo], { cwd: room.cwd, maxBuffer: 1024 * 1024 });
-		}
-		pullRequest = await viewPullRequest(room.cwd, prd.repo, pullRequest.number);
-	} else {
-		await execFile("gh", ["pr", "create", "-R", prd.repo, "--base", base, "--title", title, "--body-file", bodyFile], {
-			cwd: room.cwd,
-			maxBuffer: 10 * 1024 * 1024,
-		});
-		createdPullRequest = true;
-		pullRequest = await findPullRequestForBranch(room.cwd, prd.repo, branch);
-		if (!pullRequest) throw new Error("PR was created but could not be found by branch.");
-	}
-
-	if (createdPullRequest || (priorPrUrl && priorPrUrl !== pullRequest.url)) await commentOnPrdIssue(room, pullRequest);
-	return { number: pullRequest.number, url: pullRequest.url, title: pullRequest.title, createdAt: nowIso() };
-}
-
-function baseBranchName(baseRef: string | undefined): string {
-	const normalized = (baseRef ?? "origin/main").replace(/^refs\/heads\//, "").replace(/^remotes\/origin\//, "").replace(/^origin\//, "");
-	return normalized && normalized !== "HEAD" ? normalized : "main";
-}
-
-async function findPullRequestForBranch(cwd: string, repo: string, branch: string): Promise<GhPullRequest | undefined> {
-	const prs = await ghJson<GhPullRequest[]>(cwd, [
-		"pr",
-		"list",
-		"-R",
-		repo,
-		"--state",
-		"open",
-		"--head",
-		branch,
-		"--json",
-		"number,url,title,isDraft",
-		"--limit",
-		"1",
-	]);
-	return prs[0];
-}
-
-async function viewPullRequest(cwd: string, repo: string, number: number): Promise<GhPullRequest> {
-	return ghJson<GhPullRequest>(cwd, ["pr", "view", String(number), "-R", repo, "--json", "number,url,title,isDraft"]);
-}
-
-async function buildPrdPullRequestBody(room: AgentRoom): Promise<string> {
-	const prd = room.manifest.prd;
-	if (!prd) throw new Error("No PRD metadata available for PR body.");
-	const finalReview = room.manifest.finalArchitectureReview;
-	const prdKeyword = prd.skippedSlices.length === 0 ? "Closes" : "Refs";
-	const completedRows = await Promise.all(
-		prd.orderedSlices.map(async (slice) => {
-			const sha = await sliceCommitSha(room, prd, slice.number);
-			return `- Closes #${slice.number} - ${slice.title}${sha ? ` (${sha.slice(0, 12)})` : ""}`;
-		}),
-	);
-	const skippedRows = prd.skippedSlices.map((slice) => `- #${slice.number} - ${slice.title}: ${slice.reason}`);
-
-	return `## PRD
-
-${prdKeyword} #${prd.number}
-
-## Completed Slices
-
-${completedRows.join("\n") || "None"}
-
-## Skipped Slices
-
-${skippedRows.join("\n") || "None"}
-
-## Verification
-
-${finalReview?.verification ?? "See AgentRoom review messages. Each slice was reviewed before commit."}
-
-## Architect Review
-
-Status: ${finalReview?.status ?? "approved"}
-
-${finalReview?.findings ?? "No findings."}
-
-## AgentRoom
-
-Run: ${room.id}
-Branch: ${room.manifest.worktree?.branch ?? "current branch"}
-`;
-}
-
-async function sliceCommitSha(room: AgentRoom, prd: PrdRunMetadata, sliceNumber: number): Promise<string | undefined> {
-	const result = await git(room.cwd, ["log", "--format=%H", "--fixed-strings", "--grep", `Implement PRD #${prd.number} slice #${sliceNumber}`, "-1"]);
-	return result.stdout.trim().split("\n").find(Boolean);
-}
-
-async function commentOnPrdIssue(room: AgentRoom, pullRequest: GhPullRequest): Promise<void> {
-	const prd = room.manifest.prd;
-	if (!prd) return;
-	const implemented = prd.orderedSlices.map((slice) => `#${slice.number}`).join(", ");
-	const skipped = prd.skippedSlices.map((slice) => `#${slice.number}`).join(", ") || "none";
-	const body = `Opened PR ${pullRequest.url} implementing ${implemented || "none"}. Skipped: ${skipped}.`;
-	const bodyFile = path.join(room.runDir, "prd-comment.md");
-	await fs.writeFile(bodyFile, body, "utf8");
-	await execFile("gh", ["issue", "comment", String(prd.number), "-R", prd.repo, "--body-file", bodyFile], {
-		cwd: room.cwd,
-		maxBuffer: 1024 * 1024,
-	});
-}
 
 async function saveManifest(room: AgentRoom): Promise<void> {
 	room.manifest.updatedAt = nowIso();
@@ -1738,12 +936,6 @@ function relativeToCwd(cwd: string, filePath: string): string {
 	const relative = path.relative(cwd, filePath);
 	return relative.startsWith("..") ? filePath : relative;
 }
-
-type CreateRoomOptions = {
-	useWorktree?: boolean;
-	baseRef?: string;
-	prd?: PrdRunMetadata;
-};
 
 async function createRoom(
 	pi: ExtensionAPI,
@@ -2030,42 +1222,6 @@ function renderTiles(room: AgentRoom, width: number, theme: any): string[] {
 		}
 	}
 	return rows.map((line) => fitLine(line, safeWidth));
-}
-
-function renderTile(agent: ResidentAgent, width: number, theme: any, index: number): string[] {
-	const tileWidth = Math.max(1, Math.floor(width));
-	const stats = agent.stats;
-	const color = ["borderAccent", "success", "error", "warning", "accent", "muted"][index % 6];
-	const title = ` ${agent.role.title} `;
-	const top = borderLine("┌", title, "┐", tileWidth);
-	const bottom = borderLine("└", "", "┘", tileWidth);
-	const statusIcon = stats.status === "running" ? "●" : stats.status === "queued" ? "◌" : stats.status === "error" ? "✗" : "○";
-	const status = `${statusIcon} ${stats.status}`;
-	const usage = `${stats.turns} turns ↑${formatTokens(stats.input)} ↓${formatTokens(stats.output)} $${stats.cost.toFixed(4)}`;
-	const body = [
-		status,
-		stats.currentTask ?? agent.role.description,
-		`inbox ${stats.inbox} ${usage}`,
-		stats.error ?? stats.lastMessage ?? "-",
-	];
-	return [theme.fg(color, top), ...body.map((line) => theme.fg(color, tileLine(line, tileWidth))), theme.fg(color, bottom)].map((line) => fitLine(line, tileWidth));
-}
-
-function tileLine(text: string, width: number): string {
-	const maxWidth = Math.max(0, Math.floor(width));
-	if (maxWidth === 0) return "";
-	if (maxWidth === 1) return "│";
-	if (maxWidth === 2) return "││";
-	if (maxWidth === 3) return "│ │";
-	const innerWidth = Math.max(0, maxWidth - 4);
-	return `│ ${padToWidth(fitLine(oneLine(text), innerWidth, "…"), innerWidth)} │`;
-}
-
-function formatTokens(value: number): string {
-	if (!Number.isFinite(value) || value <= 0) return "0";
-	if (value < 1_000) return String(Math.round(value));
-	if (value < 1_000_000) return `${(value / 1_000).toFixed(value < 10_000 ? 1 : 0)}k`;
-	return `${(value / 1_000_000).toFixed(1)}M`;
 }
 
 function requireRoom(): AgentRoom {
