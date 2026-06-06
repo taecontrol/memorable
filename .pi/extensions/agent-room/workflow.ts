@@ -1,4 +1,4 @@
-import type { AgentRoom, PrdRunMetadata, PrdWorkflow, PrdWorkflowPhase } from "./types.ts";
+import type { AgentRoom, PrdRunMetadata, PrdSliceMetadata, PrdWorkflow, PrdWorkflowPhase } from "./types.ts";
 
 /**
  * PRD workflow phase machine.
@@ -16,10 +16,10 @@ import type { AgentRoom, PrdRunMetadata, PrdWorkflow, PrdWorkflowPhase } from ".
  *   compacting ──next slice──▶ implementing
  *   compacting ──all slices committed──▶ final-reviewing
  *   final-reviewing ──architect approved──▶ publishing ──PR opened──▶ done
- *   final-reviewing ──architect changes_requested──▶ blocked
+ *   final-reviewing ──architect changes_requested──▶ implementing (fix slice)
  *   publishing ──publish fails──▶ blocked
  *   <any phase> ──unexpected error──▶ blocked
- *   blocked ──/agent-room unblock──▶ approved | final-reviewing
+ *   blocked ──/agent-room unblock──▶ approved | implementing | final-reviewing
  *
  * `architecting` and `reviewer-setup` are reserved phases that current runs do
  * not enter (runs start at `implementing`); they are kept legal for forward
@@ -33,11 +33,11 @@ const PRD_TRANSITIONS: Record<PrdWorkflowPhase, PrdWorkflowPhase[]> = {
 	approved: ["committing"],
 	committing: ["compacting"],
 	compacting: ["implementing", "final-reviewing"],
-	"final-reviewing": ["publishing"],
+	"final-reviewing": ["implementing", "publishing"],
 	publishing: ["done"],
 	// finish_architecture_review accepts a re-run while already `done`.
-	done: ["publishing"],
-	blocked: ["approved", "final-reviewing"],
+	done: ["implementing", "publishing"],
+	blocked: ["approved", "implementing", "final-reviewing"],
 };
 
 /**
@@ -59,9 +59,13 @@ export function currentPrdSlice(room: AgentRoom): PrdRunMetadata["orderedSlices"
 	return workflow ? room.manifest.prd?.orderedSlices[workflow.currentSliceIndex] : undefined;
 }
 
+export function prdSliceLabel(slice: PrdSliceMetadata): string {
+	return slice.synthetic === "final-architecture-fix" ? slice.title : `#${slice.number} ${slice.title}`;
+}
+
 export function currentPrdSliceLabel(room: AgentRoom): string {
 	const slice = currentPrdSlice(room);
-	return slice ? `#${slice.number} ${slice.title}` : "none";
+	return slice ? prdSliceLabel(slice) : "none";
 }
 
 /**

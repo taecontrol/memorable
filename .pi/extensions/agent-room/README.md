@@ -35,8 +35,8 @@ Alias: `/room`.
 - PRD runs gate slices with `agent_submit_review` → reviewer `agent_finish_review`
 - approved slices are committed, then all agents are compacted before the next slice assignment
 - compaction retries transient provider overloads (`overloaded_error` / HTTP 529) with exponential backoff so a momentary API hiccup does not wedge the workflow
-- `/agent-room unblock [run-id]` clears a `blocked` PRD workflow and re-drives it from the last safe checkpoint (re-commit/compact/assign the current slice, or re-request final review); intended for recovering from transient infrastructure failures
-- after the last slice, architect calls `agent_finish_architecture_review`; AgentRoom pushes the branch, opens/updates the PR, and comments on the PRD issue
+- `/agent-room unblock [run-id]` clears a `blocked` PRD workflow and re-drives it from the last safe checkpoint (re-commit/compact/assign the current slice, recover a final-architecture fix slice, or re-request final review); intended for recovering from transient infrastructure failures
+- after the last slice, architect calls `agent_finish_architecture_review`; approval pushes/opens/updates the PR, while changes requested create a synthetic final-architecture fix slice for implementer/reviewer before final review retries
 - TUI widget renders resident-agent tiles, PRD slices, workflow state, and latest human-directed message above editor
 - child sessions load Pi built-in tools plus AgentRoom communication tools
 
@@ -86,6 +86,9 @@ illegal transition** so workflow bugs fail loudly instead of silently
 corrupting run state, and it keeps `blockedReason` consistent (set on entering
 `blocked`, cleared on leaving it). Any phase may drop to `blocked` (fail-loud);
 `/agent-room unblock` re-enters from `blocked` at the last safe checkpoint.
+Final architecture review changes are not an infra block: AgentRoom appends a
+synthetic fix slice, returns to `implementing`, runs normal reviewer gating and
+commit automation, then requests final architecture review again.
 
 This is an internal architecture decision for the extension, not a Memorable
 Core concern, so it is documented here rather than in `docs/adr/`.

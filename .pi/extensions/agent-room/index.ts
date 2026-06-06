@@ -25,6 +25,7 @@ import type {
 	AgentStats,
 	CreateRoomOptions,
 	PrdRunMetadata,
+	PrdSliceMetadata,
 	PrdWorkflow,
 	PullRequestMetadata,
 	ResidentAgent,
@@ -58,7 +59,7 @@ import {
 import { publishPrdPullRequest } from "./publish.ts";
 import { allRoleNames, DEFAULT_ROLES, roleByName } from "./roles.ts";
 import { loadPrdContext } from "./slices.ts";
-import { currentPrdSlice, currentPrdSliceLabel, prdWorkflow, setWorkflowPhase } from "./workflow.ts";
+import { currentPrdSlice, currentPrdSliceLabel, prdSliceLabel, prdWorkflow, setWorkflowPhase } from "./workflow.ts";
 
 const STATE_TYPE = "agent-room-state";
 const WIDGET_KEY = "agent-room";
@@ -103,6 +104,16 @@ function worktreesRoot(cwd: string): string {
 	return path.join(cwd, ...WORKTREES_DIR);
 }
 
+function prdSlicePromptLabel(slice: PrdSliceMetadata): string {
+	return prdSliceLabel(slice);
+}
+
+function prdSliceSubmitInstruction(slice: PrdSliceMetadata): string {
+	return slice.synthetic === "final-architecture-fix"
+		? "call agent_submit_review with the synthetic slice_number shown for this fix slice"
+		: `call agent_submit_review for #${slice.number}`;
+}
+
 function buildPrdSliceAssignment(room: AgentRoom): string {
 	const prd = room.manifest.prd;
 	const workflow = prdWorkflow(room);
@@ -114,22 +125,22 @@ function buildPrdSliceAssignment(room: AgentRoom): string {
 	return `# Current PRD slice assignment
 
 PRD: #${prd.number} ${prd.title}
-Current slice: #${slice.number} ${slice.title}
-URL: ${slice.url ?? "unknown"}
+Current slice: ${prdSlicePromptLabel(slice)}
+${slice.synthetic ? `Synthetic slice_number: ${slice.number}\n` : ""}URL: ${slice.url ?? "unknown"}
 Blocked by: ${blockers}
-Next slice after approval/commit/compact: ${next ? `#${next.number} ${next.title}` : "none"}
+Next slice after approval/commit/compact: ${next ? prdSlicePromptLabel(next) : "none"}
 
 ## Hard stop rules
 
 - Implement exactly the current slice. Do not start, inspect, test, or plan the next slice.
-- When implementation verification is ready, call agent_submit_review for #${slice.number}, then stop.
+- When implementation verification is ready, ${prdSliceSubmitInstruction(slice)}, then stop.
 - Do not continue because the reviewer is quiet. Continue only after AgentRoom sends a new slice assignment.
 - Do not commit. AgentRoom commits approved slices after reviewer approval.
 - Follow the required TDD skill for this slice.
 
 ## PRD context snapshot
 
-${prd.context ?? `Ordered slices: ${prd.orderedSlices.map((item) => `#${item.number} ${item.title}`).join("; ")}`}
+${prd.context ?? `Ordered slices: ${prd.orderedSlices.map(prdSlicePromptLabel).join("; ")}`}
 
 ## Human-visible progress
 
@@ -141,9 +152,67 @@ function buildPrdFinalArchitectPrompt(room: AgentRoom): string {
 	if (!prd) throw new Error("No PRD is active.");
 	return `All ordered slices for PRD #${prd.number} ${prd.title} are approved and committed.
 
-Run final architecture review of the branch/worktree. Review only; do not edit or commit. When complete, call agent_finish_architecture_review with approved or changes_requested so AgentRoom can publish or block the PR.
+Run final architecture review of the branch/worktree. Review only; do not edit or commit. When complete, call agent_finish_architecture_review with approved or changes_requested so AgentRoom can publish or request a fix slice.
 
-Committed slices: ${prd.orderedSlices.map((slice) => `#${slice.number}`).join(", ")}`;
+Committed slices: ${prd.orderedSlices.map(prdSlicePromptLabel).join(", ")}`;
+}
+
+function buildPrdFinalArchitectureFixPrompt(room: AgentRoom, findings: string, verification?: string): string {
+	return `${buildPrdSliceAssignment(room)}
+
+## Final architecture review changes requested
+
+Fix the architecture blockers below. Do not broaden scope beyond these findings. Use TDD where code behavior changes. Re-run targeted probes plus full verification, then submit this synthetic fix slice for reviewer review.
+
+Findings:
+${findings}
+
+Architect verification:
+${verification ?? "Not provided."}`;
+}
+
+function isFinalArchitectureBlockedReason(reason: string): boolean {
+	return /^Final architecture review requested changes:/i.test(reason);
+}
+
+function appendFinalArchitectureFixSlice(room: AgentRoom): PrdSliceMetadata {
+	const prd = room.manifest.prd;
+	const workflow = prdWorkflow(room);
+	if (!prd || !workflow) throw new Error("No PRD workflow is active.");
+	const ordinal = prd.orderedSlices.filter((slice) => slice.synthetic === "final-architecture-fix").length + 1;
+	const slice: PrdSliceMetadata = {
+		number: -ordinal,
+		title: ordinal === 1 ? "Final architecture blocker fixes" : `Final architecture blocker fixes ${ordinal}`,
+		blockers: [],
+		synthetic: "final-architecture-fix",
+	};
+	prd.orderedSlices.push(slice);
+	workflow.currentSliceIndex = prd.orderedSlices.length - 1;
+	return slice;
+}
+
+async function requestFinalArchitectureFixSlice(
+	room: AgentRoom,
+	pi: ExtensionAPI,
+	findings: string,
+	verification: string | undefined,
+	source: string,
+): Promise<PrdSliceMetadata> {
+	const prd = room.manifest.prd;
+	if (!prd) throw new Error("No PRD workflow is active.");
+	const slice = appendFinalArchitectureFixSlice(room);
+	setWorkflowPhase(room, "implementing");
+	await saveManifest(room);
+	await routeMessage(
+		room,
+		source,
+		HUMAN_NAME,
+		`Final architecture review requested changes for PRD #${prd.number}; assigning ${prdSlicePromptLabel(slice)} to implementer.`,
+		"architecture-changes-requested",
+		pi,
+	);
+	await promptAgent(room, "implementer", buildPrdFinalArchitectureFixPrompt(room, findings, verification), true);
+	return slice;
 }
 
 async function preparePrdBaseRef(cwd: string, options: CreateRoomOptions): Promise<CreateRoomOptions> {
@@ -307,7 +376,7 @@ function buildCommunicationTools(room: AgentRoom, agentName: string, pi: Extensi
 				setWorkflowPhase(room, "reviewing");
 				await saveManifest(room);
 				const files = params.files?.length ? params.files.map((file: string) => `- ${file}`).join("\n") : "Not provided.";
-				const body = `Review current PRD slice #${slice.number} ${slice.title}.
+				const body = `Review current PRD slice ${prdSliceLabel(slice)}.
 
 Summary:
 ${params.summary}
@@ -321,7 +390,7 @@ ${params.verification ?? "Not provided."}
 Return your final verdict with agent_finish_review. Do not start other work.`;
 				await routeMessage(room, agentName, "reviewer", body, "review-request", pi);
 				return {
-					content: [{ type: "text", text: `Review requested for #${slice.number}. Stop now and wait for AgentRoom.` }],
+					content: [{ type: "text", text: `Review requested for ${prdSliceLabel(slice)}. Stop now and wait for AgentRoom.` }],
 					details: { slice: slice.number, status: "reviewing" },
 				};
 			},
@@ -350,7 +419,7 @@ Return your final verdict with agent_finish_review. Do not start other work.`;
 				if (status === "changes_requested") {
 					setWorkflowPhase(room, "implementing");
 					await saveManifest(room);
-					const body = `Review changes requested for #${slice.number} ${slice.title}.
+					const body = `Review changes requested for ${prdSliceLabel(slice)}.
 
 Findings:
 ${params.findings}
@@ -358,10 +427,10 @@ ${params.findings}
 Reviewer verification:
 ${params.verification ?? "Not provided."}
 
-Fix blockers for #${slice.number} only, then call agent_submit_review again. Do not start later slices.`;
+Fix blockers for ${prdSliceLabel(slice)} only, then call agent_submit_review again. Do not start later slices.`;
 					await routeMessage(room, agentName, "implementer", body, "review-findings", pi);
 					return {
-						content: [{ type: "text", text: `Changes requested for #${slice.number}; implementer queued after reviewer stops.` }],
+						content: [{ type: "text", text: `Changes requested for ${prdSliceLabel(slice)}; implementer queued after reviewer stops.` }],
 						details: { slice: slice.number, status },
 					};
 				}
@@ -373,12 +442,12 @@ Fix blockers for #${slice.number} only, then call agent_submit_review again. Do 
 					room,
 					agentName,
 					HUMAN_NAME,
-					`Slice #${slice.number} approved. AgentRoom will commit, compact, then assign the next slice.`,
+					`Slice ${prdSliceLabel(slice)} approved. AgentRoom will commit, compact, then assign the next slice.`,
 					"approved",
 					pi,
 				);
 				return {
-					content: [{ type: "text", text: `Approved #${slice.number}. Stop now; AgentRoom will commit and compact after this turn.` }],
+					content: [{ type: "text", text: `Approved ${prdSliceLabel(slice)}. Stop now; AgentRoom will commit and compact after this turn.` }],
 					details: { slice: slice.number, status },
 				};
 			},
@@ -419,13 +488,14 @@ Fix blockers for #${slice.number} only, then call agent_submit_review again. Do 
 				};
 
 				if (status === "changes_requested") {
-					setWorkflowPhase(room, "blocked", {
-						blockedReason: `Final architecture review requested changes: ${oneLine(params.findings)}`,
-					});
-					await saveManifest(room);
-					await routeMessage(room, agentName, HUMAN_NAME, `Final architecture review blocked PRD #${prd.number}: ${params.findings}`, "architecture-blocker", pi);
+					const slice = await requestFinalArchitectureFixSlice(room, pi, params.findings, params.verification, agentName);
 					return {
-						content: [{ type: "text", text: "Final architecture review blocked publication. Stop now and wait for human coordination." }],
+						content: [
+							{
+								type: "text",
+								text: `Final architecture review requested changes. Assigned ${prdSliceLabel(slice)} to implementer. Stop now.`,
+							},
+						],
 						details: { status },
 					};
 				}
@@ -783,20 +853,20 @@ async function runPrdWorkflowAutomation(room: AgentRoom, pi: ExtensionAPI): Prom
 	try {
 		setWorkflowPhase(room, "committing");
 		await saveManifest(room);
-		await routeMessage(room, "agent-room", HUMAN_NAME, `Committing approved slice #${slice.number}.`, "commit", pi);
+		await routeMessage(room, "agent-room", HUMAN_NAME, `Committing approved slice ${prdSliceLabel(slice)}.`, "commit", pi);
 		await commitCurrentSlice(room, slice);
 		if (!workflow.committedSlices.includes(slice.number)) workflow.committedSlices.push(slice.number);
 
 		setWorkflowPhase(room, "compacting");
 		await saveManifest(room);
-		await routeMessage(room, "agent-room", HUMAN_NAME, `Compacting agents after #${slice.number}.`, "compact", pi);
+		await routeMessage(room, "agent-room", HUMAN_NAME, `Compacting agents after ${prdSliceLabel(slice)}.`, "compact", pi);
 		const { deferred } = await compactResidentAgents(room, slice);
 		if (deferred.length > 0) {
 			await routeMessage(
 				room,
 				"agent-room",
 				HUMAN_NAME,
-				`Compaction deferred for ${deferred.join(", ")} after #${slice.number} (provider overloaded past retry budget); continuing without blocking. Context will compact on the next attempt.`,
+				`Compaction deferred for ${deferred.join(", ")} after ${prdSliceLabel(slice)} (provider overloaded past retry budget); continuing without blocking. Context will compact on the next attempt.`,
 				"compact-deferred",
 				pi,
 			);
@@ -811,7 +881,7 @@ async function runPrdWorkflowAutomation(room: AgentRoom, pi: ExtensionAPI): Prom
 				room,
 				"agent-room",
 				HUMAN_NAME,
-				`Slice #${slice.number} committed/compacted. Assigning #${next.number}.`,
+				`Slice ${prdSliceLabel(slice)} committed/compacted. Assigning ${prdSliceLabel(next)}.`,
 				"next-slice",
 				pi,
 			);
@@ -860,7 +930,7 @@ async function compactResidentAgents(
 	room: AgentRoom,
 	slice: PrdRunMetadata["orderedSlices"][number],
 ): Promise<{ deferred: string[] }> {
-	const instructions = `Slice #${slice.number} ${slice.title} was approved and committed. Preserve AgentRoom decisions, review verdicts, files changed, verification evidence, unresolved blockers, and the next assigned slice.`;
+	const instructions = `Slice ${prdSliceLabel(slice)} was approved and committed. Preserve AgentRoom decisions, review verdicts, files changed, verification evidence, unresolved blockers, and the next assigned slice.`;
 	const deferred: string[] = [];
 	for (const agent of room.agents.values()) {
 		if (agent.session.isStreaming) throw new Error(`Cannot compact while ${agent.role.name} is running.`);
@@ -1193,7 +1263,7 @@ function renderTiles(room: AgentRoom, width: number, theme: any): string[] {
 	rows.push(theme.fg("accent", fitLine(`AgentRoom ${room.name} (${room.id})`, safeWidth, "…")));
 	if (room.manifest.prd) {
 		const prd = room.manifest.prd;
-		const slices = prd.orderedSlices.map((slice) => `#${slice.number}`).join(" → ");
+		const slices = prd.orderedSlices.map(prdSlicePromptLabel).join(" → ");
 		rows.push(theme.fg("muted", fitLine(`PRD #${prd.number}: ${prd.title} | slices: ${slices || "none"}`, safeWidth, "…")));
 		const workflow = prdWorkflow(room);
 		if (workflow) {
@@ -1326,13 +1396,27 @@ async function handleAgentRoomCommand(pi: ExtensionAPI, args: string, ctx: Exten
 			return;
 		}
 		const priorReason = workflow.blockedReason ?? "unknown";
+		if (isFinalArchitectureBlockedReason(priorReason)) {
+			const finalReview = room.manifest.finalArchitectureReview;
+			const fallbackFindings = priorReason.replace(/^Final architecture review requested changes:\s*/i, "");
+			await requestFinalArchitectureFixSlice(room, pi, finalReview?.findings ?? fallbackFindings, finalReview?.verification, "agent-room");
+			ctx.ui.notify(`AgentRoom unblocked: ${room.id} (phase: ${workflow.phase}).`, "info");
+			return;
+		}
 		const slice = currentPrdSlice(room);
 		// Re-enter at the last safe checkpoint. A current slice means commit/compact/assign
 		// can be re-driven idempotently via "approved"; otherwise re-request final review.
 		if (slice) {
 			setWorkflowPhase(room, "approved");
 			await saveManifest(room);
-			await routeMessage(room, "agent-room", HUMAN_NAME, `Unblocked PRD workflow; re-driving slice #${slice.number}. Prior reason: ${oneLine(priorReason)}`, "unblock", pi);
+			await routeMessage(
+				room,
+				"agent-room",
+				HUMAN_NAME,
+				`Unblocked PRD workflow; re-driving slice ${prdSliceLabel(slice)}. Prior reason: ${oneLine(priorReason)}`,
+				"unblock",
+				pi,
+			);
 			await runPrdWorkflowAutomation(room, pi);
 		} else {
 			setWorkflowPhase(room, "final-reviewing");
@@ -1494,7 +1578,7 @@ function statusText(room: AgentRoom): string {
 		...(room.manifest.prd
 			? [
 					`prd: #${room.manifest.prd.number} ${room.manifest.prd.title}`,
-					`slices: ${room.manifest.prd.orderedSlices.map((slice) => `#${slice.number}`).join(" -> ")}`,
+					`slices: ${room.manifest.prd.orderedSlices.map(prdSlicePromptLabel).join(" -> ")}`,
 				]
 			: []),
 		`state: ${relativeToCwd(room.controllerCwd, room.runDir)}`,

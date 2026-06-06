@@ -3,7 +3,7 @@ import path from "node:path";
 
 import { execFile, ghJson, git } from "./github.ts";
 import { nowIso } from "./storage.ts";
-import type { AgentRoom, GhPullRequest, PrdRunMetadata, PullRequestMetadata } from "./types.ts";
+import type { AgentRoom, GhPullRequest, PrdRunMetadata, PrdSliceMetadata, PullRequestMetadata } from "./types.ts";
 
 export async function publishPrdPullRequest(room: AgentRoom): Promise<PullRequestMetadata> {
 	const prd = room.manifest.prd;
@@ -81,7 +81,7 @@ export async function buildPrdPullRequestBody(room: AgentRoom): Promise<string> 
 	const completedRows = await Promise.all(
 		prd.orderedSlices.map(async (slice) => {
 			const sha = await sliceCommitSha(room, prd, slice.number);
-			return `- Closes #${slice.number} - ${slice.title}${sha ? ` (${sha.slice(0, 12)})` : ""}`;
+			return completedSliceRow(slice, sha);
 		}),
 	);
 	const skippedRows = prd.skippedSlices.map((slice) => `- #${slice.number} - ${slice.title}: ${slice.reason}`);
@@ -115,6 +115,16 @@ Branch: ${room.manifest.worktree?.branch ?? "current branch"}
 `;
 }
 
+function completedSliceRow(slice: PrdSliceMetadata, sha: string | undefined): string {
+	const suffix = sha ? ` (${sha.slice(0, 12)})` : "";
+	if (slice.synthetic === "final-architecture-fix") return `- Final architecture fix: ${slice.title}${suffix}`;
+	return `- Closes #${slice.number} - ${slice.title}${suffix}`;
+}
+
+function issueSliceReference(slice: PrdSliceMetadata): string | undefined {
+	return slice.synthetic === "final-architecture-fix" ? undefined : `#${slice.number}`;
+}
+
 export async function sliceCommitSha(room: AgentRoom, prd: PrdRunMetadata, sliceNumber: number): Promise<string | undefined> {
 	const result = await git(room.cwd, ["log", "--format=%H", "--fixed-strings", "--grep", `Implement PRD #${prd.number} slice #${sliceNumber}`, "-1"]);
 	return result.stdout.trim().split("\n").find(Boolean);
@@ -123,7 +133,7 @@ export async function sliceCommitSha(room: AgentRoom, prd: PrdRunMetadata, slice
 export async function commentOnPrdIssue(room: AgentRoom, pullRequest: GhPullRequest): Promise<void> {
 	const prd = room.manifest.prd;
 	if (!prd) return;
-	const implemented = prd.orderedSlices.map((slice) => `#${slice.number}`).join(", ");
+	const implemented = prd.orderedSlices.map(issueSliceReference).filter((value): value is string => Boolean(value)).join(", ");
 	const skipped = prd.skippedSlices.map((slice) => `#${slice.number}`).join(", ") || "none";
 	const body = `Opened PR ${pullRequest.url} implementing ${implemented || "none"}. Skipped: ${skipped}.`;
 	const bodyFile = path.join(room.runDir, "prd-comment.md");

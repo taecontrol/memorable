@@ -40,13 +40,21 @@ export type SlicePlan = {
 	blockersBySlice: Map<number, number[]>;
 };
 
+export type PrdSliceMetadata = {
+	number: number;
+	title: string;
+	url?: string;
+	blockers: number[];
+	synthetic?: "final-architecture-fix";
+};
+
 export type PrdRunMetadata = {
 	repo: string;
 	number: number;
 	title: string;
 	url?: string;
 	context?: string;
-	orderedSlices: Array<{ number: number; title: string; url?: string; blockers: number[] }>;
+	orderedSlices: PrdSliceMetadata[];
 	skippedSlices: Array<{ number: number; title: string; url?: string; reason: string }>;
 };
 
