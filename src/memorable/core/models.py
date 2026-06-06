@@ -92,13 +92,17 @@ class ProvenanceIntegrityError(Exception):
 
 @dataclass(frozen=True)
 class RecordProjection:
-    """A compact, type-agnostic view of a MemoryRecord for Memory Review."""
+    """A compact, type-agnostic view of a MemoryRecord for Memory Review.
+
+    ``type`` is the kernel kind; ``record_type`` is the optional Record Subtype.
+    """
 
     id: str
     type: str
     label: str
     lifecycle_state: str
     creation_time: datetime
+    record_type: str | None = None
 
 
 @dataclass(frozen=True)

@@ -22,7 +22,7 @@ Writable Record Types: Decision, Observation, Task.
 - `memorable_reindex_space`: Backfill persistent Embeddings for a MemorySpace.
 - `memorable_search_memory`: Search memory by GraphRAG similarity with temporal filtering.
 - `memorable_inspect_task`: Inspect a Task's current or point-in-time lifecycle state.
-- `memorable_list_records`: List MemoryRecords deterministically for Memory Review and state questions.
+- `memorable_list_records`: List MemoryRecords deterministically for Memory Review and state questions, optionally filtering by declared Record Subtype.
 - `memorable_invalidate`: Mark a temporal record invalidated without a successor.
 - `memorable_correct`: Correct a mistaken record statement or About membership.
 - `memorable_forget_record`: Forget (hard-delete) a scratch MemoryRecord by id; refuses on a supersession chain.

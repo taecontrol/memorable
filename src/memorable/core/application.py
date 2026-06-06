@@ -1177,6 +1177,7 @@ class ListRecordsService:
         since: datetime | None = None,
         until: datetime | None = None,
         about: str | None = None,
+        record_type: str | None = None,
         limit: int = 50,
     ) -> list[RecordProjection]:
         """List MemoryRecords in the space as projections, ordered by Creation Time.
@@ -1193,8 +1194,10 @@ class ListRecordsService:
         omitting both lists records of any Creation Time.
 
         When ``about`` is given, only records linked to that Entity by About are
-        listed. All filters (``type``, ``state``, ``since``, ``until``,
-        ``about``) combine with AND. Returns at most ``limit`` projections
+        listed. When ``record_type`` is given, only records with that Record
+        Subtype are listed; plain kernel records and Relations are excluded.
+        All filters (``type``, ``state``, ``since``, ``until``, ``about``,
+        ``record_type``) combine with AND. Returns at most ``limit`` projections
         (default 50).
 
         Raises:
@@ -1227,8 +1230,8 @@ class ListRecordsService:
         streams: list[list[RecordProjection]] = []
         heap: list[tuple[datetime, str, str, int, int]] = []
 
-        for record_type, repo in repos:
-            if type is not None and record_type != type:
+        for record_kind, repo in repos:
+            if type is not None and record_kind != type:
                 continue
             stream = repo.list_projections_by_space(
                 space=space,
@@ -1237,6 +1240,7 @@ class ListRecordsService:
                 until=until,
                 limit=limit,
                 record_ids=record_ids,
+                record_type=record_type,
             )
             if not stream:
                 continue

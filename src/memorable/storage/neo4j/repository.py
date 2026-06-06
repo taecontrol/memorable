@@ -94,6 +94,7 @@ def _list_projections_by_space(
     until: datetime | None,
     limit: int,
     record_ids: set[str] | None = None,
+    record_subtype: str | None = None,
 ) -> list[RecordProjection]:
     """Return one record type's projections filtered and ordered by Creation Time.
 
@@ -108,6 +109,7 @@ def _list_projections_by_space(
         f"MATCH (record:{storage_label} {{space: $space}}) "
         "WHERE ($record_ids IS NULL OR record.id IN $record_ids) "
         "  AND ($state IS NULL OR record.lifecycle_state = $state) "
+        "  AND ($record_type IS NULL OR record.record_type = $record_type) "
         "OPTIONAL MATCH (p:Provenance)-[:PROVENANCE_OF]->(record) "
         "WITH record, p "
         "WHERE ($since IS NULL OR p.creation_time >= $since) "
@@ -117,6 +119,7 @@ def _list_projections_by_space(
         f"RETURN record.id AS id, record.{label_property} AS label, "
         "       record.lifecycle_state AS lifecycle_state, "
         "       p.creation_time AS creation_time, "
+        "       record.record_type AS record_type, "
         "       (p IS NOT NULL) AS has_provenance"
     )
     with driver.session() as session:
@@ -128,6 +131,7 @@ def _list_projections_by_space(
             until=_to_iso(until),
             limit=limit,
             record_ids=sorted(record_ids) if record_ids is not None else None,
+            record_type=record_subtype,
         )
         projections: list[RecordProjection] = []
         for record in result:
@@ -143,6 +147,7 @@ def _list_projections_by_space(
                     label=record["label"],
                     lifecycle_state=record["lifecycle_state"],
                     creation_time=_from_iso(record["creation_time"]),
+                    record_type=record["record_type"],
                 )
             )
         return projections
@@ -669,6 +674,7 @@ class Neo4jDecisionRepository:
         until: datetime | None,
         limit: int,
         record_ids: set[str] | None = None,
+        record_type: str | None = None,
     ) -> list[RecordProjection]:
         """Return Decision projections filtered and ordered by Creation Time."""
         return _list_projections_by_space(
@@ -682,6 +688,7 @@ class Neo4jDecisionRepository:
             until=until,
             limit=limit,
             record_ids=record_ids,
+            record_subtype=record_type,
         )
 
     def mark_superseded(
@@ -936,6 +943,7 @@ class Neo4jObservationRepository:
         until: datetime | None,
         limit: int,
         record_ids: set[str] | None = None,
+        record_type: str | None = None,
     ) -> list[RecordProjection]:
         """Return Observation projections filtered and ordered by Creation Time."""
         return _list_projections_by_space(
@@ -949,6 +957,7 @@ class Neo4jObservationRepository:
             until=until,
             limit=limit,
             record_ids=record_ids,
+            record_subtype=record_type,
         )
 
     def mark_superseded(
@@ -1251,6 +1260,7 @@ class Neo4jTaskRepository:
         until: datetime | None,
         limit: int,
         record_ids: set[str] | None = None,
+        record_type: str | None = None,
     ) -> list[RecordProjection]:
         """Return Task projections filtered and ordered by Creation Time."""
         return _list_projections_by_space(
@@ -1264,6 +1274,7 @@ class Neo4jTaskRepository:
             until=until,
             limit=limit,
             record_ids=record_ids,
+            record_subtype=record_type,
         )
 
 
@@ -1446,6 +1457,7 @@ class Neo4jRelationRepository:
         until: datetime | None,
         limit: int,
         record_ids: set[str] | None = None,
+        record_type: str | None = None,
     ) -> list[RecordProjection]:
         """Return Relation projections filtered and ordered by Creation Time."""
         return _list_projections_by_space(
@@ -1459,6 +1471,7 @@ class Neo4jRelationRepository:
             until=until,
             limit=limit,
             record_ids=record_ids,
+            record_subtype=record_type,
         )
 
     def mark_superseded(

@@ -1117,10 +1117,11 @@ def inspect_task_tool(
         "Memory Review: deterministically list MemoryRecords in a MemorySpace. "
         "Fans across Decision, Observation, Relation, and Task records "
         "(Entities are excluded) and returns a compact projection "
-        "{id, type, label, lifecycle_state, creation_time} ordered by "
-        "Creation Time, capped by limit (default 50). Pass type to restrict to "
-        "a single record type ('decision', 'observation', 'relation', 'task'); "
-        "omit it to list every type. 'entity' is not valid. Pass state to "
+        "{id, type, label, lifecycle_state, creation_time, record_type} "
+        "ordered by Creation Time, capped by limit (default 50). Pass type to "
+        "restrict to a single record type ('decision', 'observation', "
+        "'relation', 'task'); omit it to list every type. 'entity' is not "
+        "valid. Pass record_type to restrict to a Record Subtype. Pass state to "
         "restrict to a single Lifecycle State ('open', 'current', 'completed', "
         "'superseded', 'invalidated'); omit it to list any state. Pass since "
         "and/or until (ISO timestamps) to bound Provenance Creation Time as a "
@@ -1140,6 +1141,7 @@ def list_records_tool(
     since: str | None = None,
     until: str | None = None,
     about: str | None = None,
+    record_type: str | None = None,
     limit: int = 50,
 ) -> dict[str, object]:
     """List MemoryRecords in a MemorySpace as a Memory Review projection.
@@ -1150,8 +1152,9 @@ def list_records_tool(
     ``until`` (ISO timestamps) bound Provenance Creation Time as a half-open
     window ``[since, until)`` — ``since`` inclusive, ``until`` exclusive; either
     may be omitted. When ``about`` is given, only records linked to that Entity
-    by About are listed. All filters combine with AND. Returns a dict with a
-    ``records`` list on success, or an error dict (e.g. an unknown ``type`` or
+    by About are listed. When ``record_type`` is given, only records with that
+    Record Subtype are listed. All filters combine with AND. Returns a dict with
+    a ``records`` list on success, or an error dict (e.g. an unknown ``type`` or
     ``entity``).
     """
     service = ListRecordsService(
@@ -1173,6 +1176,7 @@ def list_records_tool(
             since=since_dt,
             until=until_dt,
             about=about,
+            record_type=record_type,
             limit=limit,
         )
     except ValueError as e:
@@ -1193,6 +1197,7 @@ def list_records_tool(
                 "label": projection.label,
                 "lifecycle_state": projection.lifecycle_state,
                 "creation_time": projection.creation_time.isoformat(),
+                "record_type": projection.record_type,
             }
             for projection in projections
         ],

@@ -18,6 +18,7 @@ from memorable.core.application import (
     InspectProvenanceService,
     InspectTaskService,
     InvalidateService,
+    ListRecordsService,
     PointInTimeTruthService,
     RememberDecisionService,
     RememberEntityService,
@@ -27,6 +28,7 @@ from memorable.core.application import (
     build_status_payload,
 )
 from memorable.core.context import ApplicationContext, default_context
+from memorable.core.models import ProvenanceIntegrityError
 from memorable.core.profile import (
     ProfileValidationError,
     load_profile_from_yaml,
@@ -943,6 +945,61 @@ def _cmd_task_inspect(
     return 0
 
 
+def _cmd_list(
+    args: argparse.Namespace,
+    ctx: ApplicationContext,
+    config: RuntimeConfig,
+) -> int:
+    """List MemoryRecords for Memory Review."""
+    space = resolve_space(getattr(args, "space", None))
+
+    since = parse_iso_timestamp(args.since) if args.since is not None else None
+    until = parse_iso_timestamp(args.until) if args.until is not None else None
+
+    service = ListRecordsService(
+        decision_repo=ctx.decision_repo,
+        observation_repo=ctx.observation_repo,
+        relation_repo=ctx.relation_repo,
+        task_repo=ctx.task_repo,
+        about_repo=ctx.about_repo,
+    )
+    try:
+        projections = service.list_records(
+            space=space,
+            type=getattr(args, "record_kind", None),
+            state=getattr(args, "state", None),
+            since=since,
+            until=until,
+            about=getattr(args, "about", None),
+            record_type=getattr(args, "record_type", None),
+            limit=getattr(args, "limit", 50),
+        )
+    except (ValueError, ProvenanceIntegrityError) as e:
+        print(f"Error: {e}", file=sys.stderr)
+        return 1
+
+    print(
+        json.dumps(
+            {
+                "space": space,
+                "records": [
+                    {
+                        "id": projection.id,
+                        "type": projection.type,
+                        "label": projection.label,
+                        "lifecycle_state": projection.lifecycle_state,
+                        "creation_time": projection.creation_time.isoformat(),
+                        "record_type": projection.record_type,
+                    }
+                    for projection in projections
+                ],
+            },
+            sort_keys=True,
+        )
+    )
+    return 0
+
+
 def _cmd_search(
     args: argparse.Namespace,
     ctx: ApplicationContext,
@@ -1304,6 +1361,7 @@ _CONTEXT_HANDLERS: dict[
     ("truth", "as-of"): _cmd_truth_as_of,
     ("inspect", "provenance"): _cmd_inspect_provenance,
     ("inspect", "history"): _cmd_inspect_history,
+    ("list", None): _cmd_list,
     ("search", None): _cmd_search,
     ("reindex", None): _cmd_reindex,
     ("invalidate", None): _cmd_invalidate,
@@ -1559,6 +1617,29 @@ def main(argv: list[str] | None = None) -> int:
     tracer_sub.add_parser(
         "run", help="Run the tracer-bullet fixture and verify end-to-end."
     )
+
+    # list subcommand
+    list_parser = subparsers.add_parser(
+        "list", help="List MemoryRecords for Memory Review."
+    )
+    list_parser.add_argument("--space", default=None)
+    list_parser.add_argument(
+        "--record-kind",
+        choices=["decision", "observation", "relation", "task"],
+        default=None,
+        help="Kernel record kind to list.",
+    )
+    list_parser.add_argument(
+        "--type",
+        dest="record_type",
+        default=None,
+        help="Record Subtype to list, such as Episode or Commitment.",
+    )
+    list_parser.add_argument("--state", default=None)
+    list_parser.add_argument("--since", default=None)
+    list_parser.add_argument("--until", default=None)
+    list_parser.add_argument("--about", default=None)
+    list_parser.add_argument("--limit", type=int, default=50)
 
     # search subcommand
     search_parser = subparsers.add_parser(

@@ -76,3 +76,11 @@ def test_writing_guide_documents_decision_and_task_record_types() -> None:
     assert "Commitment" in rendered or "FollowUp" in rendered
     assert "memorable_remember_decision" in rendered
     assert "memorable_remember_task" in rendered
+
+
+def test_retrieval_guide_documents_memory_review_record_type_filter() -> None:
+    rendered = render("retrieval")
+
+    assert "memorable_list_records" in rendered
+    assert "Record Subtype" in rendered
+    assert "record_type" in rendered

@@ -6,7 +6,7 @@ Use `memorable_search_memory` for GraphRAG similarity: "what memory is relevant 
 
 Use `memorable_reindex_space` after upgrading or changing Embedding settings to backfill derived Embeddings before search. If search reports no compatible Embeddings, run `memorable_doctor` and then reindex the MemorySpace.
 
-Use `memorable_list_records` for Memory Review and state questions: "what is open?", "what did we create this week?", "which records are about this Entity?" Pass `space`, then filter with `type`, `state`, `since`, `until`, `about`, and `limit`. It deterministically lists Decisions, Observations, Relations, and Tasks; it does not list Entities.
+Use `memorable_list_records` for Memory Review and state questions: "what is open?", "what did we create this week?", "which records are about this Entity?" Pass `space`, then filter with `type` for the kernel kind, `record_type` for a Record Subtype such as `GeneralObservation` or `FollowUp`, `state`, `since`, `until`, `about`, and `limit`. It deterministically lists Decisions, Observations, Relations, and Tasks; it does not list Entities. In the CLI, `memorable list --type FollowUp` filters by Record Subtype and `--record-kind task` filters by kernel kind.
 
 Use `memorable_current_truth` when you already know a temporal record id and need the active version after supersession. Pass `space`, `record_id`, and `record_type` for a Decision, Observation, or Relation.
 

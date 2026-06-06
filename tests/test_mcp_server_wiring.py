@@ -148,6 +148,11 @@ class TestToolRegistration:
                     "default": None,
                     "title": "About",
                 },
+                "record_type": {
+                    "anyOf": [{"type": "string"}, {"type": "null"}],
+                    "default": None,
+                    "title": "Record Type",
+                },
                 "limit": {"default": 50, "title": "Limit", "type": "integer"},
             },
             "required": ["space"],
