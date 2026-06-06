@@ -11,7 +11,7 @@ Writable Record Types: Decision, Observation, Task.
 - `memorable_inspect_space`: Inspect a MemoryProfile without initializing the MemorySpace.
 - `memorable_remember_entity`: Remember an Entity with provenance and Validity Time.
 - `memorable_remember_decision`: Remember a Decision, optionally superseding an earlier Decision or linking About Entities.
-- `memorable_remember_observation`: Remember an Observation, optionally superseding an earlier Observation or linking About Entities.
+- `memorable_remember_observation`: Remember an Observation, optionally setting a declared Record Subtype, superseding an earlier Observation, or linking About Entities.
 - `memorable_remember_relation`: Remember a directed Relation between two Entities.
 - `memorable_current_truth`: Resolve the active version of a known temporal record.
 - `memorable_point_in_time_truth`: Resolve what a known temporal record said at a historical time.

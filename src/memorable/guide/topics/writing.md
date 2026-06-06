@@ -4,7 +4,7 @@ Pick the record type by what the memory means, not by convenience.
 
 Use a Decision for a choice that should guide future behavior, design, product direction, or workflow. Write it with `memorable_remember_decision`, naming `space`, `decision_id`, `statement`, `source`, and `at`; set `supersedes` only when this Decision replaces an earlier one.
 
-Use an Observation for an assertion worth remembering that is not a Decision, Task, or Relation. Write it with `memorable_remember_observation`, naming `space`, `observation_id`, `statement`, `source`, and `at`. Observation is the flexible fallback, not the default for everything.
+Use an Observation for an assertion worth remembering that is not a Decision, Task, or Relation. Write it with `memorable_remember_observation`, naming `space`, `observation_id`, `statement`, `source`, and `at`. If the MemoryProfile declares a Record Subtype that `extends: Observation`, pass `record_type` to tag the Observation with that subtype, such as `Episode` or `Pattern`. Observation is the flexible fallback, not the default for everything.
 
 Use a Task for a commitment, follow-up, or piece of work with a lifecycle. Write it with `memorable_remember_task`, naming `space`, `task_id`, `title`, `source`, and `at`; later use `memorable_complete_task` instead of deleting it.
 

@@ -8,6 +8,7 @@ from typing import Protocol
 from memorable.core.errors import (
     CannotForgetRecordInSupersessionChainError,
     NothingToForgetError,
+    UndeclaredTypeError,
 )
 from memorable.core.errors import (
     DuplicateRecordError as DuplicateRecordError,
@@ -35,18 +36,8 @@ from memorable.core.ports import (
     TemporalRecordRepository,
 )
 from memorable.core.profile import MemoryProfile, load_profile_from_yaml
+from memorable.core.record_subtypes import validate_record_subtype
 from memorable.core.temporal import make_episode_id
-
-
-class UndeclaredTypeError(ValueError):
-    """Raised when a write names an Entity or Relation type the MemoryProfile
-    does not declare.
-
-    Subclasses ``ValueError`` so existing ``except ValueError`` handlers and
-    message-matching tests keep working. The MCP boundary uses the type (rather
-    than the message wording) to decide that this error is fixable by evolving
-    the MemoryProfile, and so should carry the memorable_guide("profiles") hint.
-    """
 
 
 @dataclass(frozen=True)
@@ -405,12 +396,18 @@ class RememberObservationService:
         reason: str = "",
         supersedes: str | None = None,
         about: list[str] | None = None,
+        record_type: str | None = None,
     ) -> RememberObservationResult:
         """Create provenance and persist the Observation.
 
         Observation is a kernel record type, so no profile declaration is required.
         """
         _verify_about_targets(self._about_linker, space=space, about=about)
+        validated_record_type = validate_record_subtype(
+            profile=self._profile,
+            kernel_kind="observation",
+            candidate=record_type,
+        )
 
         observation = Observation(
             id=observation_id,
@@ -421,6 +418,7 @@ class RememberObservationService:
             lifecycle_state="current",
             supersedes=supersedes,
             superseded_by=None,
+            record_type=validated_record_type,
         )
 
         episode_id = make_episode_id(source_id, at)

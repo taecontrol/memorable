@@ -793,7 +793,8 @@ class Neo4jObservationRepository:
                     "  invalidation_time: $invalidation_time, "
                     "  lifecycle_state: $lifecycle_state, "
                     "  supersedes: $supersedes, "
-                    "  superseded_by: $superseded_by"
+                    "  superseded_by: $superseded_by, "
+                    "  record_type: $record_type"
                     "}) "
                     "WITH o "
                     "CREATE (p:Provenance {"
@@ -812,6 +813,7 @@ class Neo4jObservationRepository:
                     lifecycle_state=observation.lifecycle_state,
                     supersedes=observation.supersedes,
                     superseded_by=observation.superseded_by,
+                    record_type=observation.record_type,
                     record_id=provenance.record_id,
                     record_kind=provenance.record_kind,
                     source_id=provenance.source_id,
@@ -841,7 +843,8 @@ class Neo4jObservationRepository:
                 "       o.invalidation_time AS invalidation_time, "
                 "       o.lifecycle_state AS lifecycle_state, "
                 "       o.supersedes AS supersedes, "
-                "       o.superseded_by AS superseded_by",
+                "       o.superseded_by AS superseded_by, "
+                "       o.record_type AS record_type",
                 space=space,
                 id=record_id,
             )
@@ -857,6 +860,7 @@ class Neo4jObservationRepository:
                 lifecycle_state=record["lifecycle_state"],
                 supersedes=record["supersedes"],
                 superseded_by=record["superseded_by"],
+                record_type=record["record_type"],
             )
 
     def get_provenance(self, space: str, record_id: str) -> Provenance | None:
@@ -898,7 +902,8 @@ class Neo4jObservationRepository:
                 "       o.invalidation_time AS invalidation_time, "
                 "       o.lifecycle_state AS lifecycle_state, "
                 "       o.supersedes AS supersedes, "
-                "       o.superseded_by AS superseded_by",
+                "       o.superseded_by AS superseded_by, "
+                "       o.record_type AS record_type",
                 space=space,
             )
             return [
@@ -911,6 +916,7 @@ class Neo4jObservationRepository:
                     lifecycle_state=record["lifecycle_state"],
                     supersedes=record["supersedes"],
                     superseded_by=record["superseded_by"],
+                    record_type=record["record_type"],
                 )
                 for record in result
             ]

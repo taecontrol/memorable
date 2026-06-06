@@ -59,3 +59,11 @@ def test_guide_documents_current_writable_record_types() -> None:
         record_type.strip() for record_type in match.group("types").split(",")
     )
     assert documented_types == ("Decision", "Observation", "Task")
+
+
+def test_writing_guide_documents_observation_record_type() -> None:
+    rendered = render("writing")
+
+    assert "Record Subtype" in rendered
+    assert "memorable_remember_observation" in rendered
+    assert "record_type" in rendered

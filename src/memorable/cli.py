@@ -558,6 +558,7 @@ def _cmd_remember_observation(
             writer=getattr(args, "writer", "agent:memorable"),
             reason=getattr(args, "reason", ""),
             supersedes=supersedes,
+            record_type=getattr(args, "record_type", None),
         )
     except ValueError as e:
         print(f"Error: {e}", file=sys.stderr)
@@ -588,6 +589,7 @@ def _cmd_remember_observation(
                 "space": result.observation.space,
                 "record_id": result.provenance.record_id,
                 "record_kind": result.provenance.record_kind,
+                "record_type": result.observation.record_type,
                 "source": result.provenance.source_id,
                 "episode": result.provenance.episode_id,
                 "creation_time": result.provenance.creation_time.isoformat(),
@@ -1467,6 +1469,7 @@ def main(argv: list[str] | None = None) -> int:
     obs_parser.add_argument("--source", required=True)
     obs_parser.add_argument("--at", required=True)
     obs_parser.add_argument("--supersedes", default=None)
+    obs_parser.add_argument("--type", dest="record_type", default=None)
     obs_parser.add_argument("--writer", default="agent:memorable")
     obs_parser.add_argument("--reason", default="")
 

@@ -439,6 +439,7 @@ def remember_decision_tool(
     description=(
         "Remember an Observation with Provenance in a MemorySpace. "
         "Supports Supersession to replace an earlier Observation. "
+        "Optional record_type sets a declared Record Subtype on the Observation. "
         "Optional about links staple the Observation to existing Entities it "
         "concerns; create the Entity first. About is membership, not a "
         "Relation claim, and correctable via memorable_correct."
@@ -452,6 +453,7 @@ def remember_observation_tool(
     at: str,
     supersedes: str | None = None,
     about: list[str] | None = None,
+    record_type: str | None = None,
     writer: str = "agent:memorable",
     reason: str = "",
 ) -> dict[str, object]:
@@ -488,8 +490,11 @@ def remember_observation_tool(
             reason=reason,
             supersedes=supersedes,
             about=about,
+            record_type=record_type,
         )
     except ValueError as e:
+        if isinstance(e, UndeclaredTypeError):
+            return _profile_type_error(e)
         return {"error": str(e)}
 
     def upsert_observation_embeddings(indexer: EmbeddingIndexer) -> None:
@@ -514,6 +519,7 @@ def remember_observation_tool(
         "space": result.observation.space,
         "record_id": result.provenance.record_id,
         "record_kind": result.provenance.record_kind,
+        "record_type": result.observation.record_type,
         "source": result.provenance.source_id,
         "episode": result.provenance.episode_id,
         "creation_time": result.provenance.creation_time.isoformat(),
@@ -651,6 +657,7 @@ def current_truth_tool(
         "record_id": record.id,
         "statement": record.statement,
         "space": record.space,
+        "record_type": getattr(record, "record_type", None),
         "lifecycle_state": record.lifecycle_state,
         "validity_time": record.validity_time.isoformat(),
     }
@@ -700,6 +707,7 @@ def point_in_time_truth_tool(
         "record_id": record.id,
         "statement": record.statement,
         "space": record.space,
+        "record_type": getattr(record, "record_type", None),
         "lifecycle_state": record.lifecycle_state,
         "validity_time": record.validity_time.isoformat(),
     }
@@ -745,6 +753,7 @@ def inspect_history_tool(
             {
                 "record_id": r.id,
                 "statement": r.statement,
+                "record_type": getattr(r, "record_type", None),
                 "lifecycle_state": r.lifecycle_state,
                 "validity_time": r.validity_time.isoformat(),
                 "invalidation_time": (
