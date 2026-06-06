@@ -694,14 +694,26 @@ def _cmd_truth_current(
     """Show the current truth for a Decision, following supersession chain."""
     space = resolve_space(getattr(args, "space", None))
 
+    record_subtype = getattr(args, "record_subtype", None)
     service = CurrentTruthService(repository=ctx.decision_repo)
-    decision = service.current(space=space, record_id=args.id)
+    decision = service.current(
+        space=space,
+        record_id=args.id,
+        record_subtype=record_subtype,
+    )
 
     if decision is None:
-        print(
-            f"Error: No Decision found for '{args.id}' in MemorySpace '{space}'.",
-            file=sys.stderr,
-        )
+        if record_subtype is not None:
+            message = (
+                f"Error: No Decision with Record Subtype '{record_subtype}' "
+                f"found for '{args.id}' in MemorySpace '{space}'."
+            )
+        else:
+            message = (
+                f"Error: No Decision found for '{args.id}' "
+                f"in MemorySpace '{space}'."
+            )
+        print(message, file=sys.stderr)
         return 1
 
     print(
@@ -730,14 +742,27 @@ def _cmd_truth_as_of(
 
     service = PointInTimeTruthService(repository=ctx.decision_repo)
     at = parse_iso_timestamp(args.at)
-    decision = service.at(space=space, record_id=args.id, at=at)
+    record_subtype = getattr(args, "record_subtype", None)
+    decision = service.at(
+        space=space,
+        record_id=args.id,
+        at=at,
+        record_subtype=record_subtype,
+    )
 
     if decision is None:
-        print(
-            f"Error: No Decision found for '{args.id}' "
-            f"in MemorySpace '{space}' at {at.isoformat()}.",
-            file=sys.stderr,
-        )
+        if record_subtype is not None:
+            message = (
+                f"Error: No Decision with Record Subtype '{record_subtype}' "
+                f"found for '{args.id}' in MemorySpace '{space}' "
+                f"at {at.isoformat()}."
+            )
+        else:
+            message = (
+                f"Error: No Decision found for '{args.id}' "
+                f"in MemorySpace '{space}' at {at.isoformat()}."
+            )
+        print(message, file=sys.stderr)
         return 1
 
     print(
@@ -1121,16 +1146,16 @@ def _cmd_invalidate(
 ) -> int:
     """Invalidate a temporal record (Decision or Observation)."""
     space = resolve_space(getattr(args, "space", None))
-    record_type = args.record_type
+    record_kind = args.record_kind
 
-    if record_type == "decision":
+    if record_kind == "decision":
         repository = ctx.decision_repo
-    elif record_type == "observation":
+    elif record_kind == "observation":
         repository = ctx.observation_repo
     else:
         print(
-            f"Error: Unknown record type '{record_type}'. "
-            f"Supported types: decision, observation.",
+            f"Error: Unknown record kind '{record_kind}'. "
+            f"Supported kinds: decision, observation.",
             file=sys.stderr,
         )
         return 1
@@ -1148,7 +1173,7 @@ def _cmd_invalidate(
         print(f"Error: {e}", file=sys.stderr)
         return 1
 
-    if record_type == "decision":
+    if record_kind == "decision":
         invalidated_decision = ctx.decision_repo.get(space, result.record_id)
         if invalidated_decision is None:
             print(
@@ -1166,7 +1191,7 @@ def _cmd_invalidate(
             upsert=lambda indexer: indexer.upsert_decision(invalidated_decision),
         ):
             return 1
-    elif record_type == "observation":
+    elif record_kind == "observation":
         invalidated_observation = ctx.observation_repo.get(space, result.record_id)
         if invalidated_observation is None:
             print(
@@ -1206,16 +1231,16 @@ def _cmd_correct(
 ) -> int:
     """Correct a temporal record's statement in place (Decision or Observation)."""
     space = resolve_space(getattr(args, "space", None))
-    record_type = args.record_type
+    record_kind = args.record_kind
 
-    if record_type == "decision":
+    if record_kind == "decision":
         repository = ctx.decision_repo
-    elif record_type == "observation":
+    elif record_kind == "observation":
         repository = ctx.observation_repo
     else:
         print(
-            f"Error: Unknown record type '{record_type}'. "
-            f"Supported types: decision, observation.",
+            f"Error: Unknown record kind '{record_kind}'. "
+            f"Supported kinds: decision, observation.",
             file=sys.stderr,
         )
         return 1
@@ -1228,7 +1253,7 @@ def _cmd_correct(
             space=space,
             record_id=args.id,
             new_statement=args.new_statement,
-            record_kind=record_type,
+            record_kind=record_kind,
             source=args.source,
             writer=getattr(args, "writer", "agent:memorable"),
             at=at,
@@ -1238,7 +1263,7 @@ def _cmd_correct(
         print(f"Error: {e}", file=sys.stderr)
         return 1
 
-    if record_type == "decision":
+    if record_kind == "decision":
         corrected_decision = ctx.decision_repo.get(space, result.record_id)
         if corrected_decision is None:
             print(
@@ -1256,7 +1281,7 @@ def _cmd_correct(
             upsert=lambda indexer: indexer.upsert_decision(corrected_decision),
         ):
             return 1
-    elif record_type == "observation":
+    elif record_kind == "observation":
         corrected_observation = ctx.observation_repo.get(space, result.record_id)
         if corrected_observation is None:
             print(
@@ -1590,6 +1615,12 @@ def main(argv: list[str] | None = None) -> int:
     )
     current_parser.add_argument("--space", default=None)
     current_parser.add_argument("--id", required=True)
+    current_parser.add_argument(
+        "--type",
+        dest="record_subtype",
+        default=None,
+        help="Record Subtype filter, such as Episode or ArchitectureDecision.",
+    )
 
     as_of_parser = truth_sub.add_parser(
         "as-of", help="Show truth at a specific point in time."
@@ -1597,6 +1628,12 @@ def main(argv: list[str] | None = None) -> int:
     as_of_parser.add_argument("--space", default=None)
     as_of_parser.add_argument("--id", required=True)
     as_of_parser.add_argument("--at", required=True)
+    as_of_parser.add_argument(
+        "--type",
+        dest="record_subtype",
+        default=None,
+        help="Record Subtype filter, such as Episode or ArchitectureDecision.",
+    )
 
     # inspect provenance subcommand
     inspect_parser = subparsers.add_parser("inspect", help="Inspect memory metadata.")
@@ -1671,9 +1708,16 @@ def main(argv: list[str] | None = None) -> int:
     invalidate_parser.add_argument("--space", default=None)
     invalidate_parser.add_argument("--id", required=True)
     invalidate_parser.add_argument(
+        "--record-kind",
+        dest="record_kind",
+        default=None,
+        help="Kernel kind of record (decision, observation).",
+    )
+    invalidate_parser.add_argument(
         "--record-type",
-        required=True,
-        help="Type of record (decision, observation).",
+        dest="record_kind",
+        default=None,
+        help=argparse.SUPPRESS,
     )
     invalidate_parser.add_argument("--at", required=True)
 
@@ -1684,9 +1728,16 @@ def main(argv: list[str] | None = None) -> int:
     correct_parser.add_argument("--space", default=None)
     correct_parser.add_argument("--id", required=True)
     correct_parser.add_argument(
+        "--record-kind",
+        dest="record_kind",
+        default=None,
+        help="Kernel kind of record (decision, observation).",
+    )
+    correct_parser.add_argument(
         "--record-type",
-        required=True,
-        help="Type of record (decision, observation).",
+        dest="record_kind",
+        default=None,
+        help=argparse.SUPPRESS,
     )
     correct_parser.add_argument("--new-statement", required=True)
     correct_parser.add_argument("--source", required=True)

@@ -153,24 +153,26 @@ _RECORD_EMBEDDING_SOURCE_KIND = {
 
 
 def _resolve_repository(
-    record_type: str,
+    record_kind: str,
+    *,
+    parameter_name: str = "record_kind",
 ) -> TemporalRecordRepository | dict[str, object]:
-    """Map a record_type string to the corresponding TemporalRecordRepository.
+    """Map a kernel record kind to the corresponding TemporalRecordRepository.
 
     Returns the repository on success, or an error dict on failure.
-    Adding a new record type requires only updating this helper.
+    Adding a new record kind requires only updating this helper.
     """
     repos = {
         "decision": lambda: _context.decision_repo,
         "observation": lambda: _context.observation_repo,
         "relation": lambda: _context.relation_repo,
     }
-    accessor = repos.get(record_type)
+    accessor = repos.get(record_kind)
     if accessor is not None:
         return accessor()
     return {
-        "error": f"Unknown record_type '{record_type}'. "
-        f"Supported types: decision, observation, relation."
+        "error": f"Unknown {parameter_name} '{record_kind}'. "
+        f"Supported kinds: decision, observation, relation."
     }
 
 
@@ -628,33 +630,47 @@ def remember_relation_tool(
     name="memorable_current_truth",
     description=(
         "Get the Current Truth for a temporal record by following its "
-        "Supersession chain. Accepts record_type to select the repository "
-        "(decision, observation, relation). Returns the active record or an error."
+        "Supersession chain. Accepts record_kind to select the kernel kind "
+        "(decision, observation, relation), and record_subtype to filter by "
+        "Record Subtype. Returns the active record or an error."
     ),
 )
 def current_truth_tool(
     space: str,
     record_id: str,
-    record_type: str = "decision",
+    record_kind: str = "decision",
+    record_subtype: str | None = None,
 ) -> dict[str, object]:
     """Get the current truth for a temporal record, following supersession chain.
 
     Args:
         space: MemorySpace to search in.
         record_id: ID of the record to resolve.
-        record_type: Type of record ("decision" or "observation").
+        record_kind: Kernel kind ("decision", "observation", or "relation").
+        record_subtype: Optional Record Subtype filter.
 
     Returns record details on success, or an error dict on failure.
     """
-    resolved = _resolve_repository(record_type)
+    resolved = _resolve_repository(record_kind)
     if isinstance(resolved, dict):
         return resolved
 
     service = CurrentTruthService(repository=resolved)
-    record = service.current(space=space, record_id=record_id)
+    record = service.current(
+        space=space,
+        record_id=record_id,
+        record_subtype=record_subtype,
+    )
 
     if record is None:
-        label = record_type.capitalize()
+        label = record_kind.capitalize()
+        if record_subtype is not None:
+            return {
+                "error": (
+                    f"No {label} with Record Subtype '{record_subtype}' found "
+                    f"for '{record_id}' in MemorySpace '{space}'."
+                )
+            }
         return {
             "error": f"No {label} found for '{record_id}' in MemorySpace '{space}'."
         }
@@ -673,16 +689,17 @@ def current_truth_tool(
     name="memorable_point_in_time_truth",
     description=(
         "Get the Point-In-Time Truth for a temporal record at a specific "
-        "timestamp. Accepts record_type to select the repository "
-        "(decision, observation, relation). Returns the record that was "
-        "valid at that time."
+        "timestamp. Accepts record_kind to select the kernel kind "
+        "(decision, observation, relation), and record_subtype to filter by "
+        "Record Subtype. Returns the record that was valid at that time."
     ),
 )
 def point_in_time_truth_tool(
     space: str,
     record_id: str,
     at: str,
-    record_type: str = "decision",
+    record_kind: str = "decision",
+    record_subtype: str | None = None,
 ) -> dict[str, object]:
     """Get the temporal record that was valid at a specific point in time.
 
@@ -690,20 +707,34 @@ def point_in_time_truth_tool(
         space: MemorySpace to search in.
         record_id: ID of the record to resolve.
         at: ISO timestamp for the point-in-time query.
-        record_type: Type of record ("decision" or "observation").
+        record_kind: Kernel kind ("decision", "observation", or "relation").
+        record_subtype: Optional Record Subtype filter.
 
     Returns record details on success, or an error dict on failure.
     """
-    resolved = _resolve_repository(record_type)
+    resolved = _resolve_repository(record_kind)
     if isinstance(resolved, dict):
         return resolved
 
     service = PointInTimeTruthService(repository=resolved)
     timestamp = parse_iso_timestamp(at)
-    record = service.at(space=space, record_id=record_id, at=timestamp)
+    record = service.at(
+        space=space,
+        record_id=record_id,
+        at=timestamp,
+        record_subtype=record_subtype,
+    )
 
     if record is None:
-        label = record_type.capitalize()
+        label = record_kind.capitalize()
+        if record_subtype is not None:
+            return {
+                "error": (
+                    f"No {label} with Record Subtype '{record_subtype}' found "
+                    f"for '{record_id}' in MemorySpace '{space}' "
+                    f"at {timestamp.isoformat()}."
+                )
+            }
         return {
             "error": f"No {label} found for '{record_id}' "
             f"in MemorySpace '{space}' at {timestamp.isoformat()}."
@@ -723,26 +754,26 @@ def point_in_time_truth_tool(
     name="memorable_inspect_history",
     description=(
         "Inspect the full Supersession chain for a temporal record. "
-        "Accepts a record_type to select the repository "
+        "Accepts record_kind to select the kernel kind "
         "(decision, observation, relation). Returns Lifecycle State, "
-        "Validity Time, and Invalidation Time for each version."
+        "Validity Time, Invalidation Time, and Record Subtype for each version."
     ),
 )
 def inspect_history_tool(
     space: str,
     record_id: str,
-    record_type: str = "decision",
+    record_kind: str = "decision",
 ) -> dict[str, object]:
     """Inspect the full supersession chain for a temporal record.
 
     Args:
         space: MemorySpace to search in.
         record_id: ID of the record to inspect.
-        record_type: Type of record ("decision" initially).
+        record_kind: Kernel kind ("decision", "observation", or "relation").
 
     Returns the history on success, or an error dict on failure.
     """
-    resolved = _resolve_repository(record_type)
+    resolved = _resolve_repository(record_kind)
     if isinstance(resolved, dict):
         return resolved
 
@@ -754,7 +785,7 @@ def inspect_history_tool(
 
     return {
         "record_id": record_id,
-        "record_type": record_type,
+        "record_kind": record_kind,
         "history": [
             {
                 "record_id": r.id,
@@ -1215,14 +1246,14 @@ def list_records_tool(
         "Mark a temporal record as invalidated in a MemorySpace. "
         "Invalidation means a claim stopped being true without a successor. "
         "Sets Lifecycle State to invalidated and records Invalidation Time. "
-        "Accepts record_type to select the repository "
+        "Accepts record_kind to select the kernel kind "
         "(decision, observation, relation)."
     ),
 )
 def invalidate_tool(
     space: str,
     record_id: str,
-    record_type: str,
+    record_kind: str,
     at: str,
 ) -> dict[str, object]:
     """Mark a temporal record as invalidated.
@@ -1230,12 +1261,12 @@ def invalidate_tool(
     Args:
         space: MemorySpace containing the record.
         record_id: ID of the record to invalidate.
-        record_type: Type of record ("decision" or "observation").
+        record_kind: Kernel kind ("decision", "observation", or "relation").
         at: ISO timestamp when the claim stopped being true.
 
     Returns a dict with invalidation info on success, or an error dict.
     """
-    resolved = _resolve_repository(record_type)
+    resolved = _resolve_repository(record_kind, parameter_name="record_kind")
     if isinstance(resolved, dict):
         return resolved
 
@@ -1251,7 +1282,7 @@ def invalidate_tool(
     except ValueError as e:
         return {"error": str(e)}
 
-    if record_type == "decision":
+    if record_kind == "decision":
         invalidated_decision = _context.decision_repo.get(space, result.record_id)
         if invalidated_decision is None:
             return {
@@ -1268,7 +1299,7 @@ def invalidate_tool(
         )
         if index_error is not None:
             return index_error
-    elif record_type == "observation":
+    elif record_kind == "observation":
         invalidated_observation = _context.observation_repo.get(space, result.record_id)
         if invalidated_observation is None:
             return {
@@ -1285,7 +1316,7 @@ def invalidate_tool(
         )
         if index_error is not None:
             return index_error
-    elif record_type == "relation":
+    elif record_kind == "relation":
         invalidated_relation = _context.relation_repo.get(space, result.record_id)
         if invalidated_relation is None:
             return {
@@ -1320,7 +1351,7 @@ def invalidate_tool(
         "Optional about re-staples the record to existing Entities it concerns; "
         "create the Entity first. About is membership, not a Relation claim. "
         "About is correctable through this tool. "
-        "Accepts record_type to select the repository "
+        "Accepts record_kind to select the kernel kind "
         "(decision, observation, relation, task). Task supports About "
         "membership correction only."
     ),
@@ -1328,7 +1359,7 @@ def invalidate_tool(
 def correct_tool(
     space: str,
     record_id: str,
-    record_type: str,
+    record_kind: str,
     source: str,
     at: str,
     new_statement: str | None = None,
@@ -1341,7 +1372,7 @@ def correct_tool(
     Args:
         space: MemorySpace containing the record.
         record_id: ID of the record to correct.
-        record_type: Type of record ("decision", "observation", "relation", or
+        record_kind: Kernel kind ("decision", "observation", "relation", or
             "task").
         source: Source ID for the correction provenance.
         at: ISO timestamp for the correction.
@@ -1362,7 +1393,7 @@ def correct_tool(
     if new_statement is None and about is None:
         return {"error": "new_statement is required unless about is provided."}
 
-    if record_type == "task":
+    if record_kind == "task":
         task_statement = new_statement
         if task_statement is None:
             task = _context.task_repo.get(space=space, task_id=record_id)
@@ -1391,7 +1422,7 @@ def correct_tool(
             "new_statement": result.new_statement,
         }
 
-    resolved = _resolve_repository(record_type)
+    resolved = _resolve_repository(record_kind, parameter_name="record_kind")
     if isinstance(resolved, dict):
         return resolved
 
@@ -1407,7 +1438,7 @@ def correct_tool(
             space=space,
             record_id=record_id,
             new_statement=corrected_statement,
-            record_kind=record_type,
+            record_kind=record_kind,
             source=source,
             writer=writer,
             at=timestamp,
@@ -1417,7 +1448,7 @@ def correct_tool(
     except ValueError as e:
         return {"error": str(e)}
 
-    if record_type == "decision":
+    if record_kind == "decision":
         corrected_decision = _context.decision_repo.get(space, result.record_id)
         if corrected_decision is None:
             return {
@@ -1434,7 +1465,7 @@ def correct_tool(
         )
         if index_error is not None:
             return index_error
-    elif record_type == "observation":
+    elif record_kind == "observation":
         corrected_observation = _context.observation_repo.get(space, result.record_id)
         if corrected_observation is None:
             return {
@@ -1451,7 +1482,7 @@ def correct_tool(
         )
         if index_error is not None:
             return index_error
-    elif record_type == "relation":
+    elif record_kind == "relation":
         corrected_relation = _context.relation_repo.get(space, result.record_id)
         if corrected_relation is None:
             return {
@@ -1497,14 +1528,14 @@ def correct_tool(
 def forget_record_tool(
     space: str,
     record_id: str,
-    record_type: str,
+    record_kind: str,
 ) -> dict[str, object]:
     """Forget (hard-delete) a MemoryRecord by id in a MemorySpace.
 
     Args:
         space: MemorySpace containing the record.
         record_id: ID of the record to forget.
-        record_type: Type of record ("decision", "observation", or "task").
+        record_kind: Kernel kind ("decision", "observation", or "task").
 
     Returns a dict with forget info on success, or an error dict (e.g. an
     absent id or a record in a Supersession chain).
@@ -1515,7 +1546,7 @@ def forget_record_tool(
         result = service.forget_record(
             space=space,
             record_id=record_id,
-            record_kind=record_type,
+            record_kind=record_kind,
         )
     except ValueError as e:
         return {"error": str(e)}

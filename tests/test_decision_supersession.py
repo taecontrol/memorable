@@ -375,7 +375,7 @@ class TestRememberDecisionService:
         assert stored is not None
         assert stored.record_type == "ArchitectureDecision"
 
-        service.remember(
+        successor = service.remember(
             space="memorable",
             decision_id=V2_ID,
             statement=STATEMENT_V2,
@@ -384,6 +384,7 @@ class TestRememberDecisionService:
             supersedes=V1_ID,
         )
 
+        assert successor.decision.record_type == "ArchitectureDecision"
         superseded = repo.get(space="memorable", record_id=V1_ID)
         assert superseded is not None
         assert superseded.lifecycle_state == "superseded"
@@ -624,6 +625,52 @@ class TestCurrentTruthService:
         assert result is not None
         assert result.id == V1_ID
 
+    def test_current_truth_filters_resolved_record_by_subtype(self) -> None:
+        from memorable.core.application import (
+            CurrentTruthService,
+            RememberDecisionService,
+        )
+        from memorable.core.profile import load_profile_from_yaml
+        from memorable.core.repositories import InMemoryDecisionRepository
+
+        repo = InMemoryDecisionRepository()
+        profile = load_profile_from_yaml(VALID_PROFILE_YAML)
+        remember = RememberDecisionService(repository=repo, profile=profile)
+        remember.remember(
+            space="memorable",
+            decision_id=V1_ID,
+            statement=STATEMENT_V1,
+            source_id=SOURCE_ID,
+            at=FIXTURE_TIMESTAMP_V1,
+            record_type="ArchitectureDecision",
+        )
+        remember.remember(
+            space="memorable",
+            decision_id=V2_ID,
+            statement=STATEMENT_V2,
+            source_id=SOURCE_ID,
+            at=FIXTURE_TIMESTAMP_V2,
+            supersedes=V1_ID,
+        )
+
+        service = CurrentTruthService(repository=repo)
+
+        matching = service.current(
+            space="memorable",
+            record_id=V1_ID,
+            record_subtype="ArchitectureDecision",
+        )
+        mismatching = service.current(
+            space="memorable",
+            record_id=V1_ID,
+            record_subtype="Pattern",
+        )
+
+        assert matching is not None
+        assert matching.id == V2_ID
+        assert matching.record_type == "ArchitectureDecision"
+        assert mismatching is None
+
     def test_current_truth_returns_none_for_missing(self) -> None:
         from memorable.core.application import CurrentTruthService
         from memorable.core.repositories import (
@@ -689,6 +736,55 @@ class TestPointInTimeTruthService:
 
         assert result is not None
         assert result.id == V2_ID
+
+    def test_point_in_time_truth_filters_resolved_record_by_subtype(self) -> None:
+        from memorable.core.application import (
+            PointInTimeTruthService,
+            RememberDecisionService,
+        )
+        from memorable.core.profile import load_profile_from_yaml
+        from memorable.core.repositories import InMemoryDecisionRepository
+
+        repo = InMemoryDecisionRepository()
+        profile = load_profile_from_yaml(VALID_PROFILE_YAML)
+        remember = RememberDecisionService(repository=repo, profile=profile)
+        remember.remember(
+            space="memorable",
+            decision_id=V1_ID,
+            statement=STATEMENT_V1,
+            source_id=SOURCE_ID,
+            at=FIXTURE_TIMESTAMP_V1,
+            record_type="ArchitectureDecision",
+        )
+        remember.remember(
+            space="memorable",
+            decision_id=V2_ID,
+            statement=STATEMENT_V2,
+            source_id=SOURCE_ID,
+            at=FIXTURE_TIMESTAMP_V2,
+            supersedes=V1_ID,
+        )
+
+        service = PointInTimeTruthService(repository=repo)
+        at_1021 = datetime(2026, 5, 23, 10, 21, 0, tzinfo=UTC)
+
+        matching = service.at(
+            space="memorable",
+            record_id=V1_ID,
+            at=at_1021,
+            record_subtype="ArchitectureDecision",
+        )
+        mismatching = service.at(
+            space="memorable",
+            record_id=V1_ID,
+            at=at_1021,
+            record_subtype="Pattern",
+        )
+
+        assert matching is not None
+        assert matching.id == V2_ID
+        assert matching.record_type == "ArchitectureDecision"
+        assert mismatching is None
 
     def test_returns_none_for_missing(self) -> None:
         from memorable.core.application import (
@@ -952,6 +1048,83 @@ class TestCLIRememberDecision:
 class TestCLITruthCurrent:
     """CLI `memorable truth current` follows supersession."""
 
+    def test_truth_current_filters_by_record_subtype(self, capsys) -> None:
+        import json
+
+        from memorable.cli import main
+
+        main(
+            [
+                "remember",
+                "decision",
+                "--space",
+                "memorable",
+                "--id",
+                V1_ID,
+                "--statement",
+                "Graphiti first.",
+                "--type",
+                "ArchitectureDecision",
+                "--source",
+                SOURCE_ID,
+                "--at",
+                "2026-05-23T10:15:00Z",
+            ]
+        )
+        main(
+            [
+                "remember",
+                "decision",
+                "--space",
+                "memorable",
+                "--id",
+                V2_ID,
+                "--statement",
+                "Direct Neo4j first.",
+                "--supersedes",
+                V1_ID,
+                "--source",
+                SOURCE_ID,
+                "--at",
+                "2026-05-23T10:20:00Z",
+            ]
+        )
+        capsys.readouterr()
+
+        exit_code = main(
+            [
+                "truth",
+                "current",
+                "--space",
+                "memorable",
+                "--id",
+                V1_ID,
+                "--type",
+                "ArchitectureDecision",
+            ]
+        )
+
+        assert exit_code == 0
+        output = json.loads(capsys.readouterr().out)
+        assert output["decision_id"] == V2_ID
+        assert output["record_type"] == "ArchitectureDecision"
+
+        miss_exit_code = main(
+            [
+                "truth",
+                "current",
+                "--space",
+                "memorable",
+                "--id",
+                V1_ID,
+                "--type",
+                "Pattern",
+            ]
+        )
+
+        assert miss_exit_code == 1
+        assert "Record Subtype 'Pattern'" in capsys.readouterr().err
+
     def test_truth_current_command(self, capsys) -> None:
         from memorable.cli import main
 
@@ -1009,6 +1182,87 @@ class TestCLITruthCurrent:
 @pytest.mark.usefixtures("cli_in_memory_context")
 class TestCLITruthAsOf:
     """CLI `memorable truth as-of` returns Decision at a time."""
+
+    def test_truth_as_of_filters_by_record_subtype(self, capsys) -> None:
+        import json
+
+        from memorable.cli import main
+
+        main(
+            [
+                "remember",
+                "decision",
+                "--space",
+                "memorable",
+                "--id",
+                V1_ID,
+                "--statement",
+                "Graphiti first.",
+                "--type",
+                "ArchitectureDecision",
+                "--source",
+                SOURCE_ID,
+                "--at",
+                "2026-05-23T10:15:00Z",
+            ]
+        )
+        main(
+            [
+                "remember",
+                "decision",
+                "--space",
+                "memorable",
+                "--id",
+                V2_ID,
+                "--statement",
+                "Direct Neo4j first.",
+                "--supersedes",
+                V1_ID,
+                "--source",
+                SOURCE_ID,
+                "--at",
+                "2026-05-23T10:20:00Z",
+            ]
+        )
+        capsys.readouterr()
+
+        exit_code = main(
+            [
+                "truth",
+                "as-of",
+                "--space",
+                "memorable",
+                "--id",
+                V1_ID,
+                "--at",
+                "2026-05-23T10:21:00Z",
+                "--type",
+                "ArchitectureDecision",
+            ]
+        )
+
+        assert exit_code == 0
+        output = json.loads(capsys.readouterr().out)
+        assert output["decision_id"] == V2_ID
+        assert output["record_type"] == "ArchitectureDecision"
+
+        miss_exit_code = main(
+            [
+                "truth",
+                "as-of",
+                "--space",
+                "memorable",
+                "--id",
+                V1_ID,
+                "--at",
+                "2026-05-23T10:21:00Z",
+                "--type",
+                "Pattern",
+            ]
+        )
+
+        assert miss_exit_code == 1
+        assert "Record Subtype 'Pattern'" in capsys.readouterr().err
 
     def test_truth_as_of_before_supersession(self, capsys) -> None:
         from memorable.cli import main
@@ -1172,7 +1426,7 @@ class TestMCPRememberDecision:
         truth_result = current_truth_tool(
             space="memorable",
             record_id=V1_ID,
-            record_type="decision",
+            record_kind="decision",
         )
 
         assert "error" not in truth_result
@@ -1226,6 +1480,44 @@ class TestMCPCurrentTruth:
 
         default_context.reset()
 
+    def test_current_truth_tool_filters_by_record_subtype(self) -> None:
+        from memorable.mcp.server import current_truth_tool, remember_decision_tool
+
+        remember_decision_tool(
+            space="memorable",
+            decision_id=V1_ID,
+            statement="Graphiti first.",
+            source=SOURCE_ID,
+            at="2026-05-23T10:15:00Z",
+            record_type="ArchitectureDecision",
+        )
+        remember_decision_tool(
+            space="memorable",
+            decision_id=V2_ID,
+            statement="Direct Neo4j first.",
+            source=SOURCE_ID,
+            at="2026-05-23T10:20:00Z",
+            supersedes=V1_ID,
+        )
+
+        result = current_truth_tool(
+            space="memorable",
+            record_id=V1_ID,
+            record_kind="decision",
+            record_subtype="ArchitectureDecision",
+        )
+        miss = current_truth_tool(
+            space="memorable",
+            record_id=V1_ID,
+            record_kind="decision",
+            record_subtype="Pattern",
+        )
+
+        assert "error" not in result
+        assert result["record_id"] == V2_ID
+        assert result["record_type"] == "ArchitectureDecision"
+        assert "Record Subtype 'Pattern'" in miss["error"]
+
     def test_current_truth_tool(self) -> None:
         from memorable.mcp.server import (
             current_truth_tool,
@@ -1264,6 +1556,49 @@ class TestMCPPointInTimeTruth:
         from memorable.core.context import default_context
 
         default_context.reset()
+
+    def test_point_in_time_truth_tool_filters_by_record_subtype(self) -> None:
+        from memorable.mcp.server import (
+            point_in_time_truth_tool,
+            remember_decision_tool,
+        )
+
+        remember_decision_tool(
+            space="memorable",
+            decision_id=V1_ID,
+            statement="Graphiti first.",
+            source=SOURCE_ID,
+            at="2026-05-23T10:15:00Z",
+            record_type="ArchitectureDecision",
+        )
+        remember_decision_tool(
+            space="memorable",
+            decision_id=V2_ID,
+            statement="Direct Neo4j first.",
+            source=SOURCE_ID,
+            at="2026-05-23T10:20:00Z",
+            supersedes=V1_ID,
+        )
+
+        result = point_in_time_truth_tool(
+            space="memorable",
+            record_id=V1_ID,
+            at="2026-05-23T10:21:00Z",
+            record_kind="decision",
+            record_subtype="ArchitectureDecision",
+        )
+        miss = point_in_time_truth_tool(
+            space="memorable",
+            record_id=V1_ID,
+            at="2026-05-23T10:21:00Z",
+            record_kind="decision",
+            record_subtype="Pattern",
+        )
+
+        assert "error" not in result
+        assert result["record_id"] == V2_ID
+        assert result["record_type"] == "ArchitectureDecision"
+        assert "Record Subtype 'Pattern'" in miss["error"]
 
     def test_point_in_time_truth_tool(self) -> None:
         from memorable.mcp.server import (
@@ -1330,7 +1665,7 @@ class TestMCPInspectHistory:
         result = inspect_history_tool(
             space="memorable",
             record_id=V1_ID,
-            record_type="decision",
+            record_kind="decision",
         )
 
         assert "error" not in result

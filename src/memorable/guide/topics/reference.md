@@ -13,9 +13,9 @@ Writable Record Types: Decision, Observation, Task.
 - `memorable_remember_decision`: Remember a Decision, optionally setting a declared Record Subtype, superseding an earlier Decision, or linking About Entities.
 - `memorable_remember_observation`: Remember an Observation, optionally setting a declared Record Subtype, superseding an earlier Observation, or linking About Entities.
 - `memorable_remember_relation`: Remember a directed Relation between two Entities.
-- `memorable_current_truth`: Resolve the active version of a known temporal record.
-- `memorable_point_in_time_truth`: Resolve what a known temporal record said at a historical time.
-- `memorable_inspect_history`: Inspect the supersession and lifecycle history for a temporal record.
+- `memorable_current_truth`: Resolve the active version of a known temporal record, optionally filtering by Record Subtype.
+- `memorable_point_in_time_truth`: Resolve what a known temporal record said at a historical time, optionally filtering by Record Subtype.
+- `memorable_inspect_history`: Inspect the supersession and lifecycle history for a temporal record; `record_kind` selects the kernel kind and history items return `record_type` as Record Subtype.
 - `memorable_inspect_provenance`: Inspect provenance for a remembered Entity.
 - `memorable_remember_task`: Remember a Task with lifecycle state, optionally setting a declared Record Subtype or linking About Entities.
 - `memorable_complete_task`: Mark a Task completed at a Validity Time.

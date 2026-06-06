@@ -467,6 +467,7 @@ records:
             statement=STATEMENT_V1,
             source_id=SOURCE_ID,
             at=FIXTURE_TIMESTAMP_V1,
+            record_type="TeamObservation",
         )
 
         # Remember v2, superseding v1
@@ -482,6 +483,7 @@ records:
         assert result.observation.id == V2_ID
         assert result.observation.supersedes == V1_ID
         assert result.observation.lifecycle_state == "current"
+        assert result.observation.record_type == "TeamObservation"
 
         # v1 should now be marked superseded
         v1 = repo.get(space="memorable", record_id=V1_ID)
@@ -489,6 +491,7 @@ records:
         assert v1.lifecycle_state == "superseded"
         assert v1.invalidation_time == FIXTURE_TIMESTAMP_V2
         assert v1.superseded_by == V2_ID
+        assert v1.record_type == "TeamObservation"
 
     def test_remembers_observation_against_empty_profile(self) -> None:
         """Observation is a kernel record type: writable with no declaration.
@@ -801,7 +804,7 @@ class TestMCPRememberObservation:
         result = current_truth_tool(
             space="memorable",
             record_id=V1_ID,
-            record_type="observation",
+            record_kind="observation",
         )
 
         assert "error" not in result
@@ -839,11 +842,11 @@ class TestMCPRememberObservation:
         result = inspect_history_tool(
             space="memorable",
             record_id=V1_ID,
-            record_type="observation",
+            record_kind="observation",
         )
 
         assert "error" not in result
-        assert result["record_type"] == "observation"
+        assert result["record_kind"] == "observation"
         assert result["history"][0]["record_type"] == "GeneralObservation"
 
     def test_remember_observation_tool_with_supersession(self) -> None:
@@ -895,7 +898,7 @@ class TestMCPRememberObservation:
         result = inspect_history_tool(
             space="memorable",
             record_id=V1_ID,
-            record_type="observation",
+            record_kind="observation",
         )
 
         assert "error" not in result

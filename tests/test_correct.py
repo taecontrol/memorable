@@ -679,7 +679,7 @@ class TestMCPCorrectTool:
         result = correct_tool(
             space="memorable",
             record_id=DECISION_ID,
-            record_type="decision",
+            record_kind="decision",
             new_statement="Use Neo4j for storage.",
             source=CORRECTION_SOURCE_ID,
             at="2026-05-25T10:00:00Z",
@@ -705,7 +705,7 @@ class TestMCPCorrectTool:
         result = correct_tool(
             space="memorable",
             record_id=OBSERVATION_ID,
-            record_type="observation",
+            record_kind="observation",
             new_statement="The team prefers synchronous communication.",
             source=CORRECTION_SOURCE_ID,
             at="2026-05-25T10:00:00Z",
@@ -733,14 +733,14 @@ class TestMCPCorrectTool:
         invalidate_tool(
             space="memorable",
             record_id=DECISION_ID,
-            record_type="decision",
+            record_kind="decision",
             at="2026-05-25T10:00:00Z",
         )
 
         result = correct_tool(
             space="memorable",
             record_id=DECISION_ID,
-            record_type="decision",
+            record_kind="decision",
             new_statement="anything",
             source=CORRECTION_SOURCE_ID,
             at="2026-05-25T10:00:00Z",
@@ -764,7 +764,7 @@ class TestMCPCorrectTool:
         result = correct_tool(
             space="memorable",
             record_id=DECISION_ID,
-            record_type="decision",
+            record_kind="decision",
             new_statement="Use Neo4j for storage.",
             source=CORRECTION_SOURCE_ID,
             at="2026-05-25T10:00:00Z",
@@ -817,7 +817,7 @@ class TestMCPCorrectTool:
         result = correct_tool(
             space="memorable",
             record_id=DECISION_ID,
-            record_type="decision",
+            record_kind="decision",
             new_statement="Use Neo4j for storage.",
             source=CORRECTION_SOURCE_ID,
             at="2026-05-25T10:00:00Z",
@@ -861,7 +861,7 @@ class TestMCPCorrectTool:
         result = correct_tool(
             space="memorable",
             record_id=DECISION_ID,
-            record_type="decision",
+            record_kind="decision",
             new_statement="Use Neo4j for storage.",
             source=CORRECTION_SOURCE_ID,
             at="2026-05-25T10:00:00Z",
@@ -913,7 +913,7 @@ class TestMCPCorrectTool:
         result = correct_tool(
             space="memorable",
             record_id="task:about-correction",
-            record_type="task",
+            record_kind="task",
             new_statement="Verify About correction.",
             source=CORRECTION_SOURCE_ID,
             at="2026-05-25T10:00:00Z",
@@ -977,7 +977,7 @@ class TestMCPCorrectTool:
         result = correct_tool(
             space="memorable",
             record_id="task:about-only",
-            record_type="task",
+            record_kind="task",
             source=CORRECTION_SOURCE_ID,
             at="2026-05-25T10:00:00Z",
             about=["entity:right"],
@@ -1018,7 +1018,7 @@ class TestMCPCorrectTool:
         result = correct_tool(
             space="memorable",
             record_id="task:about-correction",
-            record_type="task",
+            record_kind="task",
             new_statement="Verify About correction.",
             source=CORRECTION_SOURCE_ID,
             at="2026-05-25T10:00:00Z",
@@ -1034,20 +1034,20 @@ class TestMCPCorrectTool:
             "memorable", "task:about-correction"
         ) == ["entity:wrong"]
 
-    def test_correct_unknown_record_type(self) -> None:
+    def test_correct_unknown_record_kind(self) -> None:
         from memorable.mcp.server import correct_tool
 
         result = correct_tool(
             space="memorable",
             record_id="something:v1",
-            record_type="unknown",
+            record_kind="unknown",
             new_statement="anything",
             source=CORRECTION_SOURCE_ID,
             at="2026-05-25T10:00:00Z",
         )
 
         assert "error" in result
-        assert "Unknown record_type" in result["error"]
+        assert "Unknown record_kind" in result["error"]
 
 
 # =====================================================================

@@ -30,7 +30,7 @@ Record Subtype is selected at write time and validated against the MemoryProfile
 
 Kernel record writes remain valid without any profile declaration. This preserves the deliberate asymmetry with Entity and Relation writes: Entity and Relation types must be declared, while Decision, Observation, and Task remain universal kernel write paths that can be used immediately.
 
-When present, the subtype is stored on the record, returned by read surfaces that materialize the record, and exposed as a filter in Memory Review and GraphRAG search. Filtering by subtype is an AND filter with the kernel record kind and other retrieval/listing filters; records without that subtype do not match.
+When present, the subtype is stored on the record, returned by read surfaces that materialize the record, and exposed as a filter in Memory Review, GraphRAG search, and truth reads. Filtering by subtype is an AND filter with the kernel record kind and other retrieval/listing filters; records without that subtype do not match.
 
 This decision does not create generated per-subtype kernel record kinds or dynamic tools. The public model stays a small kernel plus an optional on-record label. Storage may realize the label however an adapter chooses, but core and agent-facing language is Record Subtype, not storage labels or tags.
 

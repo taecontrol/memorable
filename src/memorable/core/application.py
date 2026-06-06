@@ -255,6 +255,29 @@ def _verify_about_targets(
     about_linker.verify_targets(space=space, entity_ids=about)
 
 
+def _resolve_record_subtype_for_write(
+    *,
+    repository: TemporalRecordRepository,
+    profile: MemoryProfile,
+    kernel_kind: str,
+    space: str,
+    supersedes: str | None,
+    candidate: str | None,
+) -> str | None:
+    if candidate is not None:
+        return validate_record_subtype(
+            profile=profile,
+            kernel_kind=kernel_kind,
+            candidate=candidate,
+        )
+    if supersedes is None:
+        return None
+    predecessor = repository.get(space, supersedes)
+    if predecessor is None:
+        return None
+    return getattr(predecessor, "record_type", None)
+
+
 @dataclass(frozen=True)
 class RememberDecisionResult:
     """Result of remembering a Decision with provenance."""
@@ -308,9 +331,12 @@ class RememberDecisionService:
         Decision is a kernel record type, so no profile declaration is required.
         """
         _verify_about_targets(self._about_linker, space=space, about=about)
-        validated_record_type = validate_record_subtype(
+        validated_record_type = _resolve_record_subtype_for_write(
+            repository=self._repository,
             profile=self._profile,
             kernel_kind="decision",
+            space=space,
+            supersedes=supersedes,
             candidate=record_type,
         )
 
@@ -410,9 +436,12 @@ class RememberObservationService:
         Observation is a kernel record type, so no profile declaration is required.
         """
         _verify_about_targets(self._about_linker, space=space, about=about)
-        validated_record_type = validate_record_subtype(
+        validated_record_type = _resolve_record_subtype_for_write(
+            repository=self._repository,
             profile=self._profile,
             kernel_kind="observation",
+            space=space,
+            supersedes=supersedes,
             candidate=record_type,
         )
 
@@ -583,6 +612,18 @@ class RememberRelationService:
         return RememberRelationResult(relation=relation, provenance=provenance)
 
 
+def _filter_by_record_subtype(
+    record: TemporalRecord,
+    record_subtype: str | None,
+) -> TemporalRecord | None:
+    if (
+        record_subtype is not None
+        and getattr(record, "record_type", None) != record_subtype
+    ):
+        return None
+    return record
+
+
 class CurrentTruthService:
     """Application service that follows supersession chain to find the current record.
 
@@ -593,7 +634,13 @@ class CurrentTruthService:
     def __init__(self, repository: TemporalRecordRepository) -> None:
         self._repository = repository
 
-    def current(self, *, space: str, record_id: str) -> TemporalRecord | None:
+    def current(
+        self,
+        *,
+        space: str,
+        record_id: str,
+        record_subtype: str | None = None,
+    ) -> TemporalRecord | None:
         """Return the current record, following the supersession chain."""
         record = self._repository.get(space, record_id)
         if record is None:
@@ -607,7 +654,7 @@ class CurrentTruthService:
             if next_record is None:
                 break
             record = next_record
-        return record
+        return _filter_by_record_subtype(record, record_subtype)
 
 
 class PointInTimeTruthService:
@@ -626,6 +673,7 @@ class PointInTimeTruthService:
         space: str,
         record_id: str,
         at: datetime,
+        record_subtype: str | None = None,
     ) -> TemporalRecord | None:
         """Return the record that was valid at the given time."""
         record = self._repository.get(space, record_id)
@@ -635,15 +683,15 @@ class PointInTimeTruthService:
         current = record
         while True:
             if current.invalidation_time is None or at < current.invalidation_time:
-                return current
+                return _filter_by_record_subtype(current, record_subtype)
             if current.superseded_by is None:
-                return current
+                return _filter_by_record_subtype(current, record_subtype)
             if current.superseded_by in visited:
-                return current
+                return _filter_by_record_subtype(current, record_subtype)
             visited.add(current.superseded_by)
             next_record = self._repository.get(space, current.superseded_by)
             if next_record is None:
-                return current
+                return _filter_by_record_subtype(current, record_subtype)
             current = next_record
 
 

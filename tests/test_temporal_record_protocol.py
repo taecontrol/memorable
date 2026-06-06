@@ -309,8 +309,8 @@ class TestMCPInspectHistoryTool:
 
         assert callable(inspect_history_tool)
 
-    def test_inspect_history_tool_accepts_record_type(self) -> None:
-        """Tool accepts record_type parameter to select repository."""
+    def test_inspect_history_tool_accepts_record_kind(self) -> None:
+        """Tool accepts record_kind parameter to select repository."""
         from memorable.mcp.server import (
             inspect_history_tool,
             remember_decision_tool,
@@ -335,20 +335,20 @@ class TestMCPInspectHistoryTool:
         result = inspect_history_tool(
             space="memorable",
             record_id="decision:test:v1",
-            record_type="decision",
+            record_kind="decision",
         )
 
         assert "error" not in result
         assert len(result["history"]) == 2
 
-    def test_inspect_history_tool_unknown_record_type(self) -> None:
-        """Tool returns error for unknown record_type."""
+    def test_inspect_history_tool_unknown_record_kind(self) -> None:
+        """Tool returns error for unknown record_kind."""
         from memorable.mcp.server import inspect_history_tool
 
         result = inspect_history_tool(
             space="memorable",
             record_id="something:v1",
-            record_type="unknown",
+            record_kind="unknown",
         )
 
         assert "error" in result
