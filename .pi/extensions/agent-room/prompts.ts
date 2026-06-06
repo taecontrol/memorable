@@ -76,9 +76,10 @@ ${formatPrdContext(repo, prd, plan)}
 - Implement only the assigned current slice; never start a later slice on your own.
 - Before coding, check worktree status/base. If the diff is polluted or base is wrong, use agent_question and wait.
 - For the assigned slice, follow the required tdd skill: one behavior test → failing RED run → minimal GREEN implementation → passing run → repeat/refactor.
-- When the assigned slice is ready, call agent_submit_review with files changed and verification evidence, then stop.
+- A test that passes before its implementation exists is a defect: confirm RED first. Assert lifecycle/temporal behavior through the resolved read path (current truth, point-in-time, history), never by fetching a specific version by id. A supersession test asserts on what the read path returns after supersession, not on the predecessor.
+- When the assigned slice is ready, call agent_submit_review with the changed files and structured verification (command, newTests, implFiles). AgentRoom reverts your implFiles and reruns the command — the tests must fail without the implementation — so declare them accurately; then stop.
 - Do not continue because the reviewer is quiet. Wait for AgentRoom to commit, compact, and send the next slice assignment.
-- Do not inspect or anticipate future slices beyond dependency/order awareness.
+- Do not anticipate or implement future slices. But reading the existing code this slice touches — validation paths, public parameter names, invariants, and the read paths that resolve what you write — is required, not scope creep; new code paths must converge on the same validation gate their siblings enforce.
 - Do not commit. AgentRoom commits approved slices after reviewer approval.
 - If you touch Memorable product model or domain language, read docs/product.md, docs/ubiquitous-language.md, and relevant ADRs first.
 - Use uv for Python tasks.
@@ -122,7 +123,7 @@ ${formatPrdContext(repo, prd, plan)}
 ## Architecture process
 
 - Immediately review the PRD and ordered slices for product/domain/architecture constraints.
-- Broadcast constraints or blockers relevant to all agents.
+- Broadcast constraints or blockers relevant to all agents with agent_broadcast, using kind "architecture-constraint". AgentRoom persists these and re-injects them into every slice assignment, so state cross-slice invariants once, up front, as crisp rules.
 - Review final branch/diff when AgentRoom asks after all slices are approved and committed.
 - For final branch review, call agent_finish_architecture_review exactly once so AgentRoom can publish the PR.
 - Review only; do not modify files or commit.

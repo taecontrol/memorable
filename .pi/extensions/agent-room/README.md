@@ -33,6 +33,8 @@ Alias: `/room`.
 - human replies use `/agent-room reply <message-id|agent> <message>` and are delivered to agent inboxes
 - resident prompts are serialized: only one agent runs at a time
 - PRD runs gate slices with `agent_submit_review` → reviewer `agent_finish_review`
+- `agent_submit_review` takes structured `verification` (`command`, `newTests`, `implFiles`); the room runs a mutation check — reverts `implFiles`, reruns `command`, and the declared tests must fail. A test that still passes with the implementation gone is rejected (fail-closed, implementer fixes and resubmits); a missing green baseline or git/spawn trouble is inconclusive (fail-open) and surfaced to the reviewer
+- architect constraints broadcast with kind `architecture-constraint` are persisted on the manifest and re-injected into every slice assignment, so cross-slice invariants survive per-slice tunnel vision and context compaction
 - approved slices are committed, then all agents are compacted before the next slice assignment
 - compaction retries transient provider overloads (`overloaded_error` / HTTP 529) with exponential backoff so a momentary API hiccup does not wedge the workflow
 - `/agent-room unblock [run-id]` clears a `blocked` PRD workflow and re-drives it from the last safe checkpoint (re-commit/compact/assign the current slice, recover a final-architecture fix slice, or re-request final review); intended for recovering from transient infrastructure failures

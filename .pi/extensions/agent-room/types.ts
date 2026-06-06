@@ -130,6 +130,31 @@ export type FinalArchitectureReviewMetadata = {
 	reviewedAt: string;
 };
 
+/**
+ * A constraint the architect broadcast during kickoff (or later). Persisted so
+ * AgentRoom can re-inject it into every slice assignment instead of relying on
+ * the implementer to remember a one-time broadcast across compactions.
+ */
+export type ArchitectureConstraint = {
+	kind: string;
+	body: string;
+	at: string;
+};
+
+/**
+ * Structured verification the implementer submits with a slice. The room runs a
+ * mutation check against it (revert `implFiles`, the `newTests` must fail) so a
+ * vacuous test that passes with or without the implementation is caught
+ * mechanically instead of slipping past review.
+ */
+export type SliceVerification = {
+	command: string;
+	newTests: Array<{ file: string; name: string }>;
+	implFiles: string[];
+	noNewTestsReason?: string;
+	notes?: string;
+};
+
 export type RoomManifest = {
 	id: string;
 	name: string;
@@ -142,6 +167,7 @@ export type RoomManifest = {
 	workflow?: PrdWorkflow;
 	pullRequest?: PullRequestMetadata;
 	finalArchitectureReview?: FinalArchitectureReviewMetadata;
+	architectureConstraints?: ArchitectureConstraint[];
 	createdAt: string;
 	updatedAt: string;
 	agents: AgentManifest[];
