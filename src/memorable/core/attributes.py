@@ -52,6 +52,42 @@ def serialize_attribute_values(values: Mapping[str, object]) -> dict[str, object
     return serialized
 
 
+def validate_attribute_filter_values(
+    declared_attribute_sets: Sequence[Sequence[AttributeDeclaration]],
+    provided_values: Mapping[str, object] | None,
+) -> dict[str, AttributeValue]:
+    """Validate Attribute filter values across declared Entity schemas."""
+    if not provided_values:
+        return {}
+
+    all_declared = [
+        attribute
+        for declared_attributes in declared_attribute_sets
+        for attribute in declared_attributes
+    ]
+    filter_declarations: list[AttributeDeclaration] = []
+    for name in provided_values:
+        matching = [attribute for attribute in all_declared if attribute.name == name]
+        if not matching:
+            declared_names = sorted({attribute.name for attribute in all_declared})
+            raise AttributeValidationError(
+                f"Attribute filter '{name}' is not declared. "
+                f"Declared Attributes: {declared_names}."
+            )
+        matching_types = sorted({attribute.type for attribute in matching})
+        if len(matching_types) > 1:
+            raise AttributeValidationError(
+                f"Attribute filter '{name}' is ambiguous because it is declared "
+                f"with conflicting types {matching_types} and search has no "
+                "Entity type scope to choose one."
+            )
+        filter_declarations.append(
+            AttributeDeclaration(name=name, type=matching_types[0])
+        )
+
+    return validate_attribute_values(filter_declarations, provided_values)
+
+
 def validate_attribute_values(
     declared_attributes: Sequence[AttributeDeclaration],
     provided_values: Mapping[str, object] | None,

@@ -6,8 +6,11 @@ used for search and ranking.
 
 from __future__ import annotations
 
+from collections.abc import Mapping
 from dataclasses import dataclass, field
 from datetime import UTC, datetime
+
+from memorable.core.attributes import AttributeValue
 
 
 @dataclass(frozen=True)
@@ -158,3 +161,4 @@ class RetrievalResult:
     explanation: list[str]
     provenance_summary: dict[str, str]
     record_type: str | None = None
+    attributes: Mapping[str, AttributeValue] = field(default_factory=dict)

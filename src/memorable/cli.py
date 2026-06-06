@@ -29,6 +29,7 @@ from memorable.core.application import (
 )
 from memorable.core.attributes import (
     AttributeDeclaration,
+    AttributeValidationError,
     serialize_attribute_values,
 )
 from memorable.core.context import ApplicationContext, default_context
@@ -1100,11 +1101,32 @@ def _cmd_search(
     except (RuntimeError, ValueError) as e:
         print(f"Error: {e}", file=sys.stderr)
         return 1
+    try:
+        profile = ctx.load_profile()
+    except ProfileValidationError as e:
+        print(f"Error: {e}", file=sys.stderr)
+        return 1
+
     service = build_retrieval_service(
         ctx,
         provider,
         dimensions=config.embeddings.dimensions,
+        profile=profile,
     )
+
+    declared_attributes = tuple(
+        attribute
+        for entity in profile.entities
+        for attribute in entity.attributes
+    )
+    try:
+        attribute_filter = _parse_attribute_flags(
+            getattr(args, "attr", None),
+            declared_attributes,
+        )
+    except ValueError as e:
+        print(f"Error: {e}", file=sys.stderr)
+        return 1
 
     raw_mode = getattr(args, "mode", "current") or "current"
     mode = cast(Literal["current", "as-of"], raw_mode)
@@ -1119,8 +1141,9 @@ def _cmd_search(
             mode=mode,
             as_of=as_of,
             record_type=getattr(args, "record_type", None),
+            attribute_filter=attribute_filter,
         )
-    except EmbeddingIndexCompatibilityError as e:
+    except (EmbeddingIndexCompatibilityError, AttributeValidationError) as e:
         print(f"Error: {e}", file=sys.stderr)
         return 1
 
@@ -1137,6 +1160,7 @@ def _cmd_search(
                 "explanation": r.explanation,
                 "provenance_summary": r.provenance_summary,
                 "record_type": r.record_type,
+                "attributes": serialize_attribute_values(r.attributes),
             }
             for r in results
         ],
@@ -1757,6 +1781,12 @@ def main(argv: list[str] | None = None) -> int:
         dest="record_type",
         default=None,
         help="Record Subtype to search, such as Episode or Commitment.",
+    )
+    search_parser.add_argument(
+        "--attr",
+        action="append",
+        default=None,
+        help="Filter Entity search results by declared Attribute name=value.",
     )
 
     # reindex subcommand

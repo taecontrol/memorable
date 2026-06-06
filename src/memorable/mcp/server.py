@@ -1034,7 +1034,8 @@ def reindex_space_tool(space: str) -> dict[str, object]:
         "Combines semantic similarity, graph expansion, "
         "temporal filtering, and Provenance-aware explanation. "
         "Supports Current Truth and Point-In-Time Truth modes. "
-        "Pass record_type to filter by Record Subtype."
+        "Pass record_type to filter by Record Subtype and attributes "
+        "to filter Entities by declared Attribute equality."
     ),
 )
 def search_memory_tool(
@@ -1043,6 +1044,7 @@ def search_memory_tool(
     mode: Literal["current", "as-of"] = "current",
     as_of: str | None = None,
     record_type: str | None = None,
+    attributes: dict[str, object] | None = None,
 ) -> dict[str, object]:
     """Search memory using hybrid GraphRAG retrieval.
 
@@ -1055,6 +1057,7 @@ def search_memory_tool(
         mode: "current" for Current Truth, "as-of" for Point-In-Time Truth
         as_of: ISO timestamp, required when mode is "as-of"
         record_type: Optional Record Subtype filter
+        attributes: Optional Attribute equality filter for Entities
     """
     from memorable.retrieval.embeddings import build_embedding_provider
     from memorable.retrieval.service import (
@@ -1069,10 +1072,17 @@ def search_memory_tool(
         )
     except (RuntimeError, ValueError) as e:
         return {"error": str(e)}
+
+    try:
+        profile = _context.load_profile()
+    except ProfileValidationError as e:
+        return {"error": str(e)}
+
     service = build_retrieval_service(
         _context,
         provider,
         dimensions=config.embeddings.dimensions,
+        profile=profile,
     )
 
     as_of_dt = None
@@ -1086,7 +1096,10 @@ def search_memory_tool(
             mode=mode,
             as_of=as_of_dt,
             record_type=record_type,
+            attribute_filter=attributes,
         )
+    except AttributeValidationError as e:
+        return {"error": str(e)}
     except EmbeddingIndexCompatibilityError as e:
         return {
             "error": str(e),
@@ -1106,6 +1119,7 @@ def search_memory_tool(
                 "explanation": r.explanation,
                 "provenance_summary": r.provenance_summary,
                 "record_type": r.record_type,
+                "attributes": serialize_attribute_values(r.attributes),
             }
             for r in results
         ],
