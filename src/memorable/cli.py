@@ -3,7 +3,7 @@ from __future__ import annotations
 import argparse
 import json
 import sys
-from collections.abc import Callable
+from collections.abc import Callable, Sequence
 from pathlib import Path
 from typing import TYPE_CHECKING, Literal, cast
 
@@ -26,6 +26,10 @@ from memorable.core.application import (
     RememberRelationService,
     RememberTaskService,
     build_status_payload,
+)
+from memorable.core.attributes import (
+    AttributeDeclaration,
+    serialize_attribute_values,
 )
 from memorable.core.context import ApplicationContext, default_context
 from memorable.core.models import ProvenanceIntegrityError
@@ -365,17 +369,40 @@ _RECORD_EMBEDDING_SOURCE_KIND = {
 }
 
 
-def _parse_attribute_flags(values: list[str] | None) -> dict[str, str] | None:
+def _parse_attribute_flags(
+    values: list[str] | None,
+    declared_attributes: Sequence[AttributeDeclaration] = (),
+) -> dict[str, object] | None:
     if not values:
         return None
-    attributes: dict[str, str] = {}
+    raw_values: dict[str, list[str]] = {}
     for value in values:
         name, separator, attribute_value = value.partition("=")
         if not separator or not name:
             raise ValueError(
                 "Attribute flags must use name=value, for example --attr url=https://example.test."
             )
-        attributes[name] = attribute_value
+        raw_values.setdefault(name, []).append(attribute_value)
+
+    declared_types = {
+        attribute.name: attribute.type for attribute in declared_attributes
+    }
+    attributes: dict[str, object] = {}
+    for name, attribute_values in raw_values.items():
+        if declared_types.get(name) == "list[string]":
+            if attribute_values == ["[]"]:
+                attributes[name] = []
+            elif "[]" in attribute_values:
+                raise ValueError(
+                    f"Attribute '{name}' uses [] for an empty list and cannot "
+                    "combine it with other values."
+                )
+            else:
+                attributes[name] = attribute_values
+        elif len(attribute_values) == 1:
+            attributes[name] = attribute_values[0]
+        else:
+            attributes[name] = attribute_values
     return attributes
 
 
@@ -397,6 +424,15 @@ def _cmd_remember_entity(
 
     at = parse_iso_timestamp(args.at)
 
+    declared_attributes = next(
+        (
+            entity.attributes
+            for entity in profile.entities
+            if entity.name == args.type
+        ),
+        (),
+    )
+
     try:
         result = service.remember(
             space=space,
@@ -407,7 +443,10 @@ def _cmd_remember_entity(
             at=at,
             writer=getattr(args, "writer", "agent:memorable"),
             reason=getattr(args, "reason", ""),
-            attributes=_parse_attribute_flags(getattr(args, "attr", None)),
+            attributes=_parse_attribute_flags(
+                getattr(args, "attr", None),
+                declared_attributes,
+            ),
         )
     except ValueError as e:
         print(f"Error: {e}", file=sys.stderr)
@@ -430,7 +469,7 @@ def _cmd_remember_entity(
                 "entity_type": result.entity.entity_type,
                 "name": result.entity.name,
                 "space": result.entity.space,
-                "attributes": dict(result.entity.attributes),
+                "attributes": serialize_attribute_values(result.entity.attributes),
                 "record_id": result.provenance.record_id,
                 "record_kind": result.provenance.record_kind,
                 "source": result.provenance.source_id,
@@ -1545,7 +1584,11 @@ def main(argv: list[str] | None = None) -> int:
         "--attr",
         action="append",
         default=None,
-        help="Set a declared Attribute as name=value. Repeat for multiple Attributes.",
+        help=(
+            "Set a declared Attribute as name=value. Number and date Attributes "
+            "coerce from strings; repeat for list[string], or use name=[] for "
+            "an empty list."
+        ),
     )
     entity_parser.add_argument("--writer", default="agent:memorable")
     entity_parser.add_argument("--reason", default="")

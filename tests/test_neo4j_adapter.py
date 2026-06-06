@@ -6,13 +6,23 @@ Integration tests (marked with @pytest.mark.integration) need a running Neo4j.
 
 from __future__ import annotations
 
-from datetime import UTC, datetime, timedelta, timezone
+from datetime import UTC, date, datetime, timedelta, timezone
 
 import pytest
 
 from memorable.core.models import Decision, Entity, Provenance, Relation, Task
 
 # --- Fake driver for unit tests ---
+
+
+class FakeNeo4jDate:
+    """Fake storage-native date returned by the Neo4j driver."""
+
+    def __init__(self, value: date) -> None:
+        self._value = value
+
+    def to_native(self) -> date:
+        return self._value
 
 
 class FakeResult:
@@ -94,7 +104,12 @@ class FakeSession:
             entity_id = str(params.get("id", ""))
             key = (space, entity_id)
             attribute_prefix = str(params.get("attribute_prefix", "attr__"))
-            attribute_properties = dict(params.get("attribute_properties", {}))
+            attribute_properties = {
+                key: _fake_storage_attribute_value(value)
+                for key, value in dict(
+                    params.get("attribute_properties", {})
+                ).items()
+            }
             existing = dict(entities.get(key, {}))
             for existing_key in list(existing):
                 if existing_key.startswith(attribute_prefix):
@@ -400,6 +415,14 @@ class FakeSession:
         return FakeResult()
 
 
+def _fake_storage_attribute_value(value: object) -> object:
+    if type(value) is date:
+        return FakeNeo4jDate(value)
+    if isinstance(value, list):
+        return list(value)
+    return value
+
+
 class FakeDriver:
     def __init__(self) -> None:
         self._store: dict = {}
@@ -596,6 +619,34 @@ class TestNeo4jEntityRepository:
         assert result.attributes == {
             "url": "https://example.test",
             "medium": "video",
+        }
+
+    def test_save_and_get_roundtrip_preserves_typed_entity_attributes(self) -> None:
+        """save then get returns number, date, and list[string] Attributes."""
+        from memorable.storage.neo4j.repository import Neo4jEntityRepository
+
+        repo = Neo4jEntityRepository(driver=FakeDriver())
+        entity = Entity(
+            id="ent-1",
+            entity_type="reference",
+            name="Example Reference",
+            space="proj-a",
+            attributes={
+                "rating": 5,
+                "published_on": date(2026, 6, 6),
+                "aliases": [],
+            },
+        )
+        provenance = _make_provenance("ent-1", "entity")
+
+        repo.save(entity, provenance)
+        result = repo.get("proj-a", "ent-1")
+
+        assert result is not None
+        assert result.attributes == {
+            "rating": 5,
+            "published_on": date(2026, 6, 6),
+            "aliases": [],
         }
 
     def test_get_returns_none_for_missing(self) -> None:

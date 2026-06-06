@@ -7,11 +7,12 @@ only domain language from Memorable Core.
 
 from __future__ import annotations
 
-from datetime import UTC, datetime
+from datetime import UTC, date, datetime
 from typing import Any, Protocol, runtime_checkable
 
 from neo4j.exceptions import ConstraintError
 
+from memorable.core.attributes import AttributeValue
 from memorable.core.errors import DuplicateRecordError
 from memorable.core.models import (
     Decision,
@@ -224,7 +225,7 @@ class Neo4jMemorySpaceRepository:
 _ENTITY_ATTRIBUTE_STORAGE_PREFIX = "attr__"
 
 
-def _entity_attribute_properties(attributes: Any) -> dict[str, str]:
+def _entity_attribute_properties(attributes: Any) -> dict[str, AttributeValue]:
     return {
         f"{_ENTITY_ATTRIBUTE_STORAGE_PREFIX}{name}": value
         for name, value in dict(attributes).items()
@@ -233,14 +234,29 @@ def _entity_attribute_properties(attributes: Any) -> dict[str, str]:
 
 def _entity_attributes_from_properties(
     properties: dict[str, Any] | None,
-) -> dict[str, str]:
+) -> dict[str, AttributeValue]:
     if not properties:
         return {}
     return {
-        key.removeprefix(_ENTITY_ATTRIBUTE_STORAGE_PREFIX): value
+        key.removeprefix(_ENTITY_ATTRIBUTE_STORAGE_PREFIX): (
+            _entity_attribute_from_storage(value)
+        )
         for key, value in properties.items()
         if key.startswith(_ENTITY_ATTRIBUTE_STORAGE_PREFIX)
     }
+
+
+def _entity_attribute_from_storage(value: Any) -> AttributeValue:
+    to_native = getattr(value, "to_native", None)
+    if callable(to_native):
+        native_value = to_native()
+    else:
+        native_value = value
+    if isinstance(native_value, list):
+        return list(native_value)
+    if isinstance(native_value, date | float | int | str):
+        return native_value
+    return native_value
 
 
 class Neo4jEntityRepository:

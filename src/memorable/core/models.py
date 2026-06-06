@@ -7,6 +7,8 @@ from dataclasses import dataclass, field
 from datetime import datetime
 from types import MappingProxyType
 
+from memorable.core.attributes import AttributeValue, copy_attribute_values
+
 
 @dataclass(frozen=True)
 class MemorySpace:
@@ -35,14 +37,18 @@ class Entity:
     entity_type: str
     name: str
     space: str
-    attributes: Mapping[str, str] = field(default_factory=dict)
+    attributes: Mapping[str, AttributeValue] = field(default_factory=dict)
 
     def __post_init__(self) -> None:
         if not self.id:
             raise ValueError("Entity id must not be empty")
         if not self.name:
             raise ValueError("Entity name must not be empty")
-        object.__setattr__(self, "attributes", MappingProxyType(dict(self.attributes)))
+        object.__setattr__(
+            self,
+            "attributes",
+            MappingProxyType(copy_attribute_values(self.attributes)),
+        )
 
 
 @dataclass(frozen=True)

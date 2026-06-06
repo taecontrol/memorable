@@ -29,7 +29,10 @@ from memorable.core.application import (
     UndeclaredTypeError,
     build_status_payload,
 )
-from memorable.core.attributes import AttributeValidationError
+from memorable.core.attributes import (
+    AttributeValidationError,
+    serialize_attribute_values,
+)
 from memorable.core.context import ApplicationContext, default_context
 from memorable.core.models import ProvenanceIntegrityError
 from memorable.core.ports import TemporalRecordRepository
@@ -342,7 +345,7 @@ def remember_entity_tool(
         "entity_type": result.entity.entity_type,
         "name": result.entity.name,
         "space": result.entity.space,
-        "attributes": dict(result.entity.attributes),
+        "attributes": serialize_attribute_values(result.entity.attributes),
         "record_id": result.provenance.record_id,
         "record_kind": result.provenance.record_kind,
         "source": result.provenance.source_id,
