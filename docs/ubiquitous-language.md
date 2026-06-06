@@ -87,7 +87,9 @@ Example: the `memorable` workspace has its own MemorySpace.
 
 A MemoryProfile is the project-specific schema and policy that specializes the universal memory kernel for one MemorySpace.
 
-As a target design it defines domain-specific entity types, record types, relation types, metric keys, workflows, write policies, sensitive categories, lifecycle rules, and common queries. **The current build parses only a subset:** `version`, `space.{name,description}`, `entity/relation/record` declarations (each `name` plus `description`, and `extends` on records). Every other key is rejected at load time rather than silently ignored (ADR-0017). Metric keys, workflows, write policies (removed by ADR-0014), sensitive categories, lifecycle rules, and common queries are not yet part of the parsed schema.
+As a target design it defines domain-specific entity types, record types, relation types, metric keys, workflows, write policies, sensitive categories, lifecycle rules, and common queries. **The parsed profile schema is versioned:** v1 includes `version`, `space.{name,description}`, `entity/relation/record` declarations (each `name` plus `description`, `extends` on records, and optional `attributes` schemas on entity declarations). Every other key is rejected at load time rather than silently ignored (ADR-0017). Metric keys, workflows, write policies (removed by ADR-0014), sensitive categories, lifecycle rules, and common queries are not yet part of the parsed schema.
+
+Entity declarations may carry an `attributes:` schema: an ordered collection of Attribute declarations, each with `name` and `type`, parsed and validated fail-loud. Record Subtype declarations reuse the same Attribute schema after the post-#206 follow-up.
 
 A valid `records:` declaration is a Record Subtype declaration, not only profile documentation or validation metadata. It names an optional subtype that an Agent may select when writing a Decision, Observation, or Task whose kernel kind matches the declaration's `extends`; read surfaces can return that subtype, and retrieval/review surfaces can filter by it. Kernel Decision, Observation, and Task writes still require no `records:` declaration.
 
@@ -111,7 +113,7 @@ The kernel names a vocabulary, not all of which is writable yet. Distinguish:
 - **Structural kernel types** — Entity and Relation, written through their own primitives and enforced against the MemoryProfile.
 - **Kernel Vocabulary (not yet writable)** — Evidence, Measurement, Event, and DerivedMemory. These are accepted language and part of the kernel concept set, but have no model, repository, or write path in the current build. They are not valid `extends` targets. Each is marked below.
 
-See ADR-0017 (fail-loud profile validation) for the rule that profiles fail to load when they extend a non-writable type or declare unknown keys. See ADR-0021 for the rule that a valid `records:` declaration becomes an optional on-record subtype that affects writes and reads.
+See ADR-0017 (fail-loud profile validation) for the rule that profiles fail to load when they extend a non-writable type or declare unknown keys. See ADR-0021 for the rule that a valid `records:` declaration becomes an optional on-record subtype that affects writes and reads. See ADR-0022 for typed durable Attributes on declared types.
 
 ### MemoryRecord
 
@@ -145,7 +147,7 @@ A Record Subtype is selected explicitly at write time and validated against the 
 
 Read surfaces should return the Record Subtype when present. Memory Review, GraphRAG Retrieval, and truth reads can filter by Record Subtype so an Agent can ask for records such as Episodes, Patterns, Commitments, or ArchitectureDecisions.
 
-Do not use Record Subtype for Entity or Relation types. Do not model it as provenance, a free-form tag, or a storage label in core language. Do not confuse Record Subtype with custom typed fields; fields are a separate later layer that can build on the same declaration.
+Do not use Record Subtype for Entity or Relation types. Do not model it as provenance, a free-form tag, or a storage label in core language. Do not confuse Record Subtype with Attributes; Attributes are a separate typed durable-value layer that can build on the same declaration.
 
 ### Entity
 
@@ -153,11 +155,23 @@ An Entity is a remembered thing with identity inside a MemorySpace.
 
 Use Entity for named domain things that memory can refer to over time, such as a project, component, API, storage adapter, stakeholder, race, or training phase.
 
+An Entity may carry declared Attributes when its Entity type declares an `attributes:` schema in the MemoryProfile.
+
 Do not confuse a Memorable Entity with a Neo4j node or Graphiti `EntityNode`. A storage node may store a Memorable Entity, but the storage shape is not the domain concept.
 
 Correct: "Memorable is an Entity remembered in the project MemorySpace."
 
 Avoid: "Every Neo4j node is a Memorable Entity."
+
+### Attribute
+
+An Attribute is a typed, declared, durable value on an Entity and, after the post-#206 follow-up, on a Record Subtype.
+
+Attributes are declared in the MemoryProfile under a type's `attributes:` schema and validated fail-loud at write and filter time. All Attributes are optional in v1. The v1 type set is `string`, `number`, `date`, and `list[string]`; widening that set requires a profile version change.
+
+An Attribute is a stable fact, changeable only by Correction or an explicit Attribute-changing write path. It must not model mutable current state or temporal facts. Route mutable status to Lifecycle State; when something became true to Validity Time; what kind of thing something is to the Entity type or Record Subtype; and genuinely time-varying values to Relation.
+
+Do not use Attribute as a synonym for a Neo4j property; native storage representation stays inside the storage adapter. Do not confuse Attribute with a Measurement metric key, which names a different quantitative memory concept. Do not flatten Attribute values into Source/provenance text or Indexable Text as canonical memory.
 
 ### Relation
 
@@ -519,6 +533,22 @@ Preferred terms: Relation, Supersession, provenance link, lifecycle transition, 
 Reason: Edge is graph storage vocabulary. Memorable Core should name domain relationships.
 
 Exception: "About edge" is an accepted compound term — it names the specific domain concept of record→Entity membership (see the About entry and ADR-0018), not generic storage-edge vocabulary. Still avoid bare "node/edge" graph-storage language for domain relationships.
+
+### Field
+
+Avoid using Field as the domain term for a typed durable value declared on a type.
+
+Preferred term: Attribute.
+
+Reason: "field" is overloaded implementation vocabulary. ADR-0022 makes Attribute the accepted term and `attributes:` the YAML key for typed durable values on declared types.
+
+### Property
+
+Avoid using Property as the core domain term for a typed durable value declared on a type.
+
+Preferred term: Attribute. Use storage property only inside storage-adapter context.
+
+Reason: Property is graph/storage vocabulary and leaks representation into Memorable Core language.
 
 ### Fact
 

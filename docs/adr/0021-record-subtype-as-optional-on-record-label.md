@@ -44,11 +44,11 @@ Positive:
 - v0 migration can preserve original record kinds such as `Episode`, `Pattern`, and `Commitment` as structured memory instead of flattening them into prose or provenance.
 - The change is additive. Existing plain Decision, Observation, and Task writes still work with no profile declaration and no subtype.
 - The MemoryProfile contract becomes more honest and closes the ADR-0017 valid-declaration no-op gap.
-- This provides the stable anchor for feedback #2: custom typed fields can later attach schema and values to the same declared `records:` entry and on-record subtype label.
+- This provides the stable anchor for feedback #2: Attributes can later attach typed durable schema and values to the same declared `records:` entry and on-record subtype label.
 
 Negative:
 
-- Write services and adapters must validate and persist one more record attribute across Decision, Observation, and Task.
+- Write services and adapters must validate and persist one more Record Subtype value across Decision, Observation, and Task.
 - Retrieval and Memory Review must distinguish kernel record kind from Record Subtype so filters stay composable and errors stay understandable.
 - Profile evolution now has data consequences: renaming or deleting a declared record subtype can affect future writes and filters over existing subtyped records. Superseding an existing subtyped record also requires the inherited subtype to remain declared for the same kernel kind, or the writer must choose a currently valid subtype.
 
@@ -62,14 +62,14 @@ Rejected. This is premature and hard to reverse. It expands the agent surface ev
 
 ### Option C: Provenance or side-tag annotation
 
-Store the original kind as provenance text, a tag, or another side annotation outside the MemoryRecord's own attributes.
+Store the original kind as provenance text, a tag, or another side annotation outside the MemoryRecord itself.
 
-Rejected. The subtype describes what the record is inside the project schema. Modeling it as provenance or a side tag puts a record attribute in the wrong place, makes validation weak or impossible, and repeats the silent-no-op failure mode ADR-0017 was designed to remove.
+Rejected. The subtype describes what the record is inside the project schema. Modeling it as provenance or a side tag puts the record's kind in the wrong place, makes validation weak or impossible, and repeats the silent-no-op failure mode ADR-0017 was designed to remove.
 
 ## Guardrails
 
 - Record Subtype is optional; missing subtype never blocks non-supersession kernel Decision, Observation, or Task writes.
 - Record Subtype must be profile-declared and must extend the kernel kind being written, including when inherited from a predecessor during supersession.
-- Record Subtype is not a custom field system. Typed fields are a later additive layer on the same `records:` declaration.
+- Record Subtype is not an Attribute system. Attributes are a later additive layer on the same `records:` declaration (ADR-0022).
 - Do not infer a subtype from statement text or provenance. The Agent selects it explicitly at write time; supersession inheritance only carries the predecessor's already-declared subtype forward as lifecycle preservation.
 - Keep storage vocabulary inside storage adapters. Core docs, schemas, services, CLI, and MCP surfaces should use Record Subtype / `record_type` language.
