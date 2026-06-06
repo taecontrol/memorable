@@ -390,6 +390,62 @@ class TestRememberDecisionService:
         assert superseded.lifecycle_state == "superseded"
         assert superseded.record_type == "ArchitectureDecision"
 
+    def test_inherited_decision_subtype_must_match_active_profile(self) -> None:
+        from memorable.core.application import (
+            RememberDecisionService,
+            UndeclaredTypeError,
+        )
+        from memorable.core.profile import load_profile_from_yaml
+        from memorable.core.repositories import InMemoryDecisionRepository
+
+        repo = InMemoryDecisionRepository()
+        declaring_profile = load_profile_from_yaml(VALID_PROFILE_YAML)
+        RememberDecisionService(
+            repository=repo,
+            profile=declaring_profile,
+        ).remember(
+            space="memorable",
+            decision_id=V1_ID,
+            statement=STATEMENT_V1,
+            source_id=SOURCE_ID,
+            at=FIXTURE_TIMESTAMP_V1,
+            record_type="ArchitectureDecision",
+        )
+        evolved_profile = load_profile_from_yaml(
+            textwrap.dedent("""\
+                version: 1
+                space:
+                  name: memorable
+                  description: test
+                entities:
+                  - name: Project
+                records: []
+            """)
+        )
+        evolved_service = RememberDecisionService(
+            repository=repo,
+            profile=evolved_profile,
+        )
+
+        with pytest.raises(UndeclaredTypeError) as error:
+            evolved_service.remember(
+                space="memorable",
+                decision_id=V2_ID,
+                statement=STATEMENT_V2,
+                source_id=SOURCE_ID,
+                at=FIXTURE_TIMESTAMP_V2,
+                supersedes=V1_ID,
+            )
+
+        assert "Record Subtype 'ArchitectureDecision' is not declared" in str(
+            error.value
+        )
+        assert repo.get(space="memorable", record_id=V2_ID) is None
+        predecessor = repo.get(space="memorable", record_id=V1_ID)
+        assert predecessor is not None
+        assert predecessor.lifecycle_state == "current"
+        assert predecessor.record_type == "ArchitectureDecision"
+
     @pytest.mark.parametrize(
         ("record_type", "expected"),
         [

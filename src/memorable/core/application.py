@@ -275,7 +275,12 @@ def _resolve_record_subtype_for_write(
     predecessor = repository.get(space, supersedes)
     if predecessor is None:
         return None
-    return getattr(predecessor, "record_type", None)
+    inherited = getattr(predecessor, "record_type", None)
+    return validate_record_subtype(
+        profile=profile,
+        kernel_kind=kernel_kind,
+        candidate=inherited,
+    )
 
 
 @dataclass(frozen=True)

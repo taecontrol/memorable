@@ -24,9 +24,11 @@ The label stores the name of a declared `records:` entry from the active MemoryP
 
 Record Subtype is selected at write time and validated against the MemoryProfile before persisting:
 
-1. `None` is always valid and means a plain kernel record.
+1. `None` is always valid on a non-supersession write and means a plain kernel record.
 2. A non-empty subtype must match a declared `records[].name`.
 3. The matched declaration's `extends` value must equal the kernel kind being written.
+
+When a supersession write omits `record_type`, the successor inherits the predecessor's Record Subtype to preserve the chain's declared kind. That inherited subtype is validated against the active MemoryProfile before the successor is persisted. If the active profile has removed, renamed, or moved that subtype to a different `extends`, the supersession write fails loud instead of persisting an undeclared Record Subtype.
 
 Kernel record writes remain valid without any profile declaration. This preserves the deliberate asymmetry with Entity and Relation writes: Entity and Relation types must be declared, while Decision, Observation, and Task remain universal kernel write paths that can be used immediately.
 
@@ -48,7 +50,7 @@ Negative:
 
 - Write services and adapters must validate and persist one more record attribute across Decision, Observation, and Task.
 - Retrieval and Memory Review must distinguish kernel record kind from Record Subtype so filters stay composable and errors stay understandable.
-- Profile evolution now has data consequences: renaming or deleting a declared record subtype can affect future writes and filters over existing subtyped records.
+- Profile evolution now has data consequences: renaming or deleting a declared record subtype can affect future writes and filters over existing subtyped records. Superseding an existing subtyped record also requires the inherited subtype to remain declared for the same kernel kind, or the writer must choose a currently valid subtype.
 
 ## Alternatives Considered
 
@@ -66,8 +68,8 @@ Rejected. The subtype describes what the record is inside the project schema. Mo
 
 ## Guardrails
 
-- Record Subtype is optional; missing subtype never blocks kernel Decision, Observation, or Task writes.
-- Record Subtype must be profile-declared and must extend the kernel kind being written.
+- Record Subtype is optional; missing subtype never blocks non-supersession kernel Decision, Observation, or Task writes.
+- Record Subtype must be profile-declared and must extend the kernel kind being written, including when inherited from a predecessor during supersession.
 - Record Subtype is not a custom field system. Typed fields are a later additive layer on the same `records:` declaration.
-- Do not infer a subtype from statement text or provenance. The Agent selects it explicitly at write time.
+- Do not infer a subtype from statement text or provenance. The Agent selects it explicitly at write time; supersession inheritance only carries the predecessor's already-declared subtype forward as lifecycle preservation.
 - Keep storage vocabulary inside storage adapters. Core docs, schemas, services, CLI, and MCP surfaces should use Record Subtype / `record_type` language.

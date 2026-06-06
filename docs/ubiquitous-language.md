@@ -141,7 +141,7 @@ A Record Subtype is an optional, project-declared label on a Decision, Observati
 
 Example: if a MemoryProfile declares `Episode extends Observation`, an Agent may write an Observation with Record Subtype `Episode`. The record remains an Observation for kernel lifecycle, provenance, correction, supersession, and temporal semantics.
 
-A Record Subtype is selected explicitly at write time and validated against the active MemoryProfile: the subtype name must be declared under `records:`, and that declaration's `extends` must match the kernel kind being written. No subtype means a plain kernel record and is always valid.
+A Record Subtype is selected explicitly at write time and validated against the active MemoryProfile: the subtype name must be declared under `records:`, and that declaration's `extends` must match the kernel kind being written. On a non-supersession write, no subtype means a plain kernel record and is always valid. On a supersession write, omitting the subtype preserves the predecessor's Record Subtype; the inherited subtype is still validated against the active MemoryProfile before the successor is persisted.
 
 Read surfaces should return the Record Subtype when present. Memory Review, GraphRAG Retrieval, and truth reads can filter by Record Subtype so an Agent can ask for records such as Episodes, Patterns, Commitments, or ArchitectureDecisions.
 
