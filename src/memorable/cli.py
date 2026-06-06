@@ -710,8 +710,7 @@ def _cmd_truth_current(
             )
         else:
             message = (
-                f"Error: No Decision found for '{args.id}' "
-                f"in MemorySpace '{space}'."
+                f"Error: No Decision found for '{args.id}' in MemorySpace '{space}'."
             )
         print(message, file=sys.stderr)
         return 1
