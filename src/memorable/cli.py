@@ -365,6 +365,20 @@ _RECORD_EMBEDDING_SOURCE_KIND = {
 }
 
 
+def _parse_attribute_flags(values: list[str] | None) -> dict[str, str] | None:
+    if not values:
+        return None
+    attributes: dict[str, str] = {}
+    for value in values:
+        name, separator, attribute_value = value.partition("=")
+        if not separator or not name:
+            raise ValueError(
+                "Attribute flags must use name=value, for example --attr url=https://example.test."
+            )
+        attributes[name] = attribute_value
+    return attributes
+
+
 def _cmd_remember_entity(
     args: argparse.Namespace,
     ctx: ApplicationContext,
@@ -393,6 +407,7 @@ def _cmd_remember_entity(
             at=at,
             writer=getattr(args, "writer", "agent:memorable"),
             reason=getattr(args, "reason", ""),
+            attributes=_parse_attribute_flags(getattr(args, "attr", None)),
         )
     except ValueError as e:
         print(f"Error: {e}", file=sys.stderr)
@@ -415,6 +430,7 @@ def _cmd_remember_entity(
                 "entity_type": result.entity.entity_type,
                 "name": result.entity.name,
                 "space": result.entity.space,
+                "attributes": dict(result.entity.attributes),
                 "record_id": result.provenance.record_id,
                 "record_kind": result.provenance.record_kind,
                 "source": result.provenance.source_id,
@@ -1525,6 +1541,12 @@ def main(argv: list[str] | None = None) -> int:
     entity_parser.add_argument("--name", required=True)
     entity_parser.add_argument("--source", required=True)
     entity_parser.add_argument("--at", required=True)
+    entity_parser.add_argument(
+        "--attr",
+        action="append",
+        default=None,
+        help="Set a declared Attribute as name=value. Repeat for multiple Attributes.",
+    )
     entity_parser.add_argument("--writer", default="agent:memorable")
     entity_parser.add_argument("--reason", default="")
 

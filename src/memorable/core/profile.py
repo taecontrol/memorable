@@ -10,10 +10,13 @@ from dataclasses import dataclass
 
 import yaml
 
+from memorable.core.attributes import SUPPORTED_ATTRIBUTE_TYPES, AttributeDeclaration
+
 SUPPORTED_VERSIONS = (1,)
 TOP_LEVEL_KEYS = frozenset({"version", "space", "entities", "relations", "records"})
 SPACE_KEYS = frozenset({"name", "description"})
-ENTITY_KEYS = frozenset({"name", "description"})
+ENTITY_KEYS = frozenset({"name", "description", "attributes"})
+ATTRIBUTE_KEYS = frozenset({"name", "type"})
 RELATION_KEYS = frozenset({"name", "description"})
 RECORD_KEYS = frozenset({"name", "extends", "description"})
 TARGET_DESIGN_KEYS = frozenset({"metrics", "workflows", "common_queries"})
@@ -42,6 +45,7 @@ class EntityDeclaration:
 
     name: str
     description: str = ""
+    attributes: tuple[AttributeDeclaration, ...] = ()
 
 
 @dataclass(frozen=True)
@@ -102,7 +106,14 @@ def load_profile_from_yaml(yaml_text: str) -> MemoryProfile:
     )
 
     entities = tuple(
-        EntityDeclaration(name=e["name"], description=e.get("description", ""))
+        EntityDeclaration(
+            name=e["name"],
+            description=e.get("description", ""),
+            attributes=tuple(
+                AttributeDeclaration(name=attribute["name"], type=attribute["type"])
+                for attribute in e.get("attributes", [])
+            ),
+        )
         for e in data.get("entities", [])
     )
 
@@ -138,7 +149,14 @@ def profile_summary(profile: MemoryProfile) -> dict[str, object]:
         "record_count": len(profile.records),
         "relation_count": len(profile.relations),
         "entities": [
-            {"name": entity.name, "description": entity.description}
+            {
+                "name": entity.name,
+                "description": entity.description,
+                "attributes": [
+                    {"name": attribute.name, "type": attribute.type}
+                    for attribute in entity.attributes
+                ],
+            }
             for entity in profile.entities
         ],
         "relations": [
@@ -216,6 +234,29 @@ def _validate_entities(data: dict) -> None:
         _validate_allowed_keys(
             entity, ENTITY_KEYS, f"Entity declaration at position {i}"
         )
+        attributes = entity.get("attributes", [])
+        if not isinstance(attributes, list):
+            raise ProfileValidationError(
+                f"Entity '{entity['name']}' attributes must be a list of "
+                "Attribute declarations."
+            )
+        for attribute_position, attribute in enumerate(attributes):
+            location = (
+                f"Attribute declaration at position {attribute_position} "
+                f"on Entity '{entity['name']}'"
+            )
+            if not isinstance(attribute, dict) or not attribute.get("name"):
+                raise ProfileValidationError(
+                    f"{location} must have a non-empty 'name'."
+                )
+            _validate_allowed_keys(attribute, ATTRIBUTE_KEYS, location)
+            attribute_type = attribute.get("type")
+            if attribute_type not in SUPPORTED_ATTRIBUTE_TYPES:
+                raise ProfileValidationError(
+                    f"Attribute '{attribute.get('name')}' has unsupported type "
+                    f"'{attribute_type}' for MemoryProfile v1. "
+                    f"Supported Attribute types: {list(SUPPORTED_ATTRIBUTE_TYPES)}."
+                )
 
 
 def _validate_relations(data: dict) -> None:

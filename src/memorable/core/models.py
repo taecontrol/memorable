@@ -2,8 +2,10 @@
 
 from __future__ import annotations
 
-from dataclasses import dataclass
+from collections.abc import Mapping
+from dataclasses import dataclass, field
 from datetime import datetime
+from types import MappingProxyType
 
 
 @dataclass(frozen=True)
@@ -33,12 +35,14 @@ class Entity:
     entity_type: str
     name: str
     space: str
+    attributes: Mapping[str, str] = field(default_factory=dict)
 
     def __post_init__(self) -> None:
         if not self.id:
             raise ValueError("Entity id must not be empty")
         if not self.name:
             raise ValueError("Entity name must not be empty")
+        object.__setattr__(self, "attributes", MappingProxyType(dict(self.attributes)))
 
 
 @dataclass(frozen=True)

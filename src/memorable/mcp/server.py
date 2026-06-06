@@ -29,6 +29,7 @@ from memorable.core.application import (
     UndeclaredTypeError,
     build_status_payload,
 )
+from memorable.core.attributes import AttributeValidationError
 from memorable.core.context import ApplicationContext, default_context
 from memorable.core.models import ProvenanceIntegrityError
 from memorable.core.ports import TemporalRecordRepository
@@ -294,6 +295,7 @@ def remember_entity_tool(
     at: str,
     writer: str = "agent:memorable",
     reason: str = "",
+    attributes: dict[str, object] | None = None,
 ) -> dict[str, object]:
     """Remember an Entity with provenance in a MemorySpace.
 
@@ -319,9 +321,10 @@ def remember_entity_tool(
             at=timestamp,
             writer=writer,
             reason=reason,
+            attributes=attributes,
         )
     except ValueError as e:
-        if isinstance(e, UndeclaredTypeError):
+        if isinstance(e, UndeclaredTypeError | AttributeValidationError):
             return _profile_type_error(e)
         return {"error": str(e)}
 
@@ -339,6 +342,7 @@ def remember_entity_tool(
         "entity_type": result.entity.entity_type,
         "name": result.entity.name,
         "space": result.entity.space,
+        "attributes": dict(result.entity.attributes),
         "record_id": result.provenance.record_id,
         "record_kind": result.provenance.record_kind,
         "source": result.provenance.source_id,
