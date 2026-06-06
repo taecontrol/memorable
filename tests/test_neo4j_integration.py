@@ -12,6 +12,7 @@ import uuid
 from datetime import UTC, datetime
 
 import pytest
+from live_neo4j import build_live_neo4j_driver, live_neo4j_available
 
 from memorable.core.models import (
     Decision,
@@ -21,20 +22,9 @@ from memorable.core.models import (
     Provenance,
     Task,
 )
-from memorable.storage.neo4j.config import Neo4jConfig
 
 # Skip all tests in this module if Neo4j is unavailable
-neo4j_available = False
-try:
-    from neo4j import GraphDatabase
-
-    config = Neo4jConfig.from_env()
-    _driver = GraphDatabase.driver(config.uri, auth=(config.user, config.password))
-    _driver.verify_connectivity()
-    _driver.close()
-    neo4j_available = True
-except Exception:
-    pass
+neo4j_available = live_neo4j_available()
 
 pytestmark = pytest.mark.skipif(
     not neo4j_available,
@@ -45,10 +35,7 @@ pytestmark = pytest.mark.skipif(
 @pytest.fixture
 def neo4j_driver():
     """Provide a Neo4j driver connected to the test instance."""
-    from neo4j import GraphDatabase
-
-    config = Neo4jConfig.from_env()
-    driver = GraphDatabase.driver(config.uri, auth=(config.user, config.password))
+    driver = build_live_neo4j_driver()
     yield driver
     driver.close()
 
@@ -785,19 +772,14 @@ class TestSparseGraphSearchIntegration:
 
     @pytest.mark.integration
     def test_search_on_fresh_space_returns_empty_results(self) -> None:
-        from memorable.config import Neo4jSettings, RuntimeConfig
+        from live_neo4j import resolve_live_neo4j_settings
+
+        from memorable.config import RuntimeConfig
         from memorable.retrieval.embeddings import FakeEmbeddingProvider
         from memorable.retrieval.service import build_retrieval_service
         from memorable.storage.production import build_production_context
 
-        live_config = Neo4jConfig.from_env()
-        runtime_config = RuntimeConfig(
-            neo4j=Neo4jSettings(
-                uri=live_config.uri,
-                user=live_config.user,
-                password=live_config.password,
-            )
-        )
+        runtime_config = RuntimeConfig(neo4j=resolve_live_neo4j_settings())
         space = _unique_name("test-sparse-search-")
 
         ctx, driver = build_production_context(runtime_config)

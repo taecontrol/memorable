@@ -14,23 +14,12 @@ from datetime import UTC, datetime
 
 import pytest
 
+# --- Check Neo4j availability ---
+from live_neo4j import build_live_neo4j_driver, live_neo4j_available
+
 from memorable.core.models import Observation, Provenance
 
-# --- Check Neo4j availability ---
-
-neo4j_available = False
-try:
-    from neo4j import GraphDatabase
-
-    from memorable.storage.neo4j.config import Neo4jConfig
-
-    _config = Neo4jConfig.from_env()
-    _driver = GraphDatabase.driver(_config.uri, auth=(_config.user, _config.password))
-    _driver.verify_connectivity()
-    _driver.close()
-    neo4j_available = True
-except Exception:
-    pass
+neo4j_available = live_neo4j_available()
 
 
 # --- Fixtures ---
@@ -80,13 +69,9 @@ def neo4j_repo():
     if not neo4j_available:
         pytest.skip("Neo4j is not available")
 
-    from neo4j import GraphDatabase
-
-    from memorable.storage.neo4j.config import Neo4jConfig
     from memorable.storage.neo4j.repository import Neo4jObservationRepository
 
-    config = Neo4jConfig.from_env()
-    driver = GraphDatabase.driver(config.uri, auth=(config.user, config.password))
+    driver = build_live_neo4j_driver()
     repo = Neo4jObservationRepository(driver)
     yield repo
     # Cleanup test data

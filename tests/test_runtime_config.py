@@ -28,7 +28,7 @@ class TestDefaultsOnly:
         config = load_runtime_config(base_path=tmp_path)
 
         assert isinstance(config, RuntimeConfig)
-        assert config.neo4j.uri == "bolt://localhost:7687"
+        assert config.neo4j.uri == "bolt://127.0.0.1:7687"
         assert config.neo4j.user == "neo4j"
         assert config.neo4j.password == "memorable"
 
@@ -88,6 +88,23 @@ class TestRuntimeYaml:
         # Other neo4j fields remain default
         assert config.neo4j.user == "neo4j"
         assert config.neo4j.password == "memorable"
+
+    def test_custom_local_port_override_is_preserved_and_local(
+        self, tmp_path: Path
+    ) -> None:
+        from memorable.config import load_runtime_config
+        from memorable.runtime.docker import is_remote_uri
+
+        config_dir = tmp_path / ".memorable"
+        config_dir.mkdir()
+        (config_dir / "runtime.yaml").write_text(
+            "neo4j:\n  uri: bolt://127.0.0.1:7688\n"
+        )
+
+        config = load_runtime_config(base_path=tmp_path)
+
+        assert config.neo4j.uri == "bolt://127.0.0.1:7688"
+        assert is_remote_uri(config.neo4j.uri) is False
 
     def test_source_tracks_runtime_yaml(self, tmp_path: Path) -> None:
         from memorable.config import load_runtime_config
@@ -338,7 +355,7 @@ class TestEnvironmentFallback:
 
         config = load_runtime_config(base_path=tmp_path)
 
-        assert config.neo4j.uri == "bolt://localhost:7687"
+        assert config.neo4j.uri == "bolt://127.0.0.1:7687"
         assert config.neo4j.user == "neo4j"
         assert config.sources["neo4j.uri"] == "built-in"
         assert config.sources["neo4j.user"] == "built-in"
@@ -404,3 +421,18 @@ class TestEnvironmentFallback:
         # .env file exists, so environ is not consulted
         assert config.neo4j.password == "memorable"  # built-in default
         assert config.sources["neo4j.password"] == "built-in"
+
+
+class TestConnectionSettingsStayOutOfCore:
+    """Neo4j connection settings are storage/runtime infrastructure, not core."""
+
+    def test_neo4j_settings_is_not_a_core_domain_model(self) -> None:
+        """Connection settings must not leak into core domain models.
+
+        Neo4j connection settings live in the runtime-config vocabulary
+        (``memorable.config.Neo4jSettings``), never in core domain models, so
+        infrastructure configuration cannot drift into the core domain.
+        """
+        import memorable.core.models as core_models
+
+        assert not hasattr(core_models, "Neo4jSettings")

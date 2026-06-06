@@ -1,7 +1,8 @@
 from __future__ import annotations
 
+from collections.abc import Callable
 from pathlib import Path
-from typing import Literal
+from typing import TYPE_CHECKING, Literal
 
 from mcp.server.fastmcp import FastMCP
 
@@ -41,6 +42,9 @@ from memorable.guide import GuideTopicName
 from memorable.guide import render as render_guide
 from memorable.runtime.doctor import DiagnosticResult, run_diagnostics
 
+if TYPE_CHECKING:
+    from memorable.retrieval.indexing import EmbeddingIndexer
+
 mcp_server = FastMCP(
     "memorable",
     instructions=(
@@ -71,6 +75,81 @@ def guide_hint(topic: GuideTopicName) -> str:
 
 def _profile_type_error(message: object) -> dict[str, object]:
     return {"error": f"{message}{guide_hint('profiles')}"}
+
+
+def _build_embedding_indexer() -> EmbeddingIndexer:
+    """Build the write-time Embedding indexer for the active runtime config."""
+    from memorable.retrieval.embeddings import build_embedding_provider
+    from memorable.retrieval.indexing import EmbeddingIndexer
+
+    config = load_runtime_config(include_environment_overrides=True)
+    provider = build_embedding_provider(
+        config.embeddings, api_key=config.embeddings.api_key
+    )
+    return EmbeddingIndexer(
+        retrieval_index=_context.retrieval_index,
+        embedding_provider=provider,
+        dimensions=config.embeddings.dimensions,
+    )
+
+
+def _index_after_canonical_write(
+    *,
+    space: str,
+    source_id: str,
+    source_kind: str,
+    upsert: Callable[[EmbeddingIndexer], None],
+) -> dict[str, object] | None:
+    """Upsert a derived Embedding after canonical memory was written."""
+    try:
+        upsert(_build_embedding_indexer())
+    except Exception as exc:
+        return {
+            "error": (
+                "Canonical memory was written, but derived Embedding index "
+                f"maintenance failed for {source_kind} '{source_id}' in "
+                f"MemorySpace '{space}'. Run `memorable reindex --space "
+                f"{space}` to repair search. Original error: {exc}"
+            ),
+            "canonical_memory_written": True,
+            "reindex_command": f"memorable reindex --space {space}",
+        }
+    return None
+
+
+def _delete_after_canonical_forget(
+    *,
+    space: str,
+    source_id: str,
+    source_kind: str,
+) -> dict[str, object] | None:
+    """Delete a derived Embedding after canonical memory was forgotten."""
+    try:
+        _context.retrieval_index.delete(
+            space=space,
+            source_id=source_id,
+            source_kind=source_kind,
+        )
+    except Exception as exc:
+        return {
+            "error": (
+                "Canonical memory was forgotten, but derived Embedding index "
+                f"maintenance failed for {source_kind} '{source_id}' in "
+                f"MemorySpace '{space}'. Run `memorable reindex --space "
+                f"{space}` to erase stale derived Embeddings. Original error: "
+                f"{exc}"
+            ),
+            "canonical_memory_forgotten": True,
+            "reindex_command": f"memorable reindex --space {space}",
+        }
+    return None
+
+
+_RECORD_EMBEDDING_SOURCE_KIND = {
+    "decision": "Decision",
+    "observation": "Observation",
+    "task": "Task",
+}
 
 
 def _resolve_repository(
@@ -244,6 +323,15 @@ def remember_entity_tool(
             return _profile_type_error(e)
         return {"error": str(e)}
 
+    index_error = _index_after_canonical_write(
+        space=space,
+        source_id=result.entity.id,
+        source_kind="Entity",
+        upsert=lambda indexer: indexer.upsert_entity(result.entity),
+    )
+    if index_error is not None:
+        return index_error
+
     return {
         "entity_id": result.entity.id,
         "entity_type": result.entity.entity_type,
@@ -315,6 +403,22 @@ def remember_decision_tool(
         )
     except ValueError as e:
         return {"error": str(e)}
+
+    def upsert_decision_embeddings(indexer: EmbeddingIndexer) -> None:
+        indexer.upsert_decision(result.decision)
+        if supersedes is not None:
+            superseded_decision = _context.decision_repo.get(space, supersedes)
+            if superseded_decision is not None:
+                indexer.upsert_decision(superseded_decision)
+
+    index_error = _index_after_canonical_write(
+        space=space,
+        source_id=result.decision.id,
+        source_kind="Decision",
+        upsert=upsert_decision_embeddings,
+    )
+    if index_error is not None:
+        return index_error
 
     return {
         "decision_id": result.decision.id,
@@ -388,6 +492,22 @@ def remember_observation_tool(
     except ValueError as e:
         return {"error": str(e)}
 
+    def upsert_observation_embeddings(indexer: EmbeddingIndexer) -> None:
+        indexer.upsert_observation(result.observation)
+        if supersedes is not None:
+            superseded_observation = _context.observation_repo.get(space, supersedes)
+            if superseded_observation is not None:
+                indexer.upsert_observation(superseded_observation)
+
+    index_error = _index_after_canonical_write(
+        space=space,
+        source_id=result.observation.id,
+        source_kind="Observation",
+        upsert=upsert_observation_embeddings,
+    )
+    if index_error is not None:
+        return index_error
+
     return {
         "observation_id": result.observation.id,
         "statement": result.observation.statement,
@@ -459,6 +579,22 @@ def remember_relation_tool(
         if isinstance(e, UndeclaredTypeError):
             return _profile_type_error(e)
         return {"error": str(e)}
+
+    def upsert_relation_embeddings(indexer: EmbeddingIndexer) -> None:
+        indexer.upsert_relation(result.relation)
+        if supersedes is not None:
+            superseded_relation = _context.relation_repo.get(space, supersedes)
+            if superseded_relation is not None:
+                indexer.upsert_relation(superseded_relation)
+
+    index_error = _index_after_canonical_write(
+        space=space,
+        source_id=result.relation.id,
+        source_kind="Relation",
+        upsert=upsert_relation_embeddings,
+    )
+    if index_error is not None:
+        return index_error
 
     return {
         "relation_id": result.relation.id,
@@ -713,6 +849,15 @@ def remember_task_tool(
     except ValueError as e:
         return {"error": str(e)}
 
+    index_error = _index_after_canonical_write(
+        space=space,
+        source_id=result.task.id,
+        source_kind="Task",
+        upsert=lambda indexer: indexer.upsert_task(result.task),
+    )
+    if index_error is not None:
+        return index_error
+
     return {
         "task_id": result.task.id,
         "title": result.task.title,
@@ -760,11 +905,65 @@ def complete_task_tool(
     except ValueError as e:
         return {"error": str(e)}
 
+    index_error = _index_after_canonical_write(
+        space=space,
+        source_id=result.task.id,
+        source_kind="Task",
+        upsert=lambda indexer: indexer.upsert_task(result.task),
+    )
+    if index_error is not None:
+        return index_error
+
     return {
         "task_id": result.task.id,
         "lifecycle_state": result.task.lifecycle_state,
         "event_id": result.event_id,
         "completion_time": result.completion_time.isoformat(),
+    }
+
+
+@mcp_server.tool(
+    name="memorable_reindex_space",
+    description=(
+        "Backfill persistent Embeddings for a MemorySpace using the active "
+        "Embedding Provider, model, and dimensions. Run after upgrading or "
+        "changing Embedding settings before search."
+    ),
+)
+def reindex_space_tool(space: str) -> dict[str, object]:
+    """Backfill derived Embeddings for every retrievable item in a MemorySpace."""
+    from memorable.retrieval.embeddings import build_embedding_provider
+    from memorable.retrieval.service import build_retrieval_service
+
+    config = load_runtime_config(include_environment_overrides=True)
+    try:
+        provider = build_embedding_provider(
+            config.embeddings, api_key=config.embeddings.api_key
+        )
+    except (RuntimeError, ValueError) as e:
+        return {"error": str(e)}
+
+    service = build_retrieval_service(
+        _context,
+        provider,
+        dimensions=config.embeddings.dimensions,
+    )
+    try:
+        result = service.reindex(space)
+    except Exception as e:
+        return {
+            "error": (
+                f"Reindex failed for MemorySpace '{space}'. Run `memorable "
+                "doctor` to diagnose Embedding Provider and vector index "
+                "compatibility, then retry `memorable reindex --space "
+                f"{space}`. Original error: {e}"
+            ),
+            "reindex_command": f"memorable reindex --space {space}",
+        }
+    return {
+        "space": result.space,
+        "indexed_total": result.indexed_total,
+        "indexed_by_kind": result.indexed_by_kind,
     }
 
 
@@ -795,7 +994,10 @@ def search_memory_tool(
         as_of: ISO timestamp, required when mode is "as-of"
     """
     from memorable.retrieval.embeddings import build_embedding_provider
-    from memorable.retrieval.service import build_retrieval_service
+    from memorable.retrieval.service import (
+        EmbeddingIndexCompatibilityError,
+        build_retrieval_service,
+    )
 
     config = load_runtime_config(include_environment_overrides=True)
     try:
@@ -804,18 +1006,28 @@ def search_memory_tool(
         )
     except (RuntimeError, ValueError) as e:
         return {"error": str(e)}
-    service = build_retrieval_service(_context, provider)
+    service = build_retrieval_service(
+        _context,
+        provider,
+        dimensions=config.embeddings.dimensions,
+    )
 
     as_of_dt = None
     if as_of is not None:
         as_of_dt = parse_iso_timestamp(as_of)
 
-    results = service.search(
-        space=space,
-        query=query,
-        mode=mode,
-        as_of=as_of_dt,
-    )
+    try:
+        results = service.search(
+            space=space,
+            query=query,
+            mode=mode,
+            as_of=as_of_dt,
+        )
+    except EmbeddingIndexCompatibilityError as e:
+        return {
+            "error": str(e),
+            "reindex_command": f"memorable reindex --space {space}",
+        }
 
     return {
         "query": query,
@@ -1006,6 +1218,58 @@ def invalidate_tool(
     except ValueError as e:
         return {"error": str(e)}
 
+    if record_type == "decision":
+        invalidated_decision = _context.decision_repo.get(space, result.record_id)
+        if invalidated_decision is None:
+            return {
+                "error": (
+                    f"Invalidated Decision '{result.record_id}' not found "
+                    f"in MemorySpace '{space}'."
+                )
+            }
+        index_error = _index_after_canonical_write(
+            space=space,
+            source_id=result.record_id,
+            source_kind="Decision",
+            upsert=lambda indexer: indexer.upsert_decision(invalidated_decision),
+        )
+        if index_error is not None:
+            return index_error
+    elif record_type == "observation":
+        invalidated_observation = _context.observation_repo.get(space, result.record_id)
+        if invalidated_observation is None:
+            return {
+                "error": (
+                    f"Invalidated Observation '{result.record_id}' not found "
+                    f"in MemorySpace '{space}'."
+                )
+            }
+        index_error = _index_after_canonical_write(
+            space=space,
+            source_id=result.record_id,
+            source_kind="Observation",
+            upsert=lambda indexer: indexer.upsert_observation(invalidated_observation),
+        )
+        if index_error is not None:
+            return index_error
+    elif record_type == "relation":
+        invalidated_relation = _context.relation_repo.get(space, result.record_id)
+        if invalidated_relation is None:
+            return {
+                "error": (
+                    f"Invalidated Relation '{result.record_id}' not found "
+                    f"in MemorySpace '{space}'."
+                )
+            }
+        index_error = _index_after_canonical_write(
+            space=space,
+            source_id=result.record_id,
+            source_kind="Relation",
+            upsert=lambda indexer: indexer.upsert_relation(invalidated_relation),
+        )
+        if index_error is not None:
+            return index_error
+
     return {
         "record_id": result.record_id,
         "space": result.space,
@@ -1120,6 +1384,58 @@ def correct_tool(
     except ValueError as e:
         return {"error": str(e)}
 
+    if record_type == "decision":
+        corrected_decision = _context.decision_repo.get(space, result.record_id)
+        if corrected_decision is None:
+            return {
+                "error": (
+                    f"Corrected Decision '{result.record_id}' not found "
+                    f"in MemorySpace '{space}'."
+                )
+            }
+        index_error = _index_after_canonical_write(
+            space=space,
+            source_id=result.record_id,
+            source_kind="Decision",
+            upsert=lambda indexer: indexer.upsert_decision(corrected_decision),
+        )
+        if index_error is not None:
+            return index_error
+    elif record_type == "observation":
+        corrected_observation = _context.observation_repo.get(space, result.record_id)
+        if corrected_observation is None:
+            return {
+                "error": (
+                    f"Corrected Observation '{result.record_id}' not found "
+                    f"in MemorySpace '{space}'."
+                )
+            }
+        index_error = _index_after_canonical_write(
+            space=space,
+            source_id=result.record_id,
+            source_kind="Observation",
+            upsert=lambda indexer: indexer.upsert_observation(corrected_observation),
+        )
+        if index_error is not None:
+            return index_error
+    elif record_type == "relation":
+        corrected_relation = _context.relation_repo.get(space, result.record_id)
+        if corrected_relation is None:
+            return {
+                "error": (
+                    f"Corrected Relation '{result.record_id}' not found "
+                    f"in MemorySpace '{space}'."
+                )
+            }
+        index_error = _index_after_canonical_write(
+            space=space,
+            source_id=result.record_id,
+            source_kind="Relation",
+            upsert=lambda indexer: indexer.upsert_relation(corrected_relation),
+        )
+        if index_error is not None:
+            return index_error
+
     return {
         "record_id": result.record_id,
         "space": result.space,
@@ -1171,6 +1487,14 @@ def forget_record_tool(
     except ValueError as e:
         return {"error": str(e)}
 
+    delete_error = _delete_after_canonical_forget(
+        space=space,
+        source_id=result.record_id,
+        source_kind=_RECORD_EMBEDDING_SOURCE_KIND[result.record_kind],
+    )
+    if delete_error is not None:
+        return delete_error
+
     return {
         "forgotten": True,
         "record_id": result.record_id,
@@ -1214,9 +1538,25 @@ def forget_entity_tool(
     service = ForgetService(repository=_context.forget_repo)
 
     try:
+        cascaded_relations = list(
+            _context.relation_repo.list_by_entity(space, entity_id)
+        )
         result = service.forget_entity(space=space, entity_id=entity_id)
     except ValueError as e:
         return {"error": str(e)}
+
+    embedding_deletions = [
+        (result.record_id, "Entity"),
+        *((relation.id, "Relation") for relation in cascaded_relations),
+    ]
+    for source_id, source_kind in embedding_deletions:
+        delete_error = _delete_after_canonical_forget(
+            space=space,
+            source_id=source_id,
+            source_kind=source_kind,
+        )
+        if delete_error is not None:
+            return delete_error
 
     return {
         "forgotten": True,

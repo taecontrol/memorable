@@ -80,6 +80,8 @@ Index maintenance moves to write and maintenance paths:
 
 Index maintenance is synchronous and fail-loud in V1. Silent stale indexes are worse than a visible operational error. Because Embeddings are derived, the repair path is explicit reindexing.
 
+Schema bootstrap stays create-if-absent; `init` must never drop or recreate the vector index. Provider, model, or dimension drift is repaired only by explicit `reindex`, never by making bootstrap destructive.
+
 ## Consequences
 
 Positive:

@@ -6,6 +6,7 @@ and provenance-aware explanation into ranked retrieval results.
 
 from __future__ import annotations
 
+import hashlib
 from datetime import datetime
 from typing import TYPE_CHECKING, Literal
 
@@ -20,18 +21,32 @@ from memorable.core.ports import (
     TaskRepository,
 )
 from memorable.retrieval.embeddings import EmbeddingProvider
-from memorable.retrieval.index import InMemoryEmbeddingIndex
+from memorable.retrieval.index import InMemoryEmbeddingIndex, RetrievalIndex
 from memorable.retrieval.indexable_text import (
+    INDEXABLE_TEXT_VERSION,
     indexable_text_for_decision,
     indexable_text_for_entity,
     indexable_text_for_observation,
     indexable_text_for_relation,
     indexable_text_for_task,
 )
-from memorable.retrieval.models import EmbeddingRecord, RetrievalResult
+from memorable.retrieval.indexing import EmbeddingIndexer
+from memorable.retrieval.models import (
+    EmbeddingCoverageReport,
+    EmbeddingRecord,
+    ReindexResult,
+    RetrievalResult,
+)
 
 if TYPE_CHECKING:
     from memorable.core.context import ApplicationContext
+
+
+SOURCE_KINDS = ("Entity", "Decision", "Task", "Observation", "Relation")
+
+
+class EmbeddingIndexCompatibilityError(RuntimeError):
+    """Raised when active search settings cannot use the Embedding index."""
 
 
 class HybridRetrievalService:
@@ -55,6 +70,7 @@ class HybridRetrievalService:
         inspect_task_service: InspectTaskService | None = None,
         relation_repo: RelationRepository | None = None,
         about_repo: AboutRepository | None = None,
+        retrieval_index: RetrievalIndex | None = None,
     ) -> None:
         self._entity_repo = entity_repo
         self._decision_repo = decision_repo
@@ -64,7 +80,9 @@ class HybridRetrievalService:
         self._about_repo = about_repo
         self._embedding_provider = embedding_provider
         self._dimensions = dimensions
-        self._index = InMemoryEmbeddingIndex()
+        self._index = (
+            retrieval_index if retrieval_index is not None else InMemoryEmbeddingIndex()
+        )
         self._point_in_time_service = (
             point_in_time_service
             if point_in_time_service is not None
@@ -84,94 +102,172 @@ class HybridRetrievalService:
             else None
         )
 
-    def _rebuild_index(self, space: str) -> None:
-        """Rebuild the embedding index from all records in the space.
+    def reindex(self, space: str) -> ReindexResult:
+        """Recreate the index and backfill derived Embeddings for a MemorySpace.
 
-        This is simple but correct for the tracer bullet. A production
-        system would maintain the index incrementally.
+        Recreating the persistent vector index at the configured dimensions is
+        the sanctioned repair for embedding provider/model/dimension drift; the
+        storage-specific drop/recreate lives inside the retrieval index adapter.
         """
-        self._index = InMemoryEmbeddingIndex()
+        self._index.recreate_index(self._dimensions)
+        self._index.clear_space(space)
+        indexed_by_kind = {
+            "Entity": 0,
+            "Decision": 0,
+            "Task": 0,
+            "Observation": 0,
+            "Relation": 0,
+        }
+        indexer = EmbeddingIndexer(
+            retrieval_index=self._index,
+            embedding_provider=self._embedding_provider,
+            dimensions=self._dimensions,
+        )
 
         for entity in self._entity_repo.list_by_space(space):
-            text = indexable_text_for_entity(entity)
-            vector = self._embedding_provider.embed(text)
-            self._index.store(
-                EmbeddingRecord(
-                    source_id=entity.id,
-                    source_kind="Entity",
-                    space=space,
-                    indexable_text=text,
-                    vector=vector,
-                    provider_name=self._embedding_provider.provider_name,
-                    model_name=self._embedding_provider.model_name,
-                    dimensions=self._dimensions,
-                )
-            )
+            indexer.upsert_entity(entity)
+            indexed_by_kind["Entity"] += 1
 
         for decision in self._decision_repo.list_by_space(space):
-            text = indexable_text_for_decision(decision)
-            vector = self._embedding_provider.embed(text)
-            self._index.store(
-                EmbeddingRecord(
-                    source_id=decision.id,
-                    source_kind="Decision",
-                    space=space,
-                    indexable_text=text,
-                    vector=vector,
-                    provider_name=self._embedding_provider.provider_name,
-                    model_name=self._embedding_provider.model_name,
-                    dimensions=self._dimensions,
-                )
-            )
+            indexer.upsert_decision(decision)
+            indexed_by_kind["Decision"] += 1
 
         for task in self._task_repo.list_by_space(space):
-            text = indexable_text_for_task(task)
-            vector = self._embedding_provider.embed(text)
-            self._index.store(
-                EmbeddingRecord(
-                    source_id=task.id,
-                    source_kind="Task",
-                    space=space,
-                    indexable_text=text,
-                    vector=vector,
-                    provider_name=self._embedding_provider.provider_name,
-                    model_name=self._embedding_provider.model_name,
-                    dimensions=self._dimensions,
-                )
-            )
+            indexer.upsert_task(task)
+            indexed_by_kind["Task"] += 1
 
         for observation in self._observation_repo.list_by_space(space):
-            text = indexable_text_for_observation(observation)
-            vector = self._embedding_provider.embed(text)
-            self._index.store(
-                EmbeddingRecord(
-                    source_id=observation.id,
-                    source_kind="Observation",
-                    space=space,
-                    indexable_text=text,
-                    vector=vector,
-                    provider_name=self._embedding_provider.provider_name,
-                    model_name=self._embedding_provider.model_name,
-                    dimensions=self._dimensions,
-                )
-            )
+            indexer.upsert_observation(observation)
+            indexed_by_kind["Observation"] += 1
 
         if self._relation_repo is not None:
             for relation in self._relation_repo.list_by_space(space):
-                text = indexable_text_for_relation(relation)
-                vector = self._embedding_provider.embed(text)
-                self._index.store(
-                    EmbeddingRecord(
-                        source_id=relation.id,
-                        source_kind="Relation",
-                        space=space,
-                        indexable_text=text,
-                        vector=vector,
-                        provider_name=self._embedding_provider.provider_name,
-                        model_name=self._embedding_provider.model_name,
-                        dimensions=self._dimensions,
-                    )
-                )
+                indexer.upsert_relation(relation)
+                indexed_by_kind["Relation"] += 1
+
+        return ReindexResult(space=space, indexed_by_kind=indexed_by_kind)
+
+    def _empty_kind_counts(self) -> dict[str, int]:
+        return {kind: 0 for kind in SOURCE_KINDS}
+
+    def _expected_embedding_hashes(
+        self, space: str
+    ) -> dict[tuple[str, str], tuple[str, str]]:
+        expected: dict[tuple[str, str], tuple[str, str]] = {}
+
+        def add(source_kind: str, source_id: str, indexable_text: str) -> None:
+            expected[(source_kind, source_id)] = (
+                hashlib.sha256(indexable_text.encode()).hexdigest(),
+                INDEXABLE_TEXT_VERSION,
+            )
+
+        for entity in self._entity_repo.list_by_space(space):
+            add("Entity", entity.id, indexable_text_for_entity(entity))
+        for decision in self._decision_repo.list_by_space(space):
+            add("Decision", decision.id, indexable_text_for_decision(decision))
+        for task in self._task_repo.list_by_space(space):
+            add("Task", task.id, indexable_text_for_task(task))
+        for observation in self._observation_repo.list_by_space(space):
+            add(
+                "Observation",
+                observation.id,
+                indexable_text_for_observation(observation),
+            )
+        if self._relation_repo is not None:
+            for relation in self._relation_repo.list_by_space(space):
+                add("Relation", relation.id, indexable_text_for_relation(relation))
+        return expected
+
+    def index_coverage(self, space: str) -> EmbeddingCoverageReport:
+        """Report active Embedding coverage for a MemorySpace."""
+        expected = self._expected_embedding_hashes(space)
+        expected_by_kind = self._empty_kind_counts()
+        active_by_kind = self._empty_kind_counts()
+        missing_by_kind = self._empty_kind_counts()
+        stale_by_kind = self._empty_kind_counts()
+        unusable_by_kind = self._empty_kind_counts()
+        incompatible_by_kind = self._empty_kind_counts()
+
+        records_by_source: dict[tuple[str, str], list[EmbeddingRecord]] = {}
+        for record in self._index.records(space=space):
+            key = (record.source_kind, record.source_id)
+            if key in expected:
+                records_by_source.setdefault(key, []).append(record)
+
+        for (source_kind, source_id), (
+            expected_hash,
+            expected_version,
+        ) in expected.items():
+            expected_by_kind[source_kind] += 1
+            records = records_by_source.get((source_kind, source_id), [])
+            active_records = [
+                record
+                for record in records
+                if self._is_active_embedding_metadata(record)
+            ]
+            incompatible_records = [
+                record
+                for record in records
+                if not self._is_active_embedding_metadata(record)
+            ]
+            if incompatible_records:
+                incompatible_by_kind[source_kind] += 1
+            if not active_records:
+                missing_by_kind[source_kind] += 1
+                continue
+
+            active_by_kind[source_kind] += 1
+            usable_records = [
+                record
+                for record in active_records
+                if len(record.vector) == self._dimensions
+            ]
+            if not usable_records:
+                unusable_by_kind[source_kind] += 1
+                continue
+            if not any(
+                record.indexable_text_hash == expected_hash
+                and record.indexable_text_version == expected_version
+                for record in usable_records
+            ):
+                stale_by_kind[source_kind] += 1
+
+        return EmbeddingCoverageReport(
+            space=space,
+            provider_name=self._embedding_provider.provider_name,
+            model_name=self._embedding_provider.model_name,
+            dimensions=self._dimensions,
+            expected_by_kind=expected_by_kind,
+            active_by_kind=active_by_kind,
+            missing_by_kind=missing_by_kind,
+            stale_by_kind=stale_by_kind,
+            unusable_by_kind=unusable_by_kind,
+            incompatible_by_kind=incompatible_by_kind,
+        )
+
+    def _is_active_embedding_metadata(self, record: EmbeddingRecord) -> bool:
+        return (
+            record.provider_name == self._embedding_provider.provider_name
+            and record.model_name == self._embedding_provider.model_name
+            and record.dimensions == self._dimensions
+        )
+
+    def _ensure_search_index_compatible(self, space: str) -> None:
+        report = self.index_coverage(space)
+        if report.expected_total == 0:
+            return
+        if report.active_total == 0:
+            msg = (
+                f"No compatible Embeddings found for MemorySpace '{space}' using "
+                "active Embedding Provider "
+                f"'{self._embedding_provider.provider_name}', model "
+                f"'{self._embedding_provider.model_name}', dimensions "
+                f"{self._dimensions}. Run `memorable reindex --space {space}` "
+                "to rebuild derived Embeddings for the active settings."
+            )
+            raise EmbeddingIndexCompatibilityError(msg)
+        if not report.ok:
+            raise EmbeddingIndexCompatibilityError(report.actionable_hint)
 
     def search(
         self,
@@ -184,12 +280,11 @@ class HybridRetrievalService:
         """Perform hybrid GraphRAG retrieval.
 
         Steps:
-        1. Rebuild index from current repository state
-        2. Embed query and find semantic candidates
-        3. Graph expansion: find related records for each candidate
-        4. Temporal filtering based on mode
-        5. Rank by cosine similarity
-        6. Build provenance-aware explanations
+        1. Embed query and find semantic candidates in the persistent index
+        2. Graph expansion: find related records for each candidate
+        3. Temporal filtering based on mode
+        4. Rank by cosine similarity
+        5. Build provenance-aware explanations
 
         Args:
             space: MemorySpace to search
@@ -199,16 +294,43 @@ class HybridRetrievalService:
             as_of: Required when mode is "as-of"
             top_k: Maximum number of results to return
         """
-        # Step 1: Rebuild index
-        self._rebuild_index(space)
+        # Step 1: Semantic candidates from the persistent index.
+        try:
+            query_vector = self._embedding_provider.embed(query)
+        except Exception as exc:
+            msg = (
+                "Embedding Provider failed to embed the search query for "
+                f"MemorySpace '{space}' using provider "
+                f"'{self._embedding_provider.provider_name}', model "
+                f"'{self._embedding_provider.model_name}', dimensions "
+                f"{self._dimensions}. Run `memorable doctor` to diagnose "
+                f"Embedding settings. Original error: {exc}"
+            )
+            raise EmbeddingIndexCompatibilityError(msg) from exc
+        try:
+            candidates = self._index.search(
+                space=space,
+                query_vector=query_vector,
+                top_k=top_k * 2,
+                provider_name=self._embedding_provider.provider_name,
+                model_name=self._embedding_provider.model_name,
+                dimensions=self._dimensions,
+            )
+        except Exception as exc:
+            msg = (
+                f"Embedding index search failed for MemorySpace '{space}' "
+                "using active Embedding Provider "
+                f"'{self._embedding_provider.provider_name}', model "
+                f"'{self._embedding_provider.model_name}', dimensions "
+                f"{self._dimensions}. Run `memorable doctor` to diagnose "
+                "vector index compatibility, then run `memorable reindex "
+                f"--space {space}` to rebuild derived Embeddings. "
+                f"Original error: {exc}"
+            )
+            raise EmbeddingIndexCompatibilityError(msg) from exc
+        self._ensure_search_index_compatible(space)
 
-        # Step 2: Semantic candidates
-        query_vector = self._embedding_provider.embed(query)
-        candidates = self._index.search(
-            space=space, query_vector=query_vector, top_k=top_k * 2
-        )
-
-        # Step 3: Graph expansion -- collect related IDs
+        # Step 2: Graph expansion -- collect related IDs
         # Maps source_id → (score, source_kind) so _build_result can
         # dispatch directly without probing all repositories.
         expanded_ids: dict[str, tuple[float, str]] = {}
@@ -804,6 +926,8 @@ class HybridRetrievalService:
 def build_retrieval_service(
     context: ApplicationContext,
     embedding_provider: EmbeddingProvider,
+    *,
+    dimensions: int = 32,
 ) -> HybridRetrievalService:
     """Build a HybridRetrievalService wired to the given context's repos.
 
@@ -815,7 +939,9 @@ def build_retrieval_service(
         decision_repo=context.decision_repo,
         task_repo=context.task_repo,
         embedding_provider=embedding_provider,
+        dimensions=dimensions,
         observation_repo=context.observation_repo,
         relation_repo=context.relation_repo,
         about_repo=context.about_repo,
+        retrieval_index=context.retrieval_index,
     )

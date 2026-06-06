@@ -5,11 +5,11 @@ from dataclasses import dataclass
 from pathlib import Path
 from typing import NotRequired, TypedDict
 
-from neo4j import GraphDatabase
-
 from memorable.config import RuntimeConfig
 from memorable.core.profile import load_profile_from_yaml
 from memorable.retrieval.embeddings import EmbeddingProvider, build_embedding_provider
+from memorable.retrieval.models import EmbeddingCoverageReport
+from memorable.storage.neo4j.connection import connect, resolve_bolt_uri
 from memorable.storage.neo4j.schema import (
     expected_constraint_shapes,
     expected_vector_index_shape,
@@ -51,26 +51,42 @@ EMBEDDING_PROVIDER_CHECK = "embedding_provider_embeds"
 EMBEDDING_PROBE_TEXT = "Memorable doctor embedding probe."
 FASTEMBED_DOWNLOAD_HINT = "fastembed first use may download the local model (~67MB)."
 MEMORY_PROFILE_HINT = "Fix .memorable/memory.yaml so it is valid MemoryProfile YAML."
+EMBEDDING_COVERAGE_CHECK = "embedding_index_coverage"
+
+# Bounded representative read run after basic connectivity succeeds. The Bolt
+# handshake can succeed on a defunct IPv6-first connection while a real read
+# hangs, so doctor exercises a trivial read to reflect actual runtime usage.
+# It must stay a constant-cost read: no MATCH, vector search, Embedding work,
+# GraphRAG Retrieval, or MemorySpace-specific query.
+REPRESENTATIVE_READ_QUERY = "RETURN 1"
+
+LOCAL_ENDPOINT_CHECK = "neo4j_local_endpoint"
+LOCALHOST_COMPATIBILITY_HINT = (
+    "Configured Neo4j URI uses 'localhost'; doctor connected via IPv4 loopback "
+    "({effective}) to avoid IPv6-first hangs. 'memorable db status' still "
+    "reports the configured URI."
+)
 
 
 def ping_neo4j(config: RuntimeConfig) -> None:
-    """Verify the configured Neo4j Bolt endpoint is reachable."""
-    driver = GraphDatabase.driver(
-        config.neo4j.uri,
-        auth=(config.neo4j.user, config.neo4j.password),
-    )
+    """Verify the live Neo4j runtime is reachable AND readable.
+
+    Builds the driver through the shared connection policy (IPv4 compatibility +
+    fail-fast settings), which verifies the Bolt handshake, then runs a bounded
+    representative read so a handshake-only success on a defunct connection is
+    not mistaken for a healthy runtime.
+    """
+    driver = connect(config)
     try:
-        driver.verify_connectivity()
+        with driver.session() as session:
+            session.run(REPRESENTATIVE_READ_QUERY).consume()
     finally:
         driver.close()
 
 
 def list_schema_constraints(config: RuntimeConfig) -> list[SchemaConstraint]:
     """Return live Neo4j schema constraint descriptors."""
-    driver = GraphDatabase.driver(
-        config.neo4j.uri,
-        auth=(config.neo4j.user, config.neo4j.password),
-    )
+    driver = connect(config)
     try:
         with driver.session() as session:
             result = session.run(
@@ -110,10 +126,7 @@ def schema_constraints_present(constraints: list[SchemaConstraint]) -> bool:
 
 def list_vector_indexes(config: RuntimeConfig) -> list[VectorIndex]:
     """Return live Neo4j vector index descriptors."""
-    driver = GraphDatabase.driver(
-        config.neo4j.uri,
-        auth=(config.neo4j.user, config.neo4j.password),
-    )
+    driver = connect(config)
     try:
         with driver.session() as session:
             result = session.run(
@@ -146,6 +159,29 @@ def vector_index_present(indexes: list[VectorIndex]) -> bool:
         and tuple(index["properties"]) == expected_properties
         for index in indexes
     )
+
+
+def collect_embedding_coverage(
+    config: RuntimeConfig,
+    space: str,
+) -> EmbeddingCoverageReport:
+    """Return active Embedding coverage for a MemorySpace."""
+    from memorable.retrieval.service import build_retrieval_service
+    from memorable.storage.production import build_production_context
+
+    provider = build_embedding_provider(
+        config.embeddings, api_key=config.embeddings.api_key
+    )
+    ctx, driver = build_production_context(config)
+    try:
+        service = build_retrieval_service(
+            ctx,
+            provider,
+            dimensions=config.embeddings.dimensions,
+        )
+        return service.index_coverage(space)
+    finally:
+        driver.close()
 
 
 def live_vector_index_dimensions(indexes: list[VectorIndex]) -> int | None:
@@ -200,6 +236,9 @@ class DiagnosticProbes:
     )
     profile_path: Path | None = None
     load_profile_from_yaml: Callable[[str], object] = load_profile_from_yaml
+    collect_embedding_coverage: Callable[
+        [RuntimeConfig, str], EmbeddingCoverageReport
+    ] = collect_embedding_coverage
 
     def resolved_profile_path(self) -> Path:
         """Return the MemoryProfile path, defaulting to the cwd workspace."""
@@ -236,8 +275,9 @@ def _vector_index_dimensions_hint(live_dimensions: int, config: RuntimeConfig) -
         "Live vector index 'memorable_embeddings_vector' was built for "
         f"{live_dimensions} dimensions, but the runtime is configured for "
         f"{config.embeddings.dimensions} dimensions. The index was built for a "
-        "different embedding model; re-run 'memorable init' (or migrate) so the "
-        "index matches the configured embeddings."
+        "different embedding model; run 'memorable reindex' to drop and recreate "
+        "the index at the configured dimensions and backfill Embeddings. Schema "
+        "bootstrap is create-if-absent and cannot repair this drift."
     )
 
 
@@ -289,6 +329,38 @@ def _embedding_provider_success_hint(config: RuntimeConfig) -> str:
     if config.embeddings.provider == "fastembed":
         return FASTEMBED_DOWNLOAD_HINT
     return ""
+
+
+def _embedding_index_coverage_unreadable_hint(space: str, cause: str) -> str:
+    return (
+        f"Doctor could not inspect Embedding coverage for MemorySpace '{space}'. "
+        "Check Neo4j connectivity and Embedding settings, then run "
+        f"`memorable reindex --space {space}` to repair derived Embeddings. "
+        f"Cause: {cause}"
+    )
+
+
+def _embedding_index_coverage_result(
+    config: RuntimeConfig,
+    probes: DiagnosticProbes,
+    space: str,
+) -> DiagnosticResult:
+    try:
+        report = probes.collect_embedding_coverage(config, space)
+    except Exception as exc:
+        return {
+            "check": EMBEDDING_COVERAGE_CHECK,
+            "ok": False,
+            "hint": _embedding_index_coverage_unreadable_hint(space, str(exc)),
+        }
+
+    if report.ok:
+        return {"check": EMBEDDING_COVERAGE_CHECK, "ok": True, "hint": ""}
+    return {
+        "check": EMBEDDING_COVERAGE_CHECK,
+        "ok": False,
+        "hint": report.actionable_hint,
+    }
 
 
 def _embedding_probe_result(
@@ -344,6 +416,25 @@ def _embedding_probe_result(
     }
 
 
+def _local_endpoint_note(config: RuntimeConfig) -> DiagnosticResult | None:
+    """Surface the localhost->IPv4 compatibility rewrite as an informational note.
+
+    The connection policy resolves a configured ``localhost`` URI to IPv4 loopback
+    for the live connection only. Doctor is the runtime diagnostic surface, so it
+    explains that interpretation. ``db status`` still reports the configured URI
+    (ADR-0016), so this note never changes configured-value reporting. Returns
+    None when the configured URI is used verbatim (IPv4, explicit IPv6, remote).
+    """
+    effective = resolve_bolt_uri(config.neo4j.uri)
+    if effective == config.neo4j.uri:
+        return None
+    return {
+        "check": LOCAL_ENDPOINT_CHECK,
+        "ok": True,
+        "hint": LOCALHOST_COMPATIBILITY_HINT.format(effective=effective),
+    }
+
+
 def run_diagnostics(
     config: RuntimeConfig,
     *,
@@ -369,6 +460,10 @@ def run_diagnostics(
             "hint": "" if connectivity_ok else NEO4J_CONNECTIVITY_HINT,
         }
     )
+
+    endpoint_note = _local_endpoint_note(config)
+    if endpoint_note is not None:
+        results.append(endpoint_note)
 
     if not connectivity_ok:
         # Neo4j is unreachable, so the schema/vector SHOW queries cannot be
@@ -419,7 +514,9 @@ def run_diagnostics(
     profile_path = probes.resolved_profile_path()
     if profile_path.exists():
         try:
-            probes.load_profile_from_yaml(profile_path.read_text(encoding="utf-8"))
+            profile = probes.load_profile_from_yaml(
+                profile_path.read_text(encoding="utf-8")
+            )
         except Exception:
             results.append(
                 {
@@ -430,6 +527,11 @@ def run_diagnostics(
             )
         else:
             results.append({"check": "memory_profile_parses", "ok": True, "hint": ""})
+            space_name = getattr(getattr(profile, "space", None), "name", None)
+            if isinstance(space_name, str) and space_name:
+                results.append(
+                    _embedding_index_coverage_result(config, probes, space_name)
+                )
 
     return results
 

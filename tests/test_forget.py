@@ -6,6 +6,7 @@ from collections.abc import Iterator
 from datetime import UTC, datetime
 
 import pytest
+from live_neo4j import build_live_neo4j_driver, live_neo4j_available
 
 AT = datetime(2026, 6, 3, 9, 0, tzinfo=UTC)
 
@@ -20,19 +21,7 @@ PROFILE_YAML = textwrap.dedent("""\
     records: []
 """)
 
-neo4j_available = False
-try:
-    from neo4j import GraphDatabase
-
-    from memorable.storage.neo4j.config import Neo4jConfig
-
-    _config = Neo4jConfig.from_env()
-    _driver = GraphDatabase.driver(_config.uri, auth=(_config.user, _config.password))
-    _driver.verify_connectivity()
-    _driver.close()
-    neo4j_available = True
-except Exception:
-    neo4j_available = False
+neo4j_available = live_neo4j_available()
 
 
 def _unique_space() -> str:
@@ -44,10 +33,7 @@ def neo4j_forget_context() -> Iterator[object]:
     if not neo4j_available:
         pytest.skip("Neo4j is not available")
 
-    from neo4j import GraphDatabase
-
     from memorable.core.context import ApplicationContext
-    from memorable.storage.neo4j.config import Neo4jConfig
     from memorable.storage.neo4j.repository import (
         Neo4jAboutRepository,
         Neo4jDecisionRepository,
@@ -58,8 +44,7 @@ def neo4j_forget_context() -> Iterator[object]:
         Neo4jTaskRepository,
     )
 
-    config = Neo4jConfig.from_env()
-    driver = GraphDatabase.driver(config.uri, auth=(config.user, config.password))
+    driver = build_live_neo4j_driver()
     ctx = ApplicationContext(
         entity_repo=Neo4jEntityRepository(driver),
         decision_repo=Neo4jDecisionRepository(driver),

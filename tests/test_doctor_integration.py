@@ -13,26 +13,20 @@ Run with: uv run pytest tests/test_doctor_integration.py -v -m integration
 from __future__ import annotations
 
 import pytest
+from live_neo4j import (
+    build_live_neo4j_driver,
+    live_neo4j_available,
+    resolve_live_neo4j_settings,
+)
 
-from memorable.config import EmbeddingSettings, Neo4jSettings, RuntimeConfig
-from memorable.storage.neo4j.config import Neo4jConfig
+from memorable.config import EmbeddingSettings, RuntimeConfig
 from memorable.storage.neo4j.schema import create_vector_index_cypher
 
 INDEX_NAME = "memorable_embeddings_vector"
 DEFAULT_DIMENSIONS = 384
 
 # Skip all tests in this module if Neo4j is unavailable.
-neo4j_available = False
-try:
-    from neo4j import GraphDatabase
-
-    _config = Neo4jConfig.from_env()
-    _driver = GraphDatabase.driver(_config.uri, auth=(_config.user, _config.password))
-    _driver.verify_connectivity()
-    _driver.close()
-    neo4j_available = True
-except Exception:
-    pass
+neo4j_available = live_neo4j_available()
 
 pytestmark = [
     pytest.mark.integration,
@@ -52,9 +46,8 @@ class _FakeProvider:
 
 def _runtime_config(dimensions: int) -> RuntimeConfig:
     """RuntimeConfig with live Neo4j from env and a stubbed embedding model."""
-    neo4j = Neo4jConfig.from_env()
     return RuntimeConfig(
-        neo4j=Neo4jSettings(uri=neo4j.uri, user=neo4j.user, password=neo4j.password),
+        neo4j=resolve_live_neo4j_settings(),
         embeddings=EmbeddingSettings(
             provider="fake", model="hash-based", dimensions=dimensions
         ),
@@ -76,7 +69,7 @@ def vector_index_at_384():
     Teardown always runs (yield fixture), leaving the shared dev DB with the
     index recreated at the default 384 dims for normal use.
     """
-    driver = GraphDatabase.driver(_config.uri, auth=(_config.user, _config.password))
+    driver = build_live_neo4j_driver()
     try:
         with driver.session() as session:
             _create_index_at(session, DEFAULT_DIMENSIONS)

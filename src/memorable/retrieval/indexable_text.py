@@ -8,6 +8,8 @@ from __future__ import annotations
 
 from memorable.core.models import Decision, Entity, Observation, Relation, Task
 
+INDEXABLE_TEXT_VERSION = "1"
+
 
 def indexable_text_for_entity(entity: Entity) -> str:
     """Generate Indexable Text for an Entity."""

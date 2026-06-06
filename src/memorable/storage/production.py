@@ -7,10 +7,11 @@ Entry points (CLI, MCP) own the driver lifecycle (close on exit).
 
 from __future__ import annotations
 
-from neo4j import Driver, GraphDatabase
+from neo4j import Driver
 
 from memorable.config import RuntimeConfig
 from memorable.core.context import ApplicationContext
+from memorable.storage.neo4j.connection import connect
 from memorable.storage.neo4j.repository import (
     Neo4jAboutRepository,
     Neo4jDecisionRepository,
@@ -21,6 +22,7 @@ from memorable.storage.neo4j.repository import (
     Neo4jRelationRepository,
     Neo4jTaskRepository,
 )
+from memorable.storage.neo4j.retrieval_index import Neo4jRetrievalIndex
 
 
 def build_production_context(
@@ -38,25 +40,7 @@ def build_production_context(
         ConnectionError: If Neo4j is unreachable, with an actionable message
             suggesting ``memorable db start`` or checking the config.
     """
-    driver = GraphDatabase.driver(
-        config.neo4j.uri,
-        auth=(config.neo4j.user, config.neo4j.password),
-        # Sparse graphs legitimately lack some labels/properties/relationships.
-        # If a real query typo slips through because this hides UNRECOGNIZED,
-        # revisit with a narrower filter or debug-level notification sink.
-        notifications_disabled_classifications=["UNRECOGNIZED"],
-    )
-
-    try:
-        driver.verify_connectivity()
-    except Exception as exc:
-        driver.close()
-        raise ConnectionError(
-            f"Cannot connect to Neo4j at {config.neo4j.uri}. "
-            f"Is Neo4j running? Try 'memorable db start' or check your "
-            f"runtime config in .memorable/runtime.yaml.\n"
-            f"Original error: {exc}"
-        ) from exc
+    driver = connect(config)
 
     ctx = ApplicationContext(
         entity_repo=Neo4jEntityRepository(driver),
@@ -67,6 +51,7 @@ def build_production_context(
         about_repo=Neo4jAboutRepository(driver),
         forget_repo=Neo4jForgetRepository(driver),
         memory_space_repo=Neo4jMemorySpaceRepository(driver),
+        retrieval_index=Neo4jRetrievalIndex(driver),
     )
 
     return ctx, driver
