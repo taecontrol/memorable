@@ -29,6 +29,7 @@ def _make_record(
     *,
     statement: str | None = None,
     lifecycle_state: str | None = None,
+    record_subtype: str | None = None,
 ) -> Any:
     validity_time = datetime(2026, 5, 25, 10, 0, 0, tzinfo=UTC)
     if record_type == "decision":
@@ -41,6 +42,7 @@ def _make_record(
             lifecycle_state=lifecycle_state or "current",
             supersedes=None,
             superseded_by=None,
+            record_type=record_subtype,
         )
     if record_type == "observation":
         return Observation(
@@ -52,6 +54,7 @@ def _make_record(
             lifecycle_state=lifecycle_state or "current",
             supersedes=None,
             superseded_by=None,
+            record_type=record_subtype,
         )
     if record_type == "relation":
         return Relation(
@@ -76,8 +79,17 @@ def _make_record(
             validity_time=validity_time,
             completion_time=None,
             completion_event_id=None,
+            record_type=record_subtype,
         )
     raise AssertionError(f"Unsupported record type: {record_type}")
+
+
+def _record_subtype_for(record_type: str) -> str:
+    return {
+        "decision": "ArchitectureDecision",
+        "observation": "GeneralObservation",
+        "task": "FollowUp",
+    }[record_type]
 
 
 def _make_provenance(
@@ -105,6 +117,15 @@ ALL_REPOS = [
     pytest.param("decision_projection_neo4j_harness", marks=pytest.mark.integration),
     pytest.param("observation_projection_neo4j_harness", marks=pytest.mark.integration),
     pytest.param("relation_projection_neo4j_harness", marks=pytest.mark.integration),
+    pytest.param("task_projection_neo4j_harness", marks=pytest.mark.integration),
+]
+
+SUBTYPED_REPOS = [
+    "decision_projection_inmemory_harness",
+    "observation_projection_inmemory_harness",
+    "task_projection_inmemory_harness",
+    pytest.param("decision_projection_neo4j_harness", marks=pytest.mark.integration),
+    pytest.param("observation_projection_neo4j_harness", marks=pytest.mark.integration),
     pytest.param("task_projection_neo4j_harness", marks=pytest.mark.integration),
 ]
 
@@ -137,6 +158,7 @@ def _save(
     creation_time: datetime,
     statement: str | None = None,
     lifecycle_state: str | None = None,
+    record_subtype: str | None = None,
 ) -> None:
     record = _make_record(
         harness.record_type,
@@ -144,6 +166,7 @@ def _save(
         record_id,
         statement=statement,
         lifecycle_state=lifecycle_state,
+        record_subtype=record_subtype,
     )
     provenance = _make_provenance(harness.record_type, record_id, creation_time)
     harness.save(record, provenance)
@@ -213,6 +236,40 @@ def test_list_projections_by_space_filters_by_record_ids(
     )
 
     assert [p.id for p in projections] == [f"{prefix}-wanted"]
+
+
+@pytest.mark.parametrize("harness_fixture", SUBTYPED_REPOS)
+def test_list_projections_by_space_filters_by_record_subtype(
+    harness_fixture: str,
+    request: pytest.FixtureRequest,
+) -> None:
+    harness = _harness(harness_fixture, request)
+    repo = harness.repository
+    space = _unique_space()
+    t1 = datetime(2026, 5, 25, 10, 0, 0, tzinfo=UTC)
+    t2 = datetime(2026, 5, 25, 11, 0, 0, tzinfo=UTC)
+    record_subtype = _record_subtype_for(harness.record_type)
+
+    _save(
+        harness,
+        space=space,
+        record_id="rec-typed",
+        creation_time=t1,
+        record_subtype=record_subtype,
+    )
+    _save(harness, space=space, record_id="rec-plain", creation_time=t2)
+
+    projections = repo.list_projections_by_space(
+        space=space,
+        state=None,
+        since=None,
+        until=None,
+        limit=10,
+        record_type=record_subtype,
+    )
+
+    assert [p.id for p in projections] == ["rec-typed"]
+    assert projections[0].record_type == record_subtype
 
 
 @pytest.mark.parametrize("harness_fixture", ALL_REPOS)

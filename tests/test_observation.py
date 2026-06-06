@@ -380,6 +380,83 @@ class TestRememberObservationService:
         stored = repo.get(space="memorable", record_id=V1_ID)
         assert stored is not None
 
+    def test_remember_observation_with_declared_subtype_round_trips(self) -> None:
+        service, repo = self._make_service()
+
+        result = service.remember(
+            space="memorable",
+            observation_id=V1_ID,
+            statement=STATEMENT_V1,
+            source_id=SOURCE_ID,
+            at=FIXTURE_TIMESTAMP_V1,
+            record_type="TeamObservation",
+        )
+
+        assert result.observation.record_type == "TeamObservation"
+        stored = repo.get(space="memorable", record_id=V1_ID)
+        assert stored is not None
+        assert stored.record_type == "TeamObservation"
+
+    def test_remember_observation_with_undeclared_subtype_fails_loud(self) -> None:
+        from memorable.core.application import UndeclaredTypeError
+
+        service, _repo = self._make_service()
+
+        with pytest.raises(UndeclaredTypeError) as error:
+            service.remember(
+                space="memorable",
+                observation_id=V1_ID,
+                statement=STATEMENT_V1,
+                source_id=SOURCE_ID,
+                at=FIXTURE_TIMESTAMP_V1,
+                record_type="Pattern",
+            )
+
+        message = str(error.value)
+        assert "Record Subtype 'Pattern' is not declared" in message
+        assert "TeamObservation" in message
+
+    def test_remember_observation_with_wrong_extends_fails_loud(self) -> None:
+        from memorable.core.application import (
+            RememberObservationService,
+            UndeclaredTypeError,
+        )
+        from memorable.core.profile import load_profile_from_yaml
+        from memorable.core.repositories import InMemoryObservationRepository
+
+        profile = load_profile_from_yaml(
+            """\
+version: 1
+space:
+  name: memorable
+entities:
+  - name: Project
+records:
+  - name: TeamObservation
+    extends: Observation
+  - name: ArchitectureDecision
+    extends: Decision
+"""
+        )
+        service = RememberObservationService(
+            repository=InMemoryObservationRepository(),
+            profile=profile,
+        )
+
+        with pytest.raises(UndeclaredTypeError) as error:
+            service.remember(
+                space="memorable",
+                observation_id=V1_ID,
+                statement=STATEMENT_V1,
+                source_id=SOURCE_ID,
+                at=FIXTURE_TIMESTAMP_V1,
+                record_type="ArchitectureDecision",
+            )
+
+        message = str(error.value)
+        assert "extends Decision, not Observation" in message
+        assert "TeamObservation" in message
+
     def test_remember_observation_with_supersession(self) -> None:
         service, repo = self._make_service()
 
@@ -390,6 +467,7 @@ class TestRememberObservationService:
             statement=STATEMENT_V1,
             source_id=SOURCE_ID,
             at=FIXTURE_TIMESTAMP_V1,
+            record_type="TeamObservation",
         )
 
         # Remember v2, superseding v1
@@ -405,6 +483,7 @@ class TestRememberObservationService:
         assert result.observation.id == V2_ID
         assert result.observation.supersedes == V1_ID
         assert result.observation.lifecycle_state == "current"
+        assert result.observation.record_type == "TeamObservation"
 
         # v1 should now be marked superseded
         v1 = repo.get(space="memorable", record_id=V1_ID)
@@ -412,6 +491,7 @@ class TestRememberObservationService:
         assert v1.lifecycle_state == "superseded"
         assert v1.invalidation_time == FIXTURE_TIMESTAMP_V2
         assert v1.superseded_by == V2_ID
+        assert v1.record_type == "TeamObservation"
 
     def test_remembers_observation_against_empty_profile(self) -> None:
         """Observation is a kernel record type: writable with no declaration.
@@ -450,7 +530,10 @@ class TestRememberObservationService:
         )
 
         assert result.observation.id == "observation:x"
-        assert repo.get(space="memorable", record_id="observation:x") is not None
+        assert result.observation.record_type is None
+        stored = repo.get(space="memorable", record_id="observation:x")
+        assert stored is not None
+        assert stored.record_type is None
 
     def test_remember_observation_sets_writer(self) -> None:
         service, _repo = self._make_service()
@@ -690,6 +773,82 @@ class TestMCPRememberObservation:
         assert result["record_kind"] == "observation"
         assert "error" not in result
 
+    def test_remember_observation_tool_with_record_type(self) -> None:
+        from memorable.mcp.server import remember_observation_tool
+
+        result = remember_observation_tool(
+            space="memorable",
+            observation_id=V1_ID,
+            statement=STATEMENT_V1,
+            source=SOURCE_ID,
+            at="2026-05-25T09:00:00Z",
+            record_type="GeneralObservation",
+        )
+
+        assert "error" not in result
+        assert result["record_kind"] == "observation"
+        assert result["record_type"] == "GeneralObservation"
+
+    def test_current_truth_tool_returns_observation_record_type(self) -> None:
+        from memorable.mcp.server import current_truth_tool, remember_observation_tool
+
+        remember_observation_tool(
+            space="memorable",
+            observation_id=V1_ID,
+            statement=STATEMENT_V1,
+            source=SOURCE_ID,
+            at="2026-05-25T09:00:00Z",
+            record_type="GeneralObservation",
+        )
+
+        result = current_truth_tool(
+            space="memorable",
+            record_id=V1_ID,
+            record_kind="observation",
+        )
+
+        assert "error" not in result
+        assert result["record_id"] == V1_ID
+        assert result["record_type"] == "GeneralObservation"
+
+    def test_remember_observation_tool_undeclared_record_type_fails_loud(self) -> None:
+        from memorable.mcp.server import remember_observation_tool
+
+        result = remember_observation_tool(
+            space="memorable",
+            observation_id=V1_ID,
+            statement=STATEMENT_V1,
+            source=SOURCE_ID,
+            at="2026-05-25T09:00:00Z",
+            record_type="Pattern",
+        )
+
+        assert "error" in result
+        assert "Record Subtype 'Pattern' is not declared" in result["error"]
+        assert "GeneralObservation" in result["error"]
+
+    def test_inspect_history_tool_returns_observation_record_type(self) -> None:
+        from memorable.mcp.server import inspect_history_tool, remember_observation_tool
+
+        remember_observation_tool(
+            space="memorable",
+            observation_id=V1_ID,
+            statement=STATEMENT_V1,
+            source=SOURCE_ID,
+            at="2026-05-25T09:00:00Z",
+            record_type="GeneralObservation",
+        )
+
+        result = inspect_history_tool(
+            space="memorable",
+            record_id=V1_ID,
+            record_kind="observation",
+        )
+
+        assert "error" not in result
+        assert result["record_kind"] == "observation"
+        assert result["history"][0]["record_type"] == "GeneralObservation"
+
     def test_remember_observation_tool_with_supersession(self) -> None:
         from memorable.mcp.server import remember_observation_tool
 
@@ -739,7 +898,7 @@ class TestMCPRememberObservation:
         result = inspect_history_tool(
             space="memorable",
             record_id=V1_ID,
-            record_type="observation",
+            record_kind="observation",
         )
 
         assert "error" not in result
@@ -809,6 +968,35 @@ class TestCLIRememberObservation:
         output = json.loads(capsys.readouterr().out)
         assert output["record_id"] == V1_ID
         assert output["record_kind"] == "observation"
+
+    def test_remember_observation_with_type_outputs_record_type(self, capsys) -> None:
+        import json
+
+        from memorable.cli import main
+
+        exit_code = main(
+            [
+                "remember",
+                "observation",
+                "--space",
+                "memorable",
+                "--id",
+                V1_ID,
+                "--statement",
+                STATEMENT_V1,
+                "--type",
+                "GeneralObservation",
+                "--source",
+                SOURCE_ID,
+                "--at",
+                "2026-05-25T09:00:00Z",
+            ]
+        )
+
+        assert exit_code == 0
+        output = json.loads(capsys.readouterr().out)
+        assert output["record_kind"] == "observation"
+        assert output["record_type"] == "GeneralObservation"
 
     def test_remember_observation_with_supersession(self, capsys) -> None:
         from memorable.cli import main

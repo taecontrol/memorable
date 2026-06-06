@@ -92,13 +92,17 @@ class ProvenanceIntegrityError(Exception):
 
 @dataclass(frozen=True)
 class RecordProjection:
-    """A compact, type-agnostic view of a MemoryRecord for Memory Review."""
+    """A compact, type-agnostic view of a MemoryRecord for Memory Review.
+
+    ``type`` is the kernel kind; ``record_type`` is the optional Record Subtype.
+    """
 
     id: str
     type: str
     label: str
     lifecycle_state: str
     creation_time: datetime
+    record_type: str | None = None
 
 
 @dataclass(frozen=True)
@@ -128,6 +132,7 @@ class Decision:
     lifecycle_state: str
     supersedes: str | None
     superseded_by: str | None
+    record_type: str | None = None
 
     def __post_init__(self) -> None:
         if not self.id:
@@ -153,6 +158,7 @@ class Observation:
     lifecycle_state: str
     supersedes: str | None
     superseded_by: str | None
+    record_type: str | None = None
 
     def __post_init__(self) -> None:
         if not self.id:
@@ -176,6 +182,7 @@ class Task:
     validity_time: datetime
     completion_time: datetime | None
     completion_event_id: str | None
+    record_type: str | None = None
 
     def __post_init__(self) -> None:
         if not self.id:

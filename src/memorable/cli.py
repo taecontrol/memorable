@@ -18,6 +18,7 @@ from memorable.core.application import (
     InspectProvenanceService,
     InspectTaskService,
     InvalidateService,
+    ListRecordsService,
     PointInTimeTruthService,
     RememberDecisionService,
     RememberEntityService,
@@ -27,6 +28,7 @@ from memorable.core.application import (
     build_status_payload,
 )
 from memorable.core.context import ApplicationContext, default_context
+from memorable.core.models import ProvenanceIntegrityError
 from memorable.core.profile import (
     ProfileValidationError,
     load_profile_from_yaml,
@@ -485,6 +487,7 @@ def _cmd_remember_decision(
             writer=getattr(args, "writer", "agent:memorable"),
             reason=getattr(args, "reason", ""),
             supersedes=supersedes,
+            record_type=getattr(args, "record_type", None),
         )
     except ValueError as e:
         print(f"Error: {e}", file=sys.stderr)
@@ -515,6 +518,7 @@ def _cmd_remember_decision(
                 "space": result.decision.space,
                 "record_id": result.provenance.record_id,
                 "record_kind": result.provenance.record_kind,
+                "record_type": result.decision.record_type,
                 "source": result.provenance.source_id,
                 "episode": result.provenance.episode_id,
                 "creation_time": result.provenance.creation_time.isoformat(),
@@ -558,6 +562,7 @@ def _cmd_remember_observation(
             writer=getattr(args, "writer", "agent:memorable"),
             reason=getattr(args, "reason", ""),
             supersedes=supersedes,
+            record_type=getattr(args, "record_type", None),
         )
     except ValueError as e:
         print(f"Error: {e}", file=sys.stderr)
@@ -588,6 +593,7 @@ def _cmd_remember_observation(
                 "space": result.observation.space,
                 "record_id": result.provenance.record_id,
                 "record_kind": result.provenance.record_kind,
+                "record_type": result.observation.record_type,
                 "source": result.provenance.source_id,
                 "episode": result.provenance.episode_id,
                 "creation_time": result.provenance.creation_time.isoformat(),
@@ -688,14 +694,25 @@ def _cmd_truth_current(
     """Show the current truth for a Decision, following supersession chain."""
     space = resolve_space(getattr(args, "space", None))
 
+    record_subtype = getattr(args, "record_subtype", None)
     service = CurrentTruthService(repository=ctx.decision_repo)
-    decision = service.current(space=space, record_id=args.id)
+    decision = service.current(
+        space=space,
+        record_id=args.id,
+        record_subtype=record_subtype,
+    )
 
     if decision is None:
-        print(
-            f"Error: No Decision found for '{args.id}' in MemorySpace '{space}'.",
-            file=sys.stderr,
-        )
+        if record_subtype is not None:
+            message = (
+                f"Error: No Decision with Record Subtype '{record_subtype}' "
+                f"found for '{args.id}' in MemorySpace '{space}'."
+            )
+        else:
+            message = (
+                f"Error: No Decision found for '{args.id}' in MemorySpace '{space}'."
+            )
+        print(message, file=sys.stderr)
         return 1
 
     print(
@@ -705,6 +722,7 @@ def _cmd_truth_current(
                 "statement": decision.statement,
                 "space": decision.space,
                 "lifecycle_state": decision.lifecycle_state,
+                "record_type": decision.record_type,
                 "validity_time": decision.validity_time.isoformat(),
             },
             sort_keys=True,
@@ -723,14 +741,27 @@ def _cmd_truth_as_of(
 
     service = PointInTimeTruthService(repository=ctx.decision_repo)
     at = parse_iso_timestamp(args.at)
-    decision = service.at(space=space, record_id=args.id, at=at)
+    record_subtype = getattr(args, "record_subtype", None)
+    decision = service.at(
+        space=space,
+        record_id=args.id,
+        at=at,
+        record_subtype=record_subtype,
+    )
 
     if decision is None:
-        print(
-            f"Error: No Decision found for '{args.id}' "
-            f"in MemorySpace '{space}' at {at.isoformat()}.",
-            file=sys.stderr,
-        )
+        if record_subtype is not None:
+            message = (
+                f"Error: No Decision with Record Subtype '{record_subtype}' "
+                f"found for '{args.id}' in MemorySpace '{space}' "
+                f"at {at.isoformat()}."
+            )
+        else:
+            message = (
+                f"Error: No Decision found for '{args.id}' "
+                f"in MemorySpace '{space}' at {at.isoformat()}."
+            )
+        print(message, file=sys.stderr)
         return 1
 
     print(
@@ -740,6 +771,7 @@ def _cmd_truth_as_of(
                 "statement": decision.statement,
                 "space": decision.space,
                 "lifecycle_state": decision.lifecycle_state,
+                "record_type": decision.record_type,
                 "validity_time": decision.validity_time.isoformat(),
             },
             sort_keys=True,
@@ -770,6 +802,8 @@ def _cmd_inspect_history(
     for i, decision in enumerate(history):
         print(f"  [{i + 1}] {decision.id}")
         print(f"      Statement: {decision.statement}")
+        if decision.record_type is not None:
+            print(f"      Record Subtype: {decision.record_type}")
         print(f"      Lifecycle: {decision.lifecycle_state}")
         print(f"      Valid from: {decision.validity_time.isoformat()}")
         if decision.invalidation_time:
@@ -808,6 +842,7 @@ def _cmd_remember_task(
             at=at,
             writer=getattr(args, "writer", "agent:memorable"),
             reason=getattr(args, "reason", ""),
+            record_type=getattr(args, "record_type", None),
         )
     except ValueError as e:
         print(f"Error: {e}", file=sys.stderr)
@@ -832,6 +867,7 @@ def _cmd_remember_task(
                 "lifecycle_state": result.task.lifecycle_state,
                 "record_id": result.provenance.record_id,
                 "record_kind": result.provenance.record_kind,
+                "record_type": result.task.record_type,
                 "source": result.provenance.source_id,
                 "episode": result.provenance.episode_id,
                 "creation_time": result.provenance.creation_time.isoformat(),
@@ -880,6 +916,7 @@ def _cmd_complete_task(
             {
                 "task_id": result.task.id,
                 "lifecycle_state": result.task.lifecycle_state,
+                "record_type": result.task.record_type,
                 "event_id": result.event_id,
                 "completion_time": result.completion_time.isoformat(),
             },
@@ -919,11 +956,67 @@ def _cmd_task_inspect(
                 "title": task.title,
                 "space": task.space,
                 "lifecycle_state": task.lifecycle_state,
+                "record_type": task.record_type,
                 "validity_time": task.validity_time.isoformat(),
                 "completion_time": (
                     task.completion_time.isoformat() if task.completion_time else None
                 ),
                 "completion_event_id": task.completion_event_id,
+            },
+            sort_keys=True,
+        )
+    )
+    return 0
+
+
+def _cmd_list(
+    args: argparse.Namespace,
+    ctx: ApplicationContext,
+    config: RuntimeConfig,
+) -> int:
+    """List MemoryRecords for Memory Review."""
+    space = resolve_space(getattr(args, "space", None))
+
+    since = parse_iso_timestamp(args.since) if args.since is not None else None
+    until = parse_iso_timestamp(args.until) if args.until is not None else None
+
+    service = ListRecordsService(
+        decision_repo=ctx.decision_repo,
+        observation_repo=ctx.observation_repo,
+        relation_repo=ctx.relation_repo,
+        task_repo=ctx.task_repo,
+        about_repo=ctx.about_repo,
+    )
+    try:
+        projections = service.list_records(
+            space=space,
+            type=getattr(args, "record_kind", None),
+            state=getattr(args, "state", None),
+            since=since,
+            until=until,
+            about=getattr(args, "about", None),
+            record_type=getattr(args, "record_type", None),
+            limit=getattr(args, "limit", 50),
+        )
+    except (ValueError, ProvenanceIntegrityError) as e:
+        print(f"Error: {e}", file=sys.stderr)
+        return 1
+
+    print(
+        json.dumps(
+            {
+                "space": space,
+                "records": [
+                    {
+                        "id": projection.id,
+                        "type": projection.type,
+                        "label": projection.label,
+                        "lifecycle_state": projection.lifecycle_state,
+                        "creation_time": projection.creation_time.isoformat(),
+                        "record_type": projection.record_type,
+                    }
+                    for projection in projections
+                ],
             },
             sort_keys=True,
         )
@@ -970,6 +1063,7 @@ def _cmd_search(
             query=args.query,
             mode=mode,
             as_of=as_of,
+            record_type=getattr(args, "record_type", None),
         )
     except EmbeddingIndexCompatibilityError as e:
         print(f"Error: {e}", file=sys.stderr)
@@ -987,6 +1081,7 @@ def _cmd_search(
                 "score": round(r.score, 4),
                 "explanation": r.explanation,
                 "provenance_summary": r.provenance_summary,
+                "record_type": r.record_type,
             }
             for r in results
         ],
@@ -1050,16 +1145,16 @@ def _cmd_invalidate(
 ) -> int:
     """Invalidate a temporal record (Decision or Observation)."""
     space = resolve_space(getattr(args, "space", None))
-    record_type = args.record_type
+    record_kind = args.record_kind
 
-    if record_type == "decision":
+    if record_kind == "decision":
         repository = ctx.decision_repo
-    elif record_type == "observation":
+    elif record_kind == "observation":
         repository = ctx.observation_repo
     else:
         print(
-            f"Error: Unknown record type '{record_type}'. "
-            f"Supported types: decision, observation.",
+            f"Error: Unknown record kind '{record_kind}'. "
+            f"Supported kinds: decision, observation.",
             file=sys.stderr,
         )
         return 1
@@ -1077,7 +1172,7 @@ def _cmd_invalidate(
         print(f"Error: {e}", file=sys.stderr)
         return 1
 
-    if record_type == "decision":
+    if record_kind == "decision":
         invalidated_decision = ctx.decision_repo.get(space, result.record_id)
         if invalidated_decision is None:
             print(
@@ -1095,7 +1190,7 @@ def _cmd_invalidate(
             upsert=lambda indexer: indexer.upsert_decision(invalidated_decision),
         ):
             return 1
-    elif record_type == "observation":
+    elif record_kind == "observation":
         invalidated_observation = ctx.observation_repo.get(space, result.record_id)
         if invalidated_observation is None:
             print(
@@ -1135,16 +1230,16 @@ def _cmd_correct(
 ) -> int:
     """Correct a temporal record's statement in place (Decision or Observation)."""
     space = resolve_space(getattr(args, "space", None))
-    record_type = args.record_type
+    record_kind = args.record_kind
 
-    if record_type == "decision":
+    if record_kind == "decision":
         repository = ctx.decision_repo
-    elif record_type == "observation":
+    elif record_kind == "observation":
         repository = ctx.observation_repo
     else:
         print(
-            f"Error: Unknown record type '{record_type}'. "
-            f"Supported types: decision, observation.",
+            f"Error: Unknown record kind '{record_kind}'. "
+            f"Supported kinds: decision, observation.",
             file=sys.stderr,
         )
         return 1
@@ -1157,7 +1252,7 @@ def _cmd_correct(
             space=space,
             record_id=args.id,
             new_statement=args.new_statement,
-            record_kind=record_type,
+            record_kind=record_kind,
             source=args.source,
             writer=getattr(args, "writer", "agent:memorable"),
             at=at,
@@ -1167,7 +1262,7 @@ def _cmd_correct(
         print(f"Error: {e}", file=sys.stderr)
         return 1
 
-    if record_type == "decision":
+    if record_kind == "decision":
         corrected_decision = ctx.decision_repo.get(space, result.record_id)
         if corrected_decision is None:
             print(
@@ -1185,7 +1280,7 @@ def _cmd_correct(
             upsert=lambda indexer: indexer.upsert_decision(corrected_decision),
         ):
             return 1
-    elif record_type == "observation":
+    elif record_kind == "observation":
         corrected_observation = ctx.observation_repo.get(space, result.record_id)
         if corrected_observation is None:
             print(
@@ -1292,6 +1387,7 @@ _CONTEXT_HANDLERS: dict[
     ("truth", "as-of"): _cmd_truth_as_of,
     ("inspect", "provenance"): _cmd_inspect_provenance,
     ("inspect", "history"): _cmd_inspect_history,
+    ("list", None): _cmd_list,
     ("search", None): _cmd_search,
     ("reindex", None): _cmd_reindex,
     ("invalidate", None): _cmd_invalidate,
@@ -1441,6 +1537,7 @@ def main(argv: list[str] | None = None) -> int:
     task_rem_parser.add_argument("--title", required=True)
     task_rem_parser.add_argument("--source", required=True)
     task_rem_parser.add_argument("--at", required=True)
+    task_rem_parser.add_argument("--type", dest="record_type", default=None)
     task_rem_parser.add_argument("--writer", default="agent:memorable")
     task_rem_parser.add_argument("--reason", default="")
 
@@ -1454,6 +1551,7 @@ def main(argv: list[str] | None = None) -> int:
     decision_parser.add_argument("--source", required=True)
     decision_parser.add_argument("--at", required=True)
     decision_parser.add_argument("--supersedes", default=None)
+    decision_parser.add_argument("--type", dest="record_type", default=None)
     decision_parser.add_argument("--writer", default="agent:memorable")
     decision_parser.add_argument("--reason", default="")
 
@@ -1467,6 +1565,7 @@ def main(argv: list[str] | None = None) -> int:
     obs_parser.add_argument("--source", required=True)
     obs_parser.add_argument("--at", required=True)
     obs_parser.add_argument("--supersedes", default=None)
+    obs_parser.add_argument("--type", dest="record_type", default=None)
     obs_parser.add_argument("--writer", default="agent:memorable")
     obs_parser.add_argument("--reason", default="")
 
@@ -1515,6 +1614,12 @@ def main(argv: list[str] | None = None) -> int:
     )
     current_parser.add_argument("--space", default=None)
     current_parser.add_argument("--id", required=True)
+    current_parser.add_argument(
+        "--type",
+        dest="record_subtype",
+        default=None,
+        help="Record Subtype filter, such as Episode or ArchitectureDecision.",
+    )
 
     as_of_parser = truth_sub.add_parser(
         "as-of", help="Show truth at a specific point in time."
@@ -1522,6 +1627,12 @@ def main(argv: list[str] | None = None) -> int:
     as_of_parser.add_argument("--space", default=None)
     as_of_parser.add_argument("--id", required=True)
     as_of_parser.add_argument("--at", required=True)
+    as_of_parser.add_argument(
+        "--type",
+        dest="record_subtype",
+        default=None,
+        help="Record Subtype filter, such as Episode or ArchitectureDecision.",
+    )
 
     # inspect provenance subcommand
     inspect_parser = subparsers.add_parser("inspect", help="Inspect memory metadata.")
@@ -1545,6 +1656,29 @@ def main(argv: list[str] | None = None) -> int:
         "run", help="Run the tracer-bullet fixture and verify end-to-end."
     )
 
+    # list subcommand
+    list_parser = subparsers.add_parser(
+        "list", help="List MemoryRecords for Memory Review."
+    )
+    list_parser.add_argument("--space", default=None)
+    list_parser.add_argument(
+        "--record-kind",
+        choices=["decision", "observation", "relation", "task"],
+        default=None,
+        help="Kernel record kind to list.",
+    )
+    list_parser.add_argument(
+        "--type",
+        dest="record_type",
+        default=None,
+        help="Record Subtype to list, such as Episode or Commitment.",
+    )
+    list_parser.add_argument("--state", default=None)
+    list_parser.add_argument("--since", default=None)
+    list_parser.add_argument("--until", default=None)
+    list_parser.add_argument("--about", default=None)
+    list_parser.add_argument("--limit", type=int, default=50)
+
     # search subcommand
     search_parser = subparsers.add_parser(
         "search", help="Search memory using hybrid GraphRAG retrieval."
@@ -1553,6 +1687,12 @@ def main(argv: list[str] | None = None) -> int:
     search_parser.add_argument("--query", required=True)
     search_parser.add_argument("--mode", default="current")
     search_parser.add_argument("--as-of", default=None)
+    search_parser.add_argument(
+        "--type",
+        dest="record_type",
+        default=None,
+        help="Record Subtype to search, such as Episode or Commitment.",
+    )
 
     # reindex subcommand
     reindex_parser = subparsers.add_parser(
@@ -1567,9 +1707,16 @@ def main(argv: list[str] | None = None) -> int:
     invalidate_parser.add_argument("--space", default=None)
     invalidate_parser.add_argument("--id", required=True)
     invalidate_parser.add_argument(
+        "--record-kind",
+        dest="record_kind",
+        default=None,
+        help="Kernel kind of record (decision, observation).",
+    )
+    invalidate_parser.add_argument(
         "--record-type",
-        required=True,
-        help="Type of record (decision, observation).",
+        dest="record_kind",
+        default=None,
+        help=argparse.SUPPRESS,
     )
     invalidate_parser.add_argument("--at", required=True)
 
@@ -1580,9 +1727,16 @@ def main(argv: list[str] | None = None) -> int:
     correct_parser.add_argument("--space", default=None)
     correct_parser.add_argument("--id", required=True)
     correct_parser.add_argument(
+        "--record-kind",
+        dest="record_kind",
+        default=None,
+        help="Kernel kind of record (decision, observation).",
+    )
+    correct_parser.add_argument(
         "--record-type",
-        required=True,
-        help="Type of record (decision, observation).",
+        dest="record_kind",
+        default=None,
+        help=argparse.SUPPRESS,
     )
     correct_parser.add_argument("--new-statement", required=True)
     correct_parser.add_argument("--source", required=True)

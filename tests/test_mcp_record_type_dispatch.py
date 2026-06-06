@@ -1,10 +1,10 @@
-"""Tests for centralized record_type → repository dispatch helper (issue #54).
+"""Tests for centralized record_kind → repository dispatch helper (issue #54).
 
 Verifies:
-- Returns DecisionRepository for record_type "decision"
-- Returns ObservationRepository for record_type "observation"
-- Returns RelationRepository for record_type "relation"
-- Returns a structured error dict for unknown record_type values
+- Returns DecisionRepository for record_kind "decision"
+- Returns ObservationRepository for record_kind "observation"
+- Returns RelationRepository for record_kind "relation"
+- Returns a structured error dict for unknown record_kind values
   (including "task", which is intentionally NOT in the shared dispatch
   because TaskRepository does not satisfy TemporalRecordRepository)
 - Error dict shape matches the established convention
@@ -70,8 +70,8 @@ class TestResolveRepositoryErrorPath:
         """The error dict must match the exact shape used by tools today."""
         result = _resolve_repository("nope")
         expected = {
-            "error": "Unknown record_type 'nope'. "
-            "Supported types: decision, observation, relation."
+            "error": "Unknown record_kind 'nope'. "
+            "Supported kinds: decision, observation, relation."
         }
         assert result == expected
 

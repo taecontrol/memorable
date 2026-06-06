@@ -59,3 +59,45 @@ def test_guide_documents_current_writable_record_types() -> None:
         record_type.strip() for record_type in match.group("types").split(",")
     )
     assert documented_types == ("Decision", "Observation", "Task")
+
+
+def test_writing_guide_documents_observation_record_type() -> None:
+    rendered = render("writing")
+
+    assert "Record Subtype" in rendered
+    assert "memorable_remember_observation" in rendered
+    assert "record_type" in rendered
+
+
+def test_writing_guide_documents_decision_and_task_record_types() -> None:
+    rendered = render("writing")
+
+    assert "ArchitectureDecision" in rendered
+    assert "Commitment" in rendered or "FollowUp" in rendered
+    assert "memorable_remember_decision" in rendered
+    assert "memorable_remember_task" in rendered
+
+
+def test_retrieval_guide_documents_memory_review_record_type_filter() -> None:
+    rendered = render("retrieval")
+
+    assert "memorable_list_records" in rendered
+    assert "Record Subtype" in rendered
+    assert "record_type" in rendered
+
+
+def test_retrieval_guide_documents_search_record_type_filter() -> None:
+    rendered = render("retrieval")
+
+    assert "memorable_search_memory" in rendered
+    assert "memorable search --type" in rendered
+    assert "Record Subtype" in rendered
+
+
+def test_retrieval_guide_documents_truth_record_subtype_filter() -> None:
+    rendered = render("retrieval")
+
+    assert "memorable_current_truth" in rendered
+    assert "record_kind" in rendered
+    assert "record_subtype" in rendered
+    assert "memorable truth current --type" in rendered

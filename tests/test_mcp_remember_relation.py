@@ -5,7 +5,7 @@ Verifies:
 - Error: undeclared relation type returns error dict
 - Error: missing source entity returns error dict
 - Error: self-relation returns error dict
-- Temporal tools work with record_type="relation": current_truth,
+- Temporal tools work with record_kind="relation": current_truth,
   point_in_time_truth, inspect_history, invalidate, correct
 
 The MemoryProfile is provided hermetically: each test runs from a temp cwd
@@ -276,7 +276,7 @@ class TestRememberRelationErrors:
 
 class TestRelationTemporalToolWiring:
     """Temporal tools (current_truth, point_in_time_truth, inspect_history,
-    invalidate, correct) work with record_type='relation'.
+    invalidate, correct) work with record_kind='relation'.
     """
 
     @pytest.fixture(autouse=True)
@@ -308,7 +308,7 @@ class TestRelationTemporalToolWiring:
             {
                 "space": "test-space",
                 "record_id": "rel:temporal",
-                "record_type": "relation",
+                "record_kind": "relation",
             },
         )
         assert "error" not in result
@@ -322,7 +322,7 @@ class TestRelationTemporalToolWiring:
                 "space": "test-space",
                 "record_id": "rel:temporal",
                 "at": "2026-05-26T13:00:00Z",
-                "record_type": "relation",
+                "record_kind": "relation",
             },
         )
         assert "error" not in result
@@ -334,11 +334,11 @@ class TestRelationTemporalToolWiring:
             {
                 "space": "test-space",
                 "record_id": "rel:temporal",
-                "record_type": "relation",
+                "record_kind": "relation",
             },
         )
         assert "error" not in result
-        assert result["record_type"] == "relation"
+        assert result["record_kind"] == "relation"
         assert len(result["history"]) == 1
         assert result["history"][0]["record_id"] == "rel:temporal"
 
@@ -348,7 +348,7 @@ class TestRelationTemporalToolWiring:
             {
                 "space": "test-space",
                 "record_id": "rel:temporal",
-                "record_type": "relation",
+                "record_kind": "relation",
                 "at": "2026-05-26T14:00:00Z",
             },
         )
@@ -361,7 +361,7 @@ class TestRelationTemporalToolWiring:
             {
                 "space": "test-space",
                 "record_id": "rel:temporal",
-                "record_type": "relation",
+                "record_kind": "relation",
                 "new_statement": "Frontend requires Backend API",
                 "source": "correction-source",
                 "at": "2026-05-26T14:00:00Z",

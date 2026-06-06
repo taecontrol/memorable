@@ -1,12 +1,12 @@
-"""Tests for record_type parameter on current_truth and point_in_time_truth MCP tools.
+"""Tests for record_kind parameter on current_truth and point_in_time_truth MCP tools.
 
 Covers slice #52 acceptance criteria:
-- memorable_current_truth accepts optional record_type (default: "decision")
-- memorable_point_in_time_truth accepts optional record_type (default: "decision")
-- Both dispatch to observation_repo when record_type == "observation"
-- Both return error dict for unknown record_type values
+- memorable_current_truth accepts optional record_kind (default: "decision")
+- memorable_point_in_time_truth accepts optional record_kind (default: "decision")
+- Both dispatch to observation_repo when record_kind == "observation"
+- Both return error dict for unknown record_kind values
 - Existing decision-only calls still work unchanged (backward compat)
-- Tool count remains 16
+- Tool count remains stable
 """
 
 from __future__ import annotations
@@ -26,12 +26,12 @@ DECISION_STATEMENT = "Use Graphiti for storage."
 
 
 # =====================================================================
-# current_truth_tool + record_type
+# current_truth_tool + record_kind
 # =====================================================================
 
 
-class TestCurrentTruthWithRecordType:
-    """current_truth_tool dispatches by record_type."""
+class TestCurrentTruthWithRecordKind:
+    """current_truth_tool dispatches by record_kind."""
 
     def setup_method(self) -> None:
         from memorable.core.context import default_context
@@ -39,7 +39,7 @@ class TestCurrentTruthWithRecordType:
         default_context.reset()
 
     def test_current_truth_observation(self) -> None:
-        """current_truth_tool returns observation when record_type is observation."""
+        """current_truth_tool returns observation when record_kind is observation."""
         from memorable.mcp.server import current_truth_tool, remember_observation_tool
 
         remember_observation_tool(
@@ -53,7 +53,7 @@ class TestCurrentTruthWithRecordType:
         result = current_truth_tool(
             space="memorable",
             record_id=OBSERVATION_V1_ID,
-            record_type="observation",
+            record_kind="observation",
         )
 
         assert "error" not in result
@@ -62,7 +62,7 @@ class TestCurrentTruthWithRecordType:
         assert result["lifecycle_state"] == "current"
 
     def test_current_truth_defaults_to_decision(self) -> None:
-        """Omitting record_type defaults to decision (backward compat)."""
+        """Omitting record_kind defaults to decision (backward compat)."""
         from memorable.mcp.server import current_truth_tool, remember_decision_tool
 
         remember_decision_tool(
@@ -82,18 +82,18 @@ class TestCurrentTruthWithRecordType:
         assert result["record_id"] == DECISION_ID
         assert result["statement"] == DECISION_STATEMENT
 
-    def test_current_truth_unknown_record_type(self) -> None:
-        """Unknown record_type returns an error dict."""
+    def test_current_truth_unknown_record_kind(self) -> None:
+        """Unknown record_kind returns an error dict."""
         from memorable.mcp.server import current_truth_tool
 
         result = current_truth_tool(
             space="memorable",
             record_id="anything",
-            record_type="unknown",
+            record_kind="unknown",
         )
 
         assert "error" in result
-        assert "Unknown record_type" in result["error"]
+        assert "Unknown record_kind" in result["error"]
         assert "unknown" in result["error"]
 
     def test_current_truth_observation_follows_supersession(self) -> None:
@@ -119,7 +119,7 @@ class TestCurrentTruthWithRecordType:
         result = current_truth_tool(
             space="memorable",
             record_id=OBSERVATION_V1_ID,
-            record_type="observation",
+            record_kind="observation",
         )
 
         assert "error" not in result
@@ -128,12 +128,12 @@ class TestCurrentTruthWithRecordType:
 
 
 # =====================================================================
-# point_in_time_truth_tool + record_type
+# point_in_time_truth_tool + record_kind
 # =====================================================================
 
 
-class TestPointInTimeTruthWithRecordType:
-    """point_in_time_truth_tool dispatches by record_type."""
+class TestPointInTimeTruthWithRecordKind:
+    """point_in_time_truth_tool dispatches by record_kind."""
 
     def setup_method(self) -> None:
         from memorable.core.context import default_context
@@ -168,7 +168,7 @@ class TestPointInTimeTruthWithRecordType:
             space="memorable",
             record_id=OBSERVATION_V1_ID,
             at="2026-05-25T09:05:00Z",
-            record_type="observation",
+            record_kind="observation",
         )
 
         assert "error" not in result
@@ -176,7 +176,7 @@ class TestPointInTimeTruthWithRecordType:
         assert result["statement"] == OBSERVATION_STATEMENT_V1
 
     def test_point_in_time_truth_defaults_to_decision(self) -> None:
-        """Omitting record_type defaults to decision (backward compat)."""
+        """Omitting record_kind defaults to decision (backward compat)."""
         from memorable.mcp.server import (
             point_in_time_truth_tool,
             remember_decision_tool,
@@ -200,19 +200,19 @@ class TestPointInTimeTruthWithRecordType:
         assert result["record_id"] == DECISION_ID
         assert result["statement"] == DECISION_STATEMENT
 
-    def test_point_in_time_truth_unknown_record_type(self) -> None:
-        """Unknown record_type returns an error dict."""
+    def test_point_in_time_truth_unknown_record_kind(self) -> None:
+        """Unknown record_kind returns an error dict."""
         from memorable.mcp.server import point_in_time_truth_tool
 
         result = point_in_time_truth_tool(
             space="memorable",
             record_id="anything",
             at="2026-05-25T09:00:00Z",
-            record_type="unknown",
+            record_kind="unknown",
         )
 
         assert "error" in result
-        assert "Unknown record_type" in result["error"]
+        assert "Unknown record_kind" in result["error"]
 
     def test_point_in_time_truth_observation_not_found(self) -> None:
         """Returns error when observation does not exist."""
@@ -222,7 +222,7 @@ class TestPointInTimeTruthWithRecordType:
             space="memorable",
             record_id="observation:missing",
             at="2026-05-25T09:00:00Z",
-            record_type="observation",
+            record_kind="observation",
         )
 
         assert "error" in result

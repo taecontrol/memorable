@@ -147,8 +147,8 @@ class SearchCandidate:
 class RetrievalResult:
     """A ranked retrieval result with provenance-aware explanation.
 
-    Each result explains why it was returned, including lifecycle state
-    and provenance summary.
+    Each result explains why it was returned, including lifecycle state,
+    optional Record Subtype, and provenance summary.
     """
 
     source_id: str
@@ -157,3 +157,4 @@ class RetrievalResult:
     score: float
     explanation: list[str]
     provenance_summary: dict[str, str]
+    record_type: str | None = None

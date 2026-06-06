@@ -1279,7 +1279,7 @@ def test_mcp_forget_record_erases_derived_embedding_and_keeps_entities(
             forget_result = forget_record_tool(
                 space="test-space",
                 record_id="decision:mcp-forget-index",
-                record_type="decision",
+                record_kind="decision",
             )
             assert "error" not in forget_result
 
@@ -2742,7 +2742,7 @@ def test_mcp_invalidate_relation_refreshes_embedding_and_current_search_filters_
             invalidation_result = invalidate_tool(
                 space="test-space",
                 record_id="relation:mcp-invalidate-refresh",
-                record_type="relation",
+                record_kind="relation",
                 at="2026-06-05T12:05:00Z",
             )
             assert "error" not in invalidation_result
@@ -2922,7 +2922,7 @@ def test_mcp_correct_relation_refreshes_embedding_without_manual_reindex(
             correction_result = correct_tool(
                 space="test-space",
                 record_id="relation:mcp-correct-refresh",
-                record_type="relation",
+                record_kind="relation",
                 new_statement="Corrected vector needle after relation correction",
                 source="source:correction",
                 at="2026-06-05T12:03:00Z",

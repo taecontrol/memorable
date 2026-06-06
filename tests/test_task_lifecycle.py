@@ -294,6 +294,56 @@ class TestRememberTaskService:
         stored = repo.get(space="memorable", task_id=TASK_ID)
         assert stored is not None
 
+    def test_remember_task_with_declared_subtype_round_trips(self) -> None:
+        service, repo = self._make_service()
+
+        result = service.remember(
+            space="memorable",
+            task_id=TASK_ID,
+            title=TASK_TITLE,
+            source_id=SOURCE_ID,
+            at=FIXTURE_TIMESTAMP_REMEMBER,
+            record_type="FollowUp",
+        )
+
+        assert result.task.record_type == "FollowUp"
+        stored = repo.get(space="memorable", task_id=TASK_ID)
+        assert stored is not None
+        assert stored.record_type == "FollowUp"
+
+    @pytest.mark.parametrize(
+        ("record_type", "expected"),
+        [
+            ("Pattern", "Record Subtype 'Pattern' is not declared"),
+            (
+                "ArchitectureDecision",
+                "Record Subtype 'ArchitectureDecision' extends Decision, not Task",
+            ),
+        ],
+    )
+    def test_remember_task_with_invalid_subtype_fails_loud(
+        self,
+        record_type: str,
+        expected: str,
+    ) -> None:
+        from memorable.core.application import UndeclaredTypeError
+
+        service, _repo = self._make_service()
+
+        with pytest.raises(UndeclaredTypeError) as error:
+            service.remember(
+                space="memorable",
+                task_id=TASK_ID,
+                title=TASK_TITLE,
+                source_id=SOURCE_ID,
+                at=FIXTURE_TIMESTAMP_REMEMBER,
+                record_type=record_type,
+            )
+
+        message = str(error.value)
+        assert expected in message
+        assert "FollowUp" in message
+
     def test_remember_task_creates_episode(self) -> None:
         service, _repo = self._make_service()
 
@@ -398,6 +448,30 @@ class TestCompleteTaskService:
         assert result.event_id == EVENT_ID
         assert result.completion_time == FIXTURE_TIMESTAMP_COMPLETE
 
+    def test_complete_preserves_record_subtype(self) -> None:
+        from memorable.core.application import CompleteTaskService, RememberTaskService
+        from memorable.core.profile import load_profile_from_yaml
+        from memorable.core.repositories import InMemoryTaskRepository
+
+        repo = InMemoryTaskRepository()
+        profile = load_profile_from_yaml(VALID_PROFILE_YAML)
+        RememberTaskService(repository=repo, profile=profile).remember(
+            space="memorable",
+            task_id=TASK_ID,
+            title=TASK_TITLE,
+            source_id=SOURCE_ID,
+            at=FIXTURE_TIMESTAMP_REMEMBER,
+            record_type="FollowUp",
+        )
+
+        result = CompleteTaskService(repository=repo).complete(
+            space="memorable",
+            task_id=TASK_ID,
+            at=FIXTURE_TIMESTAMP_COMPLETE,
+        )
+
+        assert result.task.record_type == "FollowUp"
+
     def test_complete_rejects_missing_task(self) -> None:
         from memorable.core.application import CompleteTaskService
         from memorable.core.repositories import InMemoryTaskRepository
@@ -490,6 +564,42 @@ class TestInspectTaskService:
 
         assert result is not None
         assert result.lifecycle_state == "open"
+
+    def test_inspect_as_of_before_completion_preserves_record_subtype(self) -> None:
+        from memorable.core.application import (
+            CompleteTaskService,
+            InspectTaskService,
+            RememberTaskService,
+        )
+        from memorable.core.profile import load_profile_from_yaml
+        from memorable.core.repositories import InMemoryTaskRepository
+
+        repo = InMemoryTaskRepository()
+        profile = load_profile_from_yaml(VALID_PROFILE_YAML)
+        RememberTaskService(repository=repo, profile=profile).remember(
+            space="memorable",
+            task_id=TASK_ID,
+            title=TASK_TITLE,
+            source_id=SOURCE_ID,
+            at=FIXTURE_TIMESTAMP_REMEMBER,
+            record_type="FollowUp",
+        )
+        CompleteTaskService(repository=repo).complete(
+            space="memorable",
+            task_id=TASK_ID,
+            at=FIXTURE_TIMESTAMP_COMPLETE,
+        )
+
+        at_1027 = datetime(2026, 5, 23, 10, 27, 0, tzinfo=UTC)
+        result = InspectTaskService(repository=repo).inspect(
+            space="memorable",
+            task_id=TASK_ID,
+            as_of=at_1027,
+        )
+
+        assert result is not None
+        assert result.lifecycle_state == "open"
+        assert result.record_type == "FollowUp"
 
     def test_inspect_as_of_after_completion(self) -> None:
         service, _repo = self._setup_completed_task()
@@ -602,6 +712,50 @@ class TestCLIRememberTask:
         output = json.loads(capsys.readouterr().out)
         assert output["record_id"] == TASK_ID
         assert output["record_kind"] == "task"
+
+    def test_remember_task_with_type_outputs_record_type(self, capsys) -> None:
+        import json
+
+        from memorable.cli import main
+
+        exit_code = main(
+            [
+                "remember",
+                "task",
+                "--space",
+                "memorable",
+                "--id",
+                TASK_ID,
+                "--title",
+                TASK_TITLE,
+                "--type",
+                "FollowUp",
+                "--source",
+                SOURCE_ID,
+                "--at",
+                "2026-05-23T10:25:00Z",
+            ]
+        )
+
+        assert exit_code == 0
+        output = json.loads(capsys.readouterr().out)
+        assert output["record_kind"] == "task"
+        assert output["record_type"] == "FollowUp"
+
+        exit_code = main(
+            [
+                "task",
+                "inspect",
+                "--space",
+                "memorable",
+                "--id",
+                TASK_ID,
+            ]
+        )
+
+        assert exit_code == 0
+        inspect_output = json.loads(capsys.readouterr().out)
+        assert inspect_output["record_type"] == "FollowUp"
 
 
 @pytest.mark.usefixtures("cli_in_memory_context")
@@ -779,6 +933,27 @@ class TestMCPRememberTask:
         assert result["task_id"] == TASK_ID
         assert result["source"] == SOURCE_ID
         assert "error" not in result
+
+    def test_remember_task_tool_with_record_type_reads_back(self) -> None:
+        from memorable.mcp.server import inspect_task_tool, remember_task_tool
+
+        remember_result = remember_task_tool(
+            space="memorable",
+            task_id=TASK_ID,
+            title=TASK_TITLE,
+            source=SOURCE_ID,
+            at="2026-05-23T10:25:00Z",
+            record_type="FollowUp",
+        )
+
+        assert "error" not in remember_result
+        assert remember_result["record_kind"] == "task"
+        assert remember_result["record_type"] == "FollowUp"
+
+        inspect_result = inspect_task_tool(space="memorable", task_id=TASK_ID)
+
+        assert "error" not in inspect_result
+        assert inspect_result["record_type"] == "FollowUp"
 
     def test_remember_task_tool_includes_unified_provenance_fields(self) -> None:
         """MCP remember_task_tool response includes record_id and record_kind."""

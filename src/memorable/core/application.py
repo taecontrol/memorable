@@ -8,6 +8,7 @@ from typing import Protocol
 from memorable.core.errors import (
     CannotForgetRecordInSupersessionChainError,
     NothingToForgetError,
+    UndeclaredTypeError,
 )
 from memorable.core.errors import (
     DuplicateRecordError as DuplicateRecordError,
@@ -35,18 +36,8 @@ from memorable.core.ports import (
     TemporalRecordRepository,
 )
 from memorable.core.profile import MemoryProfile, load_profile_from_yaml
+from memorable.core.record_subtypes import validate_record_subtype
 from memorable.core.temporal import make_episode_id
-
-
-class UndeclaredTypeError(ValueError):
-    """Raised when a write names an Entity or Relation type the MemoryProfile
-    does not declare.
-
-    Subclasses ``ValueError`` so existing ``except ValueError`` handlers and
-    message-matching tests keep working. The MCP boundary uses the type (rather
-    than the message wording) to decide that this error is fixable by evolving
-    the MemoryProfile, and so should carry the memorable_guide("profiles") hint.
-    """
 
 
 @dataclass(frozen=True)
@@ -264,6 +255,34 @@ def _verify_about_targets(
     about_linker.verify_targets(space=space, entity_ids=about)
 
 
+def _resolve_record_subtype_for_write(
+    *,
+    repository: TemporalRecordRepository,
+    profile: MemoryProfile,
+    kernel_kind: str,
+    space: str,
+    supersedes: str | None,
+    candidate: str | None,
+) -> str | None:
+    if candidate is not None:
+        return validate_record_subtype(
+            profile=profile,
+            kernel_kind=kernel_kind,
+            candidate=candidate,
+        )
+    if supersedes is None:
+        return None
+    predecessor = repository.get(space, supersedes)
+    if predecessor is None:
+        return None
+    inherited = getattr(predecessor, "record_type", None)
+    return validate_record_subtype(
+        profile=profile,
+        kernel_kind=kernel_kind,
+        candidate=inherited,
+    )
+
+
 @dataclass(frozen=True)
 class RememberDecisionResult:
     """Result of remembering a Decision with provenance."""
@@ -277,9 +296,9 @@ class RememberDecisionService:
 
     Decision is a kernel record type: part of the universal memory kernel and
     writable without any MemoryProfile declaration. A profile ``records:`` entry
-    extending Decision (e.g. ``ArchitectureDecision extends Decision``) is an
-    optional specialization that enriches the type label; it is never a
-    precondition for writing the base kernel type.
+    extending Decision (e.g. ``ArchitectureDecision extends Decision``) declares
+    an optional Record Subtype that can be selected at write time and stored on
+    the Decision; it is never a precondition for writing the base kernel type.
 
     This is deliberately asymmetric with Entity and Relation, which are
     project-specific by definition (there is no universal Entity or Relation
@@ -310,12 +329,21 @@ class RememberDecisionService:
         reason: str = "",
         supersedes: str | None = None,
         about: list[str] | None = None,
+        record_type: str | None = None,
     ) -> RememberDecisionResult:
         """Create provenance and persist the Decision.
 
         Decision is a kernel record type, so no profile declaration is required.
         """
         _verify_about_targets(self._about_linker, space=space, about=about)
+        validated_record_type = _resolve_record_subtype_for_write(
+            repository=self._repository,
+            profile=self._profile,
+            kernel_kind="decision",
+            space=space,
+            supersedes=supersedes,
+            candidate=record_type,
+        )
 
         decision = Decision(
             id=decision_id,
@@ -326,6 +354,7 @@ class RememberDecisionService:
             lifecycle_state="current",
             supersedes=supersedes,
             superseded_by=None,
+            record_type=validated_record_type,
         )
 
         episode_id = make_episode_id(source_id, at)
@@ -405,12 +434,21 @@ class RememberObservationService:
         reason: str = "",
         supersedes: str | None = None,
         about: list[str] | None = None,
+        record_type: str | None = None,
     ) -> RememberObservationResult:
         """Create provenance and persist the Observation.
 
         Observation is a kernel record type, so no profile declaration is required.
         """
         _verify_about_targets(self._about_linker, space=space, about=about)
+        validated_record_type = _resolve_record_subtype_for_write(
+            repository=self._repository,
+            profile=self._profile,
+            kernel_kind="observation",
+            space=space,
+            supersedes=supersedes,
+            candidate=record_type,
+        )
 
         observation = Observation(
             id=observation_id,
@@ -421,6 +459,7 @@ class RememberObservationService:
             lifecycle_state="current",
             supersedes=supersedes,
             superseded_by=None,
+            record_type=validated_record_type,
         )
 
         episode_id = make_episode_id(source_id, at)
@@ -578,6 +617,18 @@ class RememberRelationService:
         return RememberRelationResult(relation=relation, provenance=provenance)
 
 
+def _filter_by_record_subtype(
+    record: TemporalRecord,
+    record_subtype: str | None,
+) -> TemporalRecord | None:
+    if (
+        record_subtype is not None
+        and getattr(record, "record_type", None) != record_subtype
+    ):
+        return None
+    return record
+
+
 class CurrentTruthService:
     """Application service that follows supersession chain to find the current record.
 
@@ -588,7 +639,13 @@ class CurrentTruthService:
     def __init__(self, repository: TemporalRecordRepository) -> None:
         self._repository = repository
 
-    def current(self, *, space: str, record_id: str) -> TemporalRecord | None:
+    def current(
+        self,
+        *,
+        space: str,
+        record_id: str,
+        record_subtype: str | None = None,
+    ) -> TemporalRecord | None:
         """Return the current record, following the supersession chain."""
         record = self._repository.get(space, record_id)
         if record is None:
@@ -602,7 +659,7 @@ class CurrentTruthService:
             if next_record is None:
                 break
             record = next_record
-        return record
+        return _filter_by_record_subtype(record, record_subtype)
 
 
 class PointInTimeTruthService:
@@ -621,6 +678,7 @@ class PointInTimeTruthService:
         space: str,
         record_id: str,
         at: datetime,
+        record_subtype: str | None = None,
     ) -> TemporalRecord | None:
         """Return the record that was valid at the given time."""
         record = self._repository.get(space, record_id)
@@ -630,15 +688,15 @@ class PointInTimeTruthService:
         current = record
         while True:
             if current.invalidation_time is None or at < current.invalidation_time:
-                return current
+                return _filter_by_record_subtype(current, record_subtype)
             if current.superseded_by is None:
-                return current
+                return _filter_by_record_subtype(current, record_subtype)
             if current.superseded_by in visited:
-                return current
+                return _filter_by_record_subtype(current, record_subtype)
             visited.add(current.superseded_by)
             next_record = self._repository.get(space, current.superseded_by)
             if next_record is None:
-                return current
+                return _filter_by_record_subtype(current, record_subtype)
             current = next_record
 
 
@@ -1030,12 +1088,18 @@ class RememberTaskService:
         writer: str = "agent:memorable",
         reason: str = "",
         about: list[str] | None = None,
+        record_type: str | None = None,
     ) -> RememberTaskResult:
         """Create provenance and persist the Task.
 
         Task is a kernel record type, so no profile declaration is required.
         """
         _verify_about_targets(self._about_linker, space=space, about=about)
+        validated_record_type = validate_record_subtype(
+            profile=self._profile,
+            kernel_kind="task",
+            candidate=record_type,
+        )
 
         task = Task(
             id=task_id,
@@ -1045,6 +1109,7 @@ class RememberTaskService:
             validity_time=at,
             completion_time=None,
             completion_event_id=None,
+            record_type=validated_record_type,
         )
 
         episode_id = make_episode_id(source_id, at)
@@ -1165,6 +1230,7 @@ class ListRecordsService:
         since: datetime | None = None,
         until: datetime | None = None,
         about: str | None = None,
+        record_type: str | None = None,
         limit: int = 50,
     ) -> list[RecordProjection]:
         """List MemoryRecords in the space as projections, ordered by Creation Time.
@@ -1181,8 +1247,10 @@ class ListRecordsService:
         omitting both lists records of any Creation Time.
 
         When ``about`` is given, only records linked to that Entity by About are
-        listed. All filters (``type``, ``state``, ``since``, ``until``,
-        ``about``) combine with AND. Returns at most ``limit`` projections
+        listed. When ``record_type`` is given, only records with that Record
+        Subtype are listed; plain kernel records and Relations are excluded.
+        All filters (``type``, ``state``, ``since``, ``until``, ``about``,
+        ``record_type``) combine with AND. Returns at most ``limit`` projections
         (default 50).
 
         Raises:
@@ -1215,8 +1283,8 @@ class ListRecordsService:
         streams: list[list[RecordProjection]] = []
         heap: list[tuple[datetime, str, str, int, int]] = []
 
-        for record_type, repo in repos:
-            if type is not None and record_type != type:
+        for record_kind, repo in repos:
+            if type is not None and record_kind != type:
                 continue
             stream = repo.list_projections_by_space(
                 space=space,
@@ -1225,6 +1293,7 @@ class ListRecordsService:
                 until=until,
                 limit=limit,
                 record_ids=record_ids,
+                record_type=record_type,
             )
             if not stream:
                 continue
@@ -1291,5 +1360,6 @@ class InspectTaskService:
                 validity_time=task.validity_time,
                 completion_time=None,
                 completion_event_id=None,
+                record_type=task.record_type,
             )
         return task

@@ -1,6 +1,6 @@
 # Recipes
 
-Record and later revise a Decision: call `memorable_remember_decision` with `space`, `decision_id`, `statement`, `source`, and Validity Time in `at`. When the choice is replaced, write a new Decision with a new `decision_id` and set `supersedes` to the prior id. Use `memorable_current_truth` with `record_type` decision to resolve the active version; use `memorable_inspect_history` when you need the chain.
+Record and later revise a Decision: call `memorable_remember_decision` with `space`, `decision_id`, `statement`, `source`, and Validity Time in `at`. When the choice is replaced, write a new Decision with a new `decision_id` and set `supersedes` to the prior id. Use `memorable_current_truth` with `record_kind` decision to resolve the active version, optionally `record_subtype` to scope it; use `memorable_inspect_history` when you need the chain.
 
 Track a Task to completion: call `memorable_remember_task` with `space`, `task_id`, `title`, `source`, and `at` when the commitment becomes true. When the work is done, call `memorable_complete_task` with the same `space`, `task_id`, and completion time in `at`. Do not delete or rewrite the Task; completion is its lifecycle transition.
 
