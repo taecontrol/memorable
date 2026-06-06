@@ -673,6 +673,131 @@ def test_provided_attributes_replace_existing_attributes_on_upsert() -> None:
     assert stored.attributes == {"medium": "article"}
 
 
+def test_omitted_attributes_revalidate_preserved_values_on_upsert() -> None:
+    """Preserved Attributes must remain declared and typed under the active schema."""
+    import textwrap
+    from datetime import UTC, datetime
+
+    import pytest
+
+    from memorable.core.application import RememberEntityService
+    from memorable.core.attributes import AttributeValidationError
+    from memorable.core.profile import load_profile_from_yaml
+    from memorable.core.repositories import InMemoryEntityRepository
+
+    original_profile = load_profile_from_yaml(
+        textwrap.dedent(
+            """\
+            version: 1
+            space:
+              name: memorable
+            entities:
+              - name: Reference
+                attributes:
+                  - name: url
+                    type: string
+              - name: Person
+            """
+        )
+    )
+    repo = InMemoryEntityRepository()
+    service = RememberEntityService(repository=repo, profile=original_profile)
+    at = datetime(2026, 6, 6, 10, 0, tzinfo=UTC)
+
+    service.remember(
+        space="memorable",
+        entity_id="entity:reference",
+        entity_type="Reference",
+        name="Example reference",
+        source_id="source:test",
+        at=at,
+        attributes={"url": "https://example.test"},
+    )
+
+    with pytest.raises(AttributeValidationError) as exc_info:
+        service.remember(
+            space="memorable",
+            entity_id="entity:reference",
+            entity_type="Person",
+            name="Example person",
+            source_id="source:test",
+            at=at,
+        )
+
+    message = str(exc_info.value)
+    assert "Attribute 'url' is not declared" in message
+    stored = repo.get(space="memorable", entity_id="entity:reference")
+    assert stored is not None
+    assert stored.entity_type == "Reference"
+    assert stored.attributes == {"url": "https://example.test"}
+
+    changed_profile = load_profile_from_yaml(
+        textwrap.dedent(
+            """\
+            version: 1
+            space:
+              name: memorable
+            entities:
+              - name: Reference
+                attributes:
+                  - name: rating
+                    type: number
+            """
+        )
+    )
+    changed_repo = InMemoryEntityRepository()
+    original_service = RememberEntityService(
+        repository=changed_repo,
+        profile=load_profile_from_yaml(
+            textwrap.dedent(
+                """\
+                version: 1
+                space:
+                  name: memorable
+                entities:
+                  - name: Reference
+                    attributes:
+                      - name: rating
+                        type: string
+                """
+            )
+        ),
+    )
+    original_service.remember(
+        space="memorable",
+        entity_id="entity:rated-reference",
+        entity_type="Reference",
+        name="Rated reference",
+        source_id="source:test",
+        at=at,
+        attributes={"rating": "high"},
+    )
+
+    changed_service = RememberEntityService(
+        repository=changed_repo,
+        profile=changed_profile,
+    )
+    with pytest.raises(AttributeValidationError) as changed_exc_info:
+        changed_service.remember(
+            space="memorable",
+            entity_id="entity:rated-reference",
+            entity_type="Reference",
+            name="Rated reference",
+            source_id="source:test",
+            at=at,
+        )
+
+    changed_message = str(changed_exc_info.value)
+    assert "Attribute 'rating'" in changed_message
+    assert "number" in changed_message
+    changed_stored = changed_repo.get(
+        space="memorable",
+        entity_id="entity:rated-reference",
+    )
+    assert changed_stored is not None
+    assert changed_stored.attributes == {"rating": "high"}
+
+
 def test_cli_remember_entity_attr_flag_writes_and_echoes_attributes(
     tmp_path,
     monkeypatch,

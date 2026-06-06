@@ -169,12 +169,16 @@ class RememberEntityService:
                 "Evolve the MemoryProfile before remembering this Entity type."
             )
 
+        declared_attributes = declared_entities[entity_type].attributes
         if attributes is None:
             existing = self._repository.get(space, entity_id)
-            validated_attributes = dict(existing.attributes) if existing else {}
+            validated_attributes = validate_attribute_values(
+                declared_attributes,
+                existing.attributes if existing else None,
+            )
         else:
             validated_attributes = validate_attribute_values(
-                declared_entities[entity_type].attributes,
+                declared_attributes,
                 attributes,
             )
 
