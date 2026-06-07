@@ -27,9 +27,12 @@ from memorable.storage.neo4j.retrieval_index import Neo4jRetrievalIndex
 from memorable.storage.sqlite.connection import SQLiteHandle
 from memorable.storage.sqlite.connection import connect as connect_sqlite
 from memorable.storage.sqlite.repository import (
+    SQLiteDecisionRepository,
     SQLiteEntityRepository,
     SQLiteMemorySpaceRepository,
+    SQLiteObservationRepository,
     SQLiteRepositoryPlaceholder,
+    SQLiteTaskRepository,
 )
 
 
@@ -76,9 +79,9 @@ def _build_sqlite_context(
     handle = connect_sqlite(config)
     ctx = ApplicationContext(
         entity_repo=SQLiteEntityRepository(handle),
-        decision_repo=SQLiteRepositoryPlaceholder("Decision", 241),
-        task_repo=SQLiteRepositoryPlaceholder("Task", 241),
-        observation_repo=SQLiteRepositoryPlaceholder("Observation", 241),
+        decision_repo=SQLiteDecisionRepository(handle),
+        task_repo=SQLiteTaskRepository(handle),
+        observation_repo=SQLiteObservationRepository(handle),
         relation_repo=SQLiteRepositoryPlaceholder("Relation", 242),
         about_repo=SQLiteRepositoryPlaceholder("About", 243),
         forget_repo=SQLiteRepositoryPlaceholder("Forget", 244),

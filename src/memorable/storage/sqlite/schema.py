@@ -22,6 +22,51 @@ def initialize_schema(connection: sqlite3.Connection) -> None:
             PRIMARY KEY (space, id)
         );
 
+        CREATE TABLE IF NOT EXISTS memory_records (
+            space TEXT NOT NULL,
+            id TEXT NOT NULL,
+            record_kind TEXT NOT NULL,
+            PRIMARY KEY (space, id)
+        );
+
+        CREATE TABLE IF NOT EXISTS decisions (
+            space TEXT NOT NULL,
+            id TEXT NOT NULL,
+            statement TEXT NOT NULL,
+            validity_time TEXT NOT NULL,
+            invalidation_time TEXT,
+            lifecycle_state TEXT NOT NULL,
+            supersedes TEXT,
+            superseded_by TEXT,
+            record_type TEXT,
+            PRIMARY KEY (space, id)
+        );
+
+        CREATE TABLE IF NOT EXISTS observations (
+            space TEXT NOT NULL,
+            id TEXT NOT NULL,
+            statement TEXT NOT NULL,
+            validity_time TEXT NOT NULL,
+            invalidation_time TEXT,
+            lifecycle_state TEXT NOT NULL,
+            supersedes TEXT,
+            superseded_by TEXT,
+            record_type TEXT,
+            PRIMARY KEY (space, id)
+        );
+
+        CREATE TABLE IF NOT EXISTS tasks (
+            space TEXT NOT NULL,
+            id TEXT NOT NULL,
+            title TEXT NOT NULL,
+            lifecycle_state TEXT NOT NULL,
+            validity_time TEXT NOT NULL,
+            completion_time TEXT,
+            completion_event_id TEXT,
+            record_type TEXT,
+            PRIMARY KEY (space, id)
+        );
+
         CREATE TABLE IF NOT EXISTS provenance (
             space TEXT NOT NULL,
             record_id TEXT NOT NULL,

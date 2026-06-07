@@ -65,7 +65,7 @@ def test_build_production_context_wires_all_neo4j_repos() -> None:
     assert isinstance(ctx.memory_space_repo, Neo4jMemorySpaceRepository)
 
 
-def test_build_production_context_wires_sqlite_entity_and_placeholders(
+def test_build_production_context_wires_sqlite_implemented_repos_and_placeholders(
     tmp_path,
 ) -> None:
     """SQLite selection wires implemented ports and clear placeholders."""
@@ -76,8 +76,11 @@ def test_build_production_context_wires_sqlite_entity_and_placeholders(
     from memorable.storage.production import build_production_context
     from memorable.storage.sqlite.connection import SQLiteHandle
     from memorable.storage.sqlite.repository import (
+        SQLiteDecisionRepository,
         SQLiteEntityRepository,
         SQLiteMemorySpaceRepository,
+        SQLiteObservationRepository,
+        SQLiteTaskRepository,
     )
 
     config = RuntimeConfig(
@@ -90,10 +93,13 @@ def test_build_production_context_wires_sqlite_entity_and_placeholders(
     try:
         assert isinstance(resource, SQLiteHandle)
         assert isinstance(ctx.entity_repo, SQLiteEntityRepository)
+        assert isinstance(ctx.decision_repo, SQLiteDecisionRepository)
+        assert isinstance(ctx.observation_repo, SQLiteObservationRepository)
+        assert isinstance(ctx.task_repo, SQLiteTaskRepository)
         assert isinstance(ctx.memory_space_repo, SQLiteMemorySpaceRepository)
         assert isinstance(ctx.retrieval_index, InMemoryEmbeddingIndex)
-        with pytest.raises(NotImplementedError, match="SQLite backend.*Decision.*#241"):
-            ctx.decision_repo.get("test-project", "decision:1")
+        with pytest.raises(NotImplementedError, match="SQLite backend.*Relation.*#242"):
+            ctx.relation_repo.get("test-project", "relation:1")
     finally:
         resource.close()
 

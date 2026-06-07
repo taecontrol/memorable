@@ -87,6 +87,8 @@ class FakeSession:
                 prov = provs.get(("entity", space, record_id))
             elif "Decision" in query:
                 prov = provs.get(("decision", space, record_id))
+            elif "Observation" in query:
+                prov = provs.get(("observation", space, record_id))
             elif "Task" in query:
                 prov = provs.get(("task", space, record_id))
             elif "Relation" in query:
@@ -234,6 +236,87 @@ class FakeSession:
             decision = decisions.get((space, decision_id))
             if decision:
                 return FakeResult([decision])
+            return FakeResult()
+
+        # --- Observation CREATE ---
+        if "Observation" in query and "CREATE" in query:
+            observations = self._store.setdefault("Observation", {})
+            space = str(params.get("space", ""))
+            observation_id = str(params.get("id", ""))
+            key = (space, observation_id)
+            observations[key] = {
+                "id": observation_id,
+                "statement": params.get("statement", ""),
+                "space": space,
+                "validity_time": params.get("validity_time", ""),
+                "invalidation_time": params.get("invalidation_time"),
+                "lifecycle_state": params.get("lifecycle_state", ""),
+                "supersedes": params.get("supersedes"),
+                "superseded_by": params.get("superseded_by"),
+                "record_type": params.get("record_type"),
+            }
+            if "record_id" in params:
+                provs = self._store.setdefault("Provenance", {})
+                provs[("observation", space, observation_id)] = {
+                    "record_id": params.get("record_id", ""),
+                    "record_kind": params.get("record_kind", ""),
+                    "source_id": params.get("source_id", ""),
+                    "episode_id": params.get("episode_id", ""),
+                    "writer": params.get("writer", ""),
+                    "reason": params.get("reason", ""),
+                    "creation_time": params.get("creation_time", ""),
+                    "validity_time": params.get("prov_validity_time", ""),
+                }
+            return FakeResult()
+
+        # --- Observation save_provenance (Provenance + Observation + SET) ---
+        if "Provenance" in query and "Observation" in query and "SET" in query:
+            space = str(params.get("space", ""))
+            record_id = str(params.get("id", ""))
+            provs = self._store.setdefault("Provenance", {})
+            provs[("observation", space, record_id)] = {
+                "record_id": params.get("record_id", ""),
+                "record_kind": params.get("record_kind", ""),
+                "source_id": params.get("source_id", ""),
+                "episode_id": params.get("episode_id", ""),
+                "writer": params.get("writer", ""),
+                "reason": params.get("reason", ""),
+                "creation_time": params.get("creation_time", ""),
+                "validity_time": params.get("validity_time", ""),
+            }
+            return FakeResult()
+
+        # --- Observation MATCH + SET (mark_superseded, invalidate, correct) ---
+        if "Observation" in query and "SET" in query:
+            space = str(params.get("space", ""))
+            observation_id = str(params.get("id", ""))
+            observations = self._store.get("Observation", {})
+            key = (space, observation_id)
+            if key in observations:
+                if "superseded_by" in params:
+                    observations[key]["superseded_by"] = params.get("superseded_by")
+                if "invalidation_time" in params:
+                    observations[key]["invalidation_time"] = params.get(
+                        "invalidation_time"
+                    )
+                if "lifecycle_state" in params:
+                    observations[key]["lifecycle_state"] = params.get("lifecycle_state")
+                if "statement" in params:
+                    observations[key]["statement"] = params.get("statement")
+            return FakeResult()
+
+        # --- Observation MATCH (single or list) ---
+        if "Observation" in query and "MATCH" in query:
+            space = str(params.get("space", ""))
+            if "id" not in params:
+                observations = self._store.get("Observation", {})
+                results = [o for (s, _), o in observations.items() if s == space]
+                return FakeResult(results)
+            observation_id = str(params["id"])
+            observations = self._store.get("Observation", {})
+            observation = observations.get((space, observation_id))
+            if observation:
+                return FakeResult([observation])
             return FakeResult()
 
         # --- Task CREATE ---
