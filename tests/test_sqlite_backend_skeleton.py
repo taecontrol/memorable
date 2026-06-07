@@ -217,6 +217,126 @@ def test_cli_sqlite_remember_decision_about_and_list_review_filter(
     assert backend_records["records"] == []
 
 
+def test_cli_sqlite_forget_entity_cascades_relation_and_about(
+    tmp_path: Path,
+    monkeypatch,
+    capsys,
+) -> None:
+    _write_sqlite_workspace(tmp_path)
+    monkeypatch.chdir(tmp_path)
+
+    for entity_id, name in [
+        ("entity:source", "Source"),
+        ("entity:target", "Target"),
+    ]:
+        assert (
+            _run_without_neo4j(
+                [
+                    "remember",
+                    "entity",
+                    "--id",
+                    entity_id,
+                    "--type",
+                    "Component",
+                    "--name",
+                    name,
+                    "--source",
+                    "source:test",
+                    "--at",
+                    "2026-06-07T09:00:00Z",
+                ]
+            )
+            == 0
+        )
+        capsys.readouterr()
+
+    assert (
+        _run_without_neo4j(
+            [
+                "remember",
+                "relation",
+                "--id",
+                "relation:forgotten-with-source",
+                "--source-entity-id",
+                "entity:source",
+                "--target-entity-id",
+                "entity:target",
+                "--relation-type",
+                "depends-on",
+                "--statement",
+                "Source depends on Target.",
+                "--source",
+                "source:test",
+                "--at",
+                "2026-06-07T10:00:00Z",
+            ]
+        )
+        == 0
+    )
+    capsys.readouterr()
+    assert (
+        _run_without_neo4j(
+            [
+                "remember",
+                "decision",
+                "--id",
+                "decision:about-forgotten-source",
+                "--statement",
+                "Source can be forgotten.",
+                "--source",
+                "source:test",
+                "--at",
+                "2026-06-07T11:00:00Z",
+                "--about",
+                "entity:source",
+            ]
+        )
+        == 0
+    )
+    capsys.readouterr()
+
+    assert (
+        _run_without_neo4j(
+            [
+                "forget",
+                "--target-type",
+                "entity",
+                "--id",
+                "entity:source",
+            ]
+        )
+        == 0
+    )
+    forgotten = json.loads(capsys.readouterr().out)
+    assert forgotten["record_id"] == "entity:source"
+    assert forgotten["record_kind"] == "entity"
+
+    assert _run_without_neo4j(["list", "--record-kind", "relation"]) == 0
+    relations = json.loads(capsys.readouterr().out)
+    assert relations["records"] == []
+
+    assert _run_without_neo4j(["list", "--about", "entity:source"]) == 0
+    about_source = json.loads(capsys.readouterr().out)
+    assert about_source["records"] == []
+
+    assert (
+        _run_without_neo4j(
+            [
+                "forget",
+                "--target-type",
+                "entity",
+                "--id",
+                "entity:source",
+            ]
+        )
+        == 1
+    )
+    assert "Nothing to forget" in capsys.readouterr().err
+
+    assert _run_without_neo4j(["inspect", "provenance", "--id", "entity:target"]) == 0
+    assert "Provenance for entity:target" in capsys.readouterr().out
+
+
 def test_cli_sqlite_remember_relation_and_list_review(
     tmp_path: Path,
     monkeypatch,

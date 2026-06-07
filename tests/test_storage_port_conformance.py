@@ -37,6 +37,7 @@ class TemporalRecordHarness:
     relation_repo: Any
     task_repo: Any
     about_repo: Any
+    forget_repo: Any
     close: Any
 
 
@@ -67,20 +68,35 @@ def temporal_record_harness(
             InMemoryAboutRepository,
             InMemoryDecisionRepository,
             InMemoryEntityRepository,
+            InMemoryForgetRepository,
             InMemoryObservationRepository,
             InMemoryRelationRepository,
             InMemoryTaskRepository,
         )
 
         record_keys: set[tuple[str, str]] = set()
+        entity_repo = InMemoryEntityRepository()
+        decision_repo = InMemoryDecisionRepository(record_keys)
+        observation_repo = InMemoryObservationRepository(record_keys)
+        relation_repo = InMemoryRelationRepository(record_keys)
+        task_repo = InMemoryTaskRepository(record_keys)
+        about_repo = InMemoryAboutRepository()
         yield TemporalRecordHarness(
             name="in-memory",
-            entity_repo=InMemoryEntityRepository(),
-            decision_repo=InMemoryDecisionRepository(record_keys),
-            observation_repo=InMemoryObservationRepository(record_keys),
-            relation_repo=InMemoryRelationRepository(record_keys),
-            task_repo=InMemoryTaskRepository(record_keys),
-            about_repo=InMemoryAboutRepository(),
+            entity_repo=entity_repo,
+            decision_repo=decision_repo,
+            observation_repo=observation_repo,
+            relation_repo=relation_repo,
+            task_repo=task_repo,
+            about_repo=about_repo,
+            forget_repo=InMemoryForgetRepository(
+                entity_repo=entity_repo,
+                decision_repo=decision_repo,
+                observation_repo=observation_repo,
+                relation_repo=relation_repo,
+                task_repo=task_repo,
+                about_repo=about_repo,
+            ),
             close=lambda: None,
         )
         return
@@ -92,6 +108,7 @@ def temporal_record_harness(
             Neo4jAboutRepository,
             Neo4jDecisionRepository,
             Neo4jEntityRepository,
+            Neo4jForgetRepository,
             Neo4jObservationRepository,
             Neo4jRelationRepository,
             Neo4jTaskRepository,
@@ -106,6 +123,7 @@ def temporal_record_harness(
             relation_repo=Neo4jRelationRepository(driver),
             task_repo=Neo4jTaskRepository(driver),
             about_repo=Neo4jAboutRepository(driver),
+            forget_repo=Neo4jForgetRepository(driver),
             close=lambda: None,
         )
         return
@@ -115,6 +133,7 @@ def temporal_record_harness(
         SQLiteAboutRepository,
         SQLiteDecisionRepository,
         SQLiteEntityRepository,
+        SQLiteForgetRepository,
         SQLiteObservationRepository,
         SQLiteRelationRepository,
         SQLiteTaskRepository,
@@ -135,6 +154,7 @@ def temporal_record_harness(
             relation_repo=SQLiteRelationRepository(handle),
             task_repo=SQLiteTaskRepository(handle),
             about_repo=SQLiteAboutRepository(handle),
+            forget_repo=SQLiteForgetRepository(handle),
             close=handle.close,
         )
     finally:
@@ -363,6 +383,47 @@ def _task(record_id: str, harness_name: str, *, state: str) -> Task:
             f"event:complete-task:{record_id}" if completion_time is not None else None
         ),
         record_type="FollowUp",
+    )
+
+
+def _save_forget_record(
+    harness: TemporalRecordHarness,
+    record_kind: str,
+    record: Decision | Observation | Task,
+) -> None:
+    provenance = _record_provenance(record.id, record_kind)
+    if record_kind == "decision":
+        harness.decision_repo.save(record, provenance)
+    elif record_kind == "observation":
+        harness.observation_repo.save(record, provenance)
+    else:
+        harness.task_repo.save(record, provenance)
+
+
+def _get_forget_record(
+    harness: TemporalRecordHarness,
+    record_kind: str,
+    record_id: str,
+) -> Decision | Observation | Task | None:
+    if record_kind == "decision":
+        return harness.decision_repo.get("test-conformance", record_id)
+    if record_kind == "observation":
+        return harness.observation_repo.get("test-conformance", record_id)
+    return harness.task_repo.get(space="test-conformance", task_id=record_id)
+
+
+def _get_forget_record_provenance(
+    harness: TemporalRecordHarness,
+    record_kind: str,
+    record_id: str,
+) -> Provenance | None:
+    if record_kind == "decision":
+        return harness.decision_repo.get_provenance("test-conformance", record_id)
+    if record_kind == "observation":
+        return harness.observation_repo.get_provenance("test-conformance", record_id)
+    return harness.task_repo.get_provenance(
+        space="test-conformance",
+        task_id=record_id,
     )
 
 
@@ -677,6 +738,157 @@ def test_temporal_record_list_by_space_returns_every_lifecycle_state(
     listed_ids = {record.id for record in repo.list_by_space("test-conformance")}
 
     assert listed_ids == {record.id for record in records}
+
+
+def test_forget_entity_erases_entity_and_cascades_relations_and_about_edges(
+    temporal_record_harness: TemporalRecordHarness,
+) -> None:
+    from memorable.core.application import ForgetService
+
+    harness = temporal_record_harness
+    harness_name = harness.name
+    target_id = f"entity:{harness_name}:forget-entity"
+    related_id = f"entity:{harness_name}:related"
+    unrelated_source_id = f"entity:{harness_name}:unrelated-source"
+    unrelated_target_id = f"entity:{harness_name}:unrelated-target"
+    for entity_id, name in [
+        (target_id, "Forget Entity"),
+        (related_id, "Related"),
+        (unrelated_source_id, "Unrelated Source"),
+        (unrelated_target_id, "Unrelated Target"),
+    ]:
+        harness.entity_repo.save(
+            Entity(
+                id=entity_id,
+                entity_type="Component",
+                name=name,
+                space="test-conformance",
+            ),
+            _provenance(entity_id),
+        )
+    cascaded_relation = Relation(
+        id=f"relation:{harness_name}:cascaded",
+        source_entity_id=target_id,
+        target_entity_id=related_id,
+        relation_type="depends-on",
+        statement="Forgotten Entity depends on Related.",
+        space="test-conformance",
+        validity_time=datetime(2026, 6, 7, 9, 0, tzinfo=UTC),
+        invalidation_time=None,
+        lifecycle_state="current",
+        supersedes=None,
+        superseded_by=None,
+    )
+    unrelated_relation = Relation(
+        id=f"relation:{harness_name}:unrelated",
+        source_entity_id=unrelated_source_id,
+        target_entity_id=unrelated_target_id,
+        relation_type="depends-on",
+        statement="Unrelated Source depends on Unrelated Target.",
+        space="test-conformance",
+        validity_time=datetime(2026, 6, 7, 9, 0, tzinfo=UTC),
+        invalidation_time=None,
+        lifecycle_state="current",
+        supersedes=None,
+        superseded_by=None,
+    )
+    for relation in [cascaded_relation, unrelated_relation]:
+        harness.relation_repo.save(
+            relation,
+            _record_provenance(relation.id, "relation"),
+        )
+    about_target = _decision("about-forgotten-entity", harness_name, state="current")
+    about_unrelated = _decision("about-unrelated-entity", harness_name, state="current")
+    for decision in [about_target, about_unrelated]:
+        harness.decision_repo.save(
+            decision,
+            _record_provenance(decision.id, "decision"),
+        )
+    harness.about_repo.link("test-conformance", about_target.id, [target_id])
+    harness.about_repo.link(
+        "test-conformance",
+        about_unrelated.id,
+        [unrelated_source_id],
+    )
+
+    result = ForgetService(repository=harness.forget_repo).forget_entity(
+        space="test-conformance",
+        entity_id=target_id,
+    )
+
+    assert result.record_id == target_id
+    assert result.record_kind == "entity"
+    assert harness.entity_repo.get("test-conformance", target_id) is None
+    assert harness.entity_repo.get_provenance("test-conformance", target_id) is None
+    assert harness.relation_repo.get("test-conformance", cascaded_relation.id) is None
+    assert (
+        harness.relation_repo.get_provenance(
+            "test-conformance",
+            cascaded_relation.id,
+        )
+        is None
+    )
+    assert harness.about_repo.records_for_entity("test-conformance", target_id) == []
+    assert (
+        harness.about_repo.entities_for_record(
+            "test-conformance",
+            about_target.id,
+        )
+        == []
+    )
+    assert harness.decision_repo.get("test-conformance", about_target.id) is not None
+    assert harness.entity_repo.get("test-conformance", related_id) is not None
+    assert (
+        harness.relation_repo.get("test-conformance", unrelated_relation.id) is not None
+    )
+    assert harness.about_repo.records_for_entity(
+        "test-conformance",
+        unrelated_source_id,
+    ) == [about_unrelated.id]
+
+
+@pytest.mark.parametrize("record_kind", ["decision", "observation", "task"])
+def test_forget_record_erases_record_provenance_and_about_but_spares_entity(
+    temporal_record_harness: TemporalRecordHarness,
+    record_kind: str,
+) -> None:
+    from memorable.core.application import ForgetService
+
+    harness = temporal_record_harness
+    entity_id = f"entity:{harness.name}:forget-target:{record_kind}"
+    harness.entity_repo.save(
+        Entity(
+            id=entity_id,
+            entity_type="Component",
+            name="Forget Target",
+            space="test-conformance",
+        ),
+        _provenance(entity_id),
+    )
+    if record_kind == "decision":
+        record = _decision("forget-record", harness.name, state="current")
+    elif record_kind == "observation":
+        record = _observation("forget-record", harness.name, state="current")
+    else:
+        record = _task("forget-record", harness.name, state="open")
+    _save_forget_record(harness, record_kind, record)
+    harness.about_repo.link("test-conformance", record.id, [entity_id])
+
+    result = ForgetService(repository=harness.forget_repo).forget_record(
+        space="test-conformance",
+        record_id=record.id,
+        record_kind=record_kind,
+    )
+
+    assert result.record_id == record.id
+    assert result.record_kind == record_kind
+    assert _get_forget_record(harness, record_kind, record.id) is None
+    assert _get_forget_record_provenance(harness, record_kind, record.id) is None
+    assert harness.about_repo.entities_for_record("test-conformance", record.id) == []
+    assert harness.entity_repo.get("test-conformance", entity_id) is not None
+
+    _save_forget_record(harness, record_kind, record)
+    assert _get_forget_record(harness, record_kind, record.id) == record
 
 
 def test_about_link_is_symmetric_and_unlink_removes_both_directions(

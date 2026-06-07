@@ -83,9 +83,11 @@ def initialize_schema(connection: sqlite3.Connection) -> None:
             FOREIGN KEY (space, id)
                 REFERENCES memory_records (space, id),
             FOREIGN KEY (space, source_entity_id)
-                REFERENCES entities (space, id),
+                REFERENCES entities (space, id)
+                ON DELETE CASCADE,
             FOREIGN KEY (space, target_entity_id)
                 REFERENCES entities (space, id)
+                ON DELETE CASCADE
         );
 
         CREATE TABLE IF NOT EXISTS about_links (
@@ -94,9 +96,11 @@ def initialize_schema(connection: sqlite3.Connection) -> None:
             entity_id TEXT NOT NULL,
             PRIMARY KEY (space, record_id, entity_id),
             FOREIGN KEY (space, record_id)
-                REFERENCES memory_records (space, id),
+                REFERENCES memory_records (space, id)
+                ON DELETE CASCADE,
             FOREIGN KEY (space, entity_id)
                 REFERENCES entities (space, id)
+                ON DELETE CASCADE
         );
 
         CREATE TABLE IF NOT EXISTS provenance (

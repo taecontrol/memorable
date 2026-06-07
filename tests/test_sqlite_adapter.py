@@ -329,6 +329,63 @@ def test_sqlite_about_link_is_visible_from_record_and_entity(
         handle.close()
 
 
+def test_sqlite_forget_entity_failure_leaves_memory_space_unchanged(
+    tmp_path: Path,
+) -> None:
+    import sqlite3
+
+    from memorable.core.application import ForgetService
+    from memorable.storage.sqlite.connection import connect
+    from memorable.storage.sqlite.repository import (
+        SQLiteAboutRepository,
+        SQLiteDecisionRepository,
+        SQLiteEntityRepository,
+        SQLiteForgetRepository,
+        SQLiteRelationRepository,
+    )
+
+    handle = connect(_sqlite_config(tmp_path))
+    try:
+        entity_repo = SQLiteEntityRepository(handle)
+        relation_repo = SQLiteRelationRepository(handle)
+        decision_repo = SQLiteDecisionRepository(handle)
+        about_repo = SQLiteAboutRepository(handle)
+        _save_relation_endpoints(entity_repo)
+        relation = _relation("relation:atomic-forget")
+        relation_repo.save(relation, _provenance(relation.id, "relation"))
+        decision = _decision("decision:atomic-about")
+        decision_repo.save(decision, _provenance(decision.id, "decision"))
+        about_repo.link("test-project", decision.id, ["entity:source"])
+        handle.connection.execute(
+            """
+            CREATE TRIGGER abort_entity_forget
+            BEFORE DELETE ON provenance
+            WHEN OLD.space = 'test-project'
+             AND OLD.record_id = 'entity:source'
+             AND OLD.record_kind = 'entity'
+            BEGIN
+                SELECT RAISE(ABORT, 'abort entity forget');
+            END;
+            """
+        )
+
+        with pytest.raises(sqlite3.IntegrityError, match="abort entity forget"):
+            ForgetService(repository=SQLiteForgetRepository(handle)).forget_entity(
+                space="test-project",
+                entity_id="entity:source",
+            )
+
+        assert entity_repo.get("test-project", "entity:source") is not None
+        assert entity_repo.get_provenance("test-project", "entity:source") is not None
+        assert relation_repo.get("test-project", relation.id) == relation
+        assert relation_repo.get_provenance("test-project", relation.id) is not None
+        assert about_repo.records_for_entity("test-project", "entity:source") == [
+            decision.id
+        ]
+    finally:
+        handle.close()
+
+
 def test_sqlite_relation_repository_round_trips_record_and_provenance(
     tmp_path: Path,
 ) -> None:

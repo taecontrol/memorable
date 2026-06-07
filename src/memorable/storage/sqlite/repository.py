@@ -12,6 +12,7 @@ from memorable.core.errors import DuplicateRecordError
 from memorable.core.models import (
     Decision,
     Entity,
+    ForgetTarget,
     MemorySpace,
     Observation,
     Provenance,
@@ -149,6 +150,149 @@ class SQLiteAboutRepository:
             (space, entity_id),
         ).fetchall()
         return [row["record_id"] for row in rows]
+
+
+class SQLiteForgetRepository:
+    """Storage adapter for Forget."""
+
+    _RECORD_TABLES = {
+        "decision": ("decisions", True),
+        "observation": ("observations", True),
+        "task": ("tasks", False),
+    }
+
+    def __init__(self, handle: SQLiteHandle) -> None:
+        self._connection = handle.connection
+
+    def get_forget_target(
+        self,
+        *,
+        space: str,
+        record_id: str,
+        record_kind: str,
+    ) -> ForgetTarget | None:
+        record_table = self._RECORD_TABLES.get(record_kind)
+        if record_table is None:
+            return None
+        table_name, has_supersession = record_table
+        supersession_columns = (
+            "supersedes, superseded_by"
+            if has_supersession
+            else "NULL AS supersedes, NULL AS superseded_by"
+        )
+        row = self._connection.execute(
+            f"""
+            SELECT id, space, {supersession_columns}
+            FROM {table_name}
+            WHERE space = ? AND id = ?
+            """,
+            (space, record_id),
+        ).fetchone()
+        if row is None:
+            return None
+        return ForgetTarget(
+            id=row["id"],
+            record_kind=record_kind,
+            space=row["space"],
+            supersedes=row["supersedes"],
+            superseded_by=row["superseded_by"],
+        )
+
+    def forget_record(
+        self,
+        *,
+        space: str,
+        record_id: str,
+        record_kind: str,
+    ) -> None:
+        record_table = self._RECORD_TABLES.get(record_kind)
+        if record_table is None:
+            return
+        table_name, _has_supersession = record_table
+        with self._connection:
+            self._connection.execute(
+                f"""
+                DELETE FROM {table_name}
+                WHERE space = ? AND id = ?
+                """,
+                (space, record_id),
+            )
+            self._connection.execute(
+                """
+                DELETE FROM provenance
+                WHERE space = ? AND record_id = ? AND record_kind = ?
+                """,
+                (space, record_id, record_kind),
+            )
+            self._connection.execute(
+                """
+                DELETE FROM memory_records
+                WHERE space = ? AND id = ? AND record_kind = ?
+                """,
+                (space, record_id, record_kind),
+            )
+
+    def entity_exists(self, *, space: str, entity_id: str) -> bool:
+        row = self._connection.execute(
+            """
+            SELECT 1
+            FROM entities
+            WHERE space = ? AND id = ?
+            """,
+            (space, entity_id),
+        ).fetchone()
+        return row is not None
+
+    def forget_entity(self, *, space: str, entity_id: str) -> None:
+        with self._connection:
+            relation_rows = self._connection.execute(
+                """
+                SELECT id
+                FROM relations
+                WHERE space = ?
+                  AND (source_entity_id = ? OR target_entity_id = ?)
+                """,
+                (space, entity_id, entity_id),
+            ).fetchall()
+            relation_ids = [row["id"] for row in relation_rows]
+            self._connection.execute(
+                """
+                DELETE FROM entities
+                WHERE space = ? AND id = ?
+                """,
+                (space, entity_id),
+            )
+            self._delete_relation_metadata(space=space, relation_ids=relation_ids)
+            self._connection.execute(
+                """
+                DELETE FROM provenance
+                WHERE space = ? AND record_id = ? AND record_kind = 'entity'
+                """,
+                (space, entity_id),
+            )
+
+    def _delete_relation_metadata(self, *, space: str, relation_ids: list[str]) -> None:
+        if not relation_ids:
+            return
+        placeholders = ", ".join("?" for _ in relation_ids)
+        self._connection.execute(
+            f"""
+            DELETE FROM provenance
+            WHERE space = ?
+              AND record_kind = 'relation'
+              AND record_id IN ({placeholders})
+            """,
+            (space, *relation_ids),
+        )
+        self._connection.execute(
+            f"""
+            DELETE FROM memory_records
+            WHERE space = ?
+              AND record_kind = 'relation'
+              AND id IN ({placeholders})
+            """,
+            (space, *relation_ids),
+        )
 
 
 class SQLiteMemorySpaceRepository:

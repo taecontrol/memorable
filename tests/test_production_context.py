@@ -69,8 +69,6 @@ def test_build_production_context_wires_sqlite_implemented_repos_and_placeholder
     tmp_path,
 ) -> None:
     """SQLite selection wires implemented ports and clear placeholders."""
-    import pytest
-
     from memorable.config import SQLiteSettings, StorageSettings
     from memorable.retrieval.index import InMemoryEmbeddingIndex
     from memorable.storage.production import build_production_context
@@ -79,6 +77,7 @@ def test_build_production_context_wires_sqlite_implemented_repos_and_placeholder
         SQLiteAboutRepository,
         SQLiteDecisionRepository,
         SQLiteEntityRepository,
+        SQLiteForgetRepository,
         SQLiteMemorySpaceRepository,
         SQLiteObservationRepository,
         SQLiteRelationRepository,
@@ -100,10 +99,9 @@ def test_build_production_context_wires_sqlite_implemented_repos_and_placeholder
         assert isinstance(ctx.relation_repo, SQLiteRelationRepository)
         assert isinstance(ctx.task_repo, SQLiteTaskRepository)
         assert isinstance(ctx.about_repo, SQLiteAboutRepository)
+        assert isinstance(ctx.forget_repo, SQLiteForgetRepository)
         assert isinstance(ctx.memory_space_repo, SQLiteMemorySpaceRepository)
         assert isinstance(ctx.retrieval_index, InMemoryEmbeddingIndex)
-        with pytest.raises(NotImplementedError, match="SQLite backend.*Forget.*#244"):
-            ctx.forget_repo.entity_exists(space="test-project", entity_id="entity:1")
     finally:
         resource.close()
 

@@ -71,6 +71,53 @@ class FakeSession:
         if "CREATE CONSTRAINT" in query:
             return FakeResult()
 
+        # --- Forget queries ---
+        if "DELETE record" in query:
+            space = str(params.get("space", ""))
+            record_id = str(params.get("id", ""))
+            record_kind, label = _fake_record_kind_and_label_from_query(query)
+            if record_kind is not None and label is not None:
+                self._store.get(label, {}).pop((space, record_id), None)
+                self._store.get("Provenance", {}).pop(
+                    (record_kind, space, record_id), None
+                )
+                self._store["About"] = {
+                    link
+                    for link in self._store.setdefault("About", set())
+                    if not (link[0] == space and link[1] == record_id)
+                }
+            return FakeResult()
+        if "DELETE entity" in query:
+            space = str(params.get("space", ""))
+            entity_id = str(params.get("id", ""))
+            relation_ids = {
+                relation_id
+                for (relation_space, relation_id), relation in self._store.get(
+                    "Relation", {}
+                ).items()
+                if relation_space == space
+                and (
+                    relation["source_entity_id"] == entity_id
+                    or relation["target_entity_id"] == entity_id
+                )
+            }
+            for relation_id in relation_ids:
+                self._store.get("Relation", {}).pop((space, relation_id), None)
+                self._store.get("Provenance", {}).pop(
+                    ("relation", space, relation_id), None
+                )
+            self._store.get("Entity", {}).pop((space, entity_id), None)
+            self._store.get("Provenance", {}).pop(("entity", space, entity_id), None)
+            self._store["About"] = {
+                link
+                for link in self._store.setdefault("About", set())
+                if not (
+                    link[0] == space
+                    and (link[2] == entity_id or link[1] in relation_ids)
+                )
+            }
+            return FakeResult()
+
         # --- About link queries ---
         if "ABOUT" in query:
             space = str(params.get("space", ""))
@@ -384,6 +431,8 @@ class FakeSession:
                 "completion_time": params.get("completion_time"),
                 "completion_event_id": params.get("completion_event_id"),
                 "record_type": params.get("record_type"),
+                "supersedes": None,
+                "superseded_by": None,
             }
             if "record_id" in params:
                 provs = self._store.setdefault("Provenance", {})
@@ -551,6 +600,17 @@ def _fake_record_exists(store: dict, space: str, record_id: str) -> bool:
         (space, record_id) in store.get(record_kind, {})
         for record_kind in ["Decision", "Observation", "Relation", "Task"]
     )
+
+
+def _fake_record_kind_and_label_from_query(query: str) -> tuple[str | None, str | None]:
+    for record_kind, label in [
+        ("decision", "Decision"),
+        ("observation", "Observation"),
+        ("task", "Task"),
+    ]:
+        if label in query:
+            return record_kind, label
+    return None, None
 
 
 def _fake_storage_attribute_value(value: object) -> object:

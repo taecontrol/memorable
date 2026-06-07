@@ -30,10 +30,10 @@ from memorable.storage.sqlite.repository import (
     SQLiteAboutRepository,
     SQLiteDecisionRepository,
     SQLiteEntityRepository,
+    SQLiteForgetRepository,
     SQLiteMemorySpaceRepository,
     SQLiteObservationRepository,
     SQLiteRelationRepository,
-    SQLiteRepositoryPlaceholder,
     SQLiteTaskRepository,
 )
 
@@ -86,7 +86,7 @@ def _build_sqlite_context(
         observation_repo=SQLiteObservationRepository(handle),
         relation_repo=SQLiteRelationRepository(handle),
         about_repo=SQLiteAboutRepository(handle),
-        forget_repo=SQLiteRepositoryPlaceholder("Forget", 244),
+        forget_repo=SQLiteForgetRepository(handle),
         memory_space_repo=SQLiteMemorySpaceRepository(handle),
         # PRD B replaces this documented placeholder with sqlite-vec.
         retrieval_index=InMemoryEmbeddingIndex(),
