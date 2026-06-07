@@ -444,7 +444,9 @@ def _list_projections(
          AND provenance.record_id = record.id
          AND provenance.record_kind = ?
         WHERE {" AND ".join(where)}
-        ORDER BY provenance.creation_time ASC, record.id ASC
+        ORDER BY provenance.creation_time IS NULL ASC,
+                 provenance.creation_time ASC,
+                 record.id ASC
         LIMIT ?
         """,
         (record_kind, *values),
