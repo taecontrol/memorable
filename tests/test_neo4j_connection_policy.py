@@ -129,6 +129,7 @@ class TestConnect:
                 mock_gdb.driver.return_value = mock_driver
 
                 driver = connect(config)
+                mock_driver.session.reset_mock()
                 driver.session()
 
             try:
@@ -154,7 +155,10 @@ class TestConnect:
 
         with patch("memorable.storage.neo4j.connection.GraphDatabase") as mock_gdb:
             mock_driver = MagicMock()
-            mock_driver.verify_connectivity.side_effect = Exception("refused")
+            mock_driver.verify_connectivity.return_value = None
+            probe_session = mock_driver.session.return_value.__enter__.return_value
+            probe_result = probe_session.run.return_value
+            probe_result.consume.side_effect = Exception("database not found")
             mock_gdb.driver.return_value = mock_driver
 
             with pytest.raises(ConnectionError) as excinfo:
@@ -164,5 +168,10 @@ class TestConnect:
         # Error names the configured URI, not the IPv4-rewritten one.
         assert "bolt://localhost:7687" in message
         assert "missing_database" in message
+        assert "database not found" in message
         assert "memorable db start" in message
+        mock_driver.verify_connectivity.assert_called_once_with()
+        mock_driver.session.assert_called_once_with(database="missing_database")
+        probe_session.run.assert_called_once_with("RETURN 1")
+        probe_result.consume.assert_called_once_with()
         mock_driver.close.assert_called_once()

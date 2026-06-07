@@ -96,8 +96,9 @@ def connect(config: RuntimeConfig) -> Neo4jDriver:
 
     Resolves the configured URI through the local endpoint policy, constructs a
     driver with shared fail-fast settings and benign-notification suppression,
-    verifies connectivity, then returns a facade that binds every session to the
-    configured Neo4j database. On failure the driver is closed and a
+    verifies connectivity, probes the configured database with a lightweight
+    read, then returns a facade that binds every session to that Neo4j database.
+    On failure the driver is closed and a
     ``ConnectionError`` naming the *configured* URI and database is raised so
     the owner recognizes which runtime Memorable tried to reach.
     """
@@ -112,6 +113,8 @@ def connect(config: RuntimeConfig) -> Neo4jDriver:
 
     try:
         driver.verify_connectivity()
+        with driver.session(database=config.neo4j.database) as session:
+            session.run("RETURN 1").consume()
     except Exception as exc:
         driver.close()
         raise ConnectionError(
