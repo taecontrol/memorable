@@ -1046,7 +1046,7 @@ async function runPrdWorkflowAutomation(room: AgentRoom, pi: ExtensionAPI): Prom
 		setWorkflowPhase(room, "committing");
 		await saveManifest(room);
 		await routeMessage(room, "agent-room", HUMAN_NAME, `Committing approved slice ${prdSliceLabel(slice)}.`, "commit", pi);
-		await commitCurrentSlice(room, slice);
+		await commitCurrentSlice(room, slice, pi);
 		if (!workflow.committedSlices.includes(slice.number)) workflow.committedSlices.push(slice.number);
 
 		setWorkflowPhase(room, "compacting");
@@ -1097,11 +1097,15 @@ async function runPrdWorkflowAutomation(room: AgentRoom, pi: ExtensionAPI): Prom
 	}
 }
 
-async function commitCurrentSlice(room: AgentRoom, slice: PrdRunMetadata["orderedSlices"][number]): Promise<void> {
+async function commitCurrentSlice(room: AgentRoom, slice: PrdRunMetadata["orderedSlices"][number], pi?: ExtensionAPI): Promise<void> {
 	const prd = room.manifest.prd;
 	if (!prd) throw new Error("No PRD metadata available for commit.");
 	const status = (await git(room.cwd, ["status", "--porcelain"])).stdout.trim();
 	if (!status) return;
+	// Format before staging so every committed slice matches CI's `ruff format --check`.
+	// Best-effort: a missing toolchain must not wedge the workflow, but a real formatting
+	// failure (e.g. a syntax error) should surface loudly.
+	await formatWorktree(room, pi);
 	await git(room.cwd, ["add", "-A"]);
 	await git(room.cwd, [
 		"commit",
@@ -1110,6 +1114,31 @@ async function commitCurrentSlice(room: AgentRoom, slice: PrdRunMetadata["ordere
 		"-m",
 		`${slice.title}\n\nAgentRoom run: ${room.id}`,
 	]);
+}
+
+// Run the project's Python formatter so committed slices satisfy CI's
+// `ruff format --check`. The agent-room operates on the memorable repo, where `uv`
+// is the mandated toolchain. We tolerate a missing toolchain (warn, continue) so the
+// extension stays usable in environments without `uv`, but we let genuine formatter
+// failures (e.g. invalid Python) propagate and block the commit.
+async function formatWorktree(room: AgentRoom, pi?: ExtensionAPI): Promise<void> {
+	try {
+		await execFile("uv", ["run", "ruff", "format", "."], { cwd: room.cwd, maxBuffer: 10 * 1024 * 1024 });
+	} catch (error) {
+		const code = (error as NodeJS.ErrnoException).code;
+		if (code === "ENOENT") {
+			await routeMessage(
+				room,
+				"agent-room",
+				HUMAN_NAME,
+				"Skipped ruff format before commit: `uv` not found on PATH. CI `ruff format --check` may fail.",
+				"warning",
+				pi,
+			);
+			return;
+		}
+		throw error;
+	}
 }
 
 // Compaction is an optimization (context trimming), not correctness. Normal agent
