@@ -36,9 +36,9 @@ class TrackingApplicationContext(ApplicationContext):
 
 
 @pytest.fixture()
-def about_parity_context(monkeypatch, clean_memorable_environment) -> Iterator[
-    TrackingApplicationContext
-]:
+def about_parity_context(
+    monkeypatch, clean_memorable_environment
+) -> Iterator[TrackingApplicationContext]:
     """Run CLI and MCP against one in-memory context with fake Embeddings."""
     from memorable.mcp.server import set_mcp_context
 

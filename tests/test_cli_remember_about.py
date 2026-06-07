@@ -141,8 +141,7 @@ def test_remember_observation_about_creates_about_edges(
     output = json.loads(capsys.readouterr().out)
     assert output["observation_id"] == "observation:about-build-2"
     assert (
-        ctx.observation_repo.get("test-space", "observation:about-build-2")
-        is not None
+        ctx.observation_repo.get("test-space", "observation:about-build-2") is not None
     )
     assert ctx.about_repo.entities_for_record(
         "test-space", "observation:about-build-2"
@@ -193,12 +192,12 @@ def test_remember_task_about_creates_about_edges(
     output = json.loads(capsys.readouterr().out)
     assert output["task_id"] == "task:about-build-2"
     assert (
-        ctx.task_repo.get(space="test-space", task_id="task:about-build-2")
-        is not None
+        ctx.task_repo.get(space="test-space", task_id="task:about-build-2") is not None
     )
-    assert ctx.about_repo.entities_for_record(
-        "test-space", "task:about-build-2"
-    ) == ["entity:backend", "entity:frontend"]
+    assert ctx.about_repo.entities_for_record("test-space", "task:about-build-2") == [
+        "entity:backend",
+        "entity:frontend",
+    ]
     assert ctx.about_repo.records_for_entity("test-space", "entity:frontend") == [
         "task:about-build-2"
     ]
@@ -297,9 +296,7 @@ def test_remember_about_missing_entity_fails_loud_without_half_write(
             "task",
             "task:no-about",
             ["--title", "No About edge applies."],
-            lambda ctx: ctx.task_repo.get(
-                space="test-space", task_id="task:no-about"
-            ),
+            lambda ctx: ctx.task_repo.get(space="test-space", task_id="task:no-about"),
         ),
     ],
 )
