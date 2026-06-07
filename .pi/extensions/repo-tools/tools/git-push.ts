@@ -23,7 +23,7 @@ export function createGitPushTool(pi: ExtensionAPI) {
 		name: "git_push",
 		label: "Git Push",
 		description:
-			"Push the current branch to origin using fixed `git push [--set-upstream] origin <current-branch>`. Write/network tool: confirmation required by repo-tools gate. No force push, no arbitrary remote/branch.",
+			"Push the current branch to origin using fixed `git push [--set-upstream] origin <current-branch>`. AFK-safe write/network tool. No force push, no arbitrary remote/branch.",
 		promptSnippet: "Push the current git branch to origin safely without bash.",
 		promptGuidelines: [
 			"Use git_push instead of bash when the user asks to push committed changes.",

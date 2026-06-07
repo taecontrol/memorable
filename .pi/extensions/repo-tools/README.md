@@ -10,7 +10,7 @@ Read-only:
 - `gh_issue_view` — fixed `gh issue view` JSON read
 - `gh_run_inspect` — fixed `gh run view` status + failed logs for Actions run/job URLs
 
-Write / network mutation, gated by confirmation:
+AFK-safe write / network mutation:
 
 - `git_branch_create` — `git switch -c <branch> [start_point]`
 - `git_commit` — `git add -A` or `git add -- <paths>`, then `git commit -m <message>`
@@ -25,8 +25,8 @@ Write / network mutation, gated by confirmation:
 - Tool code builds argv from validated inputs.
 - Nonzero git/gh exits are normal tool results, not tool execution errors.
 - Output is truncated to pi's built-in limits; full output is written to a temp file when truncated.
-- Write tools require interactive confirmation via a `tool_call` gate.
-- Write tools are blocked in non-interactive modes where confirmation is unavailable.
+- Write tools do not prompt for confirmation; they are intended for AFK agent workflows.
+- Safety comes from constrained argv, validation, no raw passthrough, no force push, and serialized git mutations.
 - Git writes are serialized by an in-extension repo mutation lock.
 - `git_push` only pushes the current branch to `origin`; no force push.
 - `git_commit` rejects `Co-authored-by: Claude` trailers.

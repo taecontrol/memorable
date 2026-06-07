@@ -22,7 +22,7 @@ export function createGitBranchCreateTool(pi: ExtensionAPI) {
 		name: "git_branch_create",
 		label: "Git Branch Create",
 		description:
-			"Create and switch to a new git branch using the fixed command `git switch -c <branch> [start_point]`. Write tool: confirmation required by repo-tools gate. No checkout/reset/raw args.",
+			"Create and switch to a new git branch using the fixed command `git switch -c <branch> [start_point]`. AFK-safe write tool with validated branch/ref inputs. No checkout/reset/raw args.",
 		promptSnippet: "Create and switch to a new git branch safely without bash.",
 		promptGuidelines: [
 			"Use git_branch_create instead of bash when the user asks to create a new branch.",

@@ -28,7 +28,7 @@ export function createGitCommitTool(pi: ExtensionAPI) {
 		name: "git_commit",
 		label: "Git Commit",
 		description:
-			"Stage validated changes and create a git commit. Uses `git add -A` or `git add -- <paths>` followed by `git commit -m <message>`. Write tool: confirmation required by repo-tools gate. Rejects Co-authored-by: Claude trailers.",
+			"Stage validated changes and create a git commit. Uses `git add -A` or `git add -- <paths>` followed by `git commit -m <message>`. AFK-safe write tool with constrained staging. Rejects Co-authored-by: Claude trailers.",
 		promptSnippet: "Stage changes and commit safely without bash.",
 		promptGuidelines: [
 			"Use git_commit instead of bash for staging and committing changes when the user asks for a commit.",

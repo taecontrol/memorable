@@ -28,7 +28,7 @@ export function createGitRestoreTool(pi: ExtensionAPI) {
 		name: "git_restore",
 		label: "Git Restore",
 		description:
-			"Restore validated repo paths using fixed `git restore` arguments. Destructive write tool: confirmation required by repo-tools gate. Replaces historical `git checkout -- <paths>` usage. No reset/checkout/raw args.",
+			"Restore validated repo paths using fixed `git restore` arguments. AFK-safe but destructive write tool for explicit restore requests. Replaces historical `git checkout -- <paths>` usage. No reset/checkout/raw args.",
 		promptSnippet: "Restore selected git-tracked paths safely without bash.",
 		promptGuidelines: [
 			"Use git_restore instead of bash `git checkout -- <paths>` when the user asks to discard selected changes.",

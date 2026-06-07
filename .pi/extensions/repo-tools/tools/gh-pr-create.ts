@@ -26,7 +26,7 @@ export function createGhPrCreateTool(pi: ExtensionAPI) {
 		name: "gh_pr_create",
 		label: "GitHub PR Create",
 		description:
-			"Create a GitHub pull request using fixed `gh pr create` arguments from the current branch. Write/network tool: confirmation required by repo-tools gate. No arbitrary gh passthrough.",
+			"Create a GitHub pull request using fixed `gh pr create` arguments from the current branch. AFK-safe write/network tool. No arbitrary gh passthrough.",
 		promptSnippet: "Create a GitHub pull request from the current branch safely without bash.",
 		promptGuidelines: [
 			"Use gh_pr_create instead of bash for creating pull requests after git_push.",
