@@ -1336,7 +1336,8 @@ def _cmd_correct(
         )
         return 1
 
-    service = CorrectService(repository=repository)
+    about_targets = getattr(args, "about", None)
+    service = CorrectService(repository=repository, about_linker=ctx.about_linker())
     at = parse_iso_timestamp(args.at)
 
     try:
@@ -1349,6 +1350,7 @@ def _cmd_correct(
             writer=getattr(args, "writer", "agent:memorable"),
             at=at,
             reason=getattr(args, "reason", "") or "",
+            about=about_targets,
         )
     except ValueError as e:
         print(f"Error: {e}", file=sys.stderr)
@@ -1865,6 +1867,12 @@ def main(argv: list[str] | None = None) -> int:
         help=argparse.SUPPRESS,
     )
     correct_parser.add_argument("--new-statement", required=True)
+    correct_parser.add_argument(
+        "--about",
+        action="append",
+        default=None,
+        help=ABOUT_HELP,
+    )
     correct_parser.add_argument("--source", required=True)
     correct_parser.add_argument("--at", required=True)
     correct_parser.add_argument("--reason", default="")
