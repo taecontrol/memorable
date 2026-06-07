@@ -42,6 +42,57 @@ class TestDbStart:
         assert "Cannot connect to Docker daemon" in captured.err
 
 
+class TestDbSQLiteBackendGuard:
+    """Neo4j container commands explain themselves when SQLite is active."""
+
+    def test_start_reports_no_container_when_sqlite_is_active(
+        self, tmp_path: Path, capsys
+    ) -> None:
+        config_dir = tmp_path / ".memorable"
+        config_dir.mkdir()
+        (config_dir / "runtime.yaml").write_text("storage:\n  backend: sqlite\n")
+
+        with patch("memorable.runtime.docker.subprocess.run") as mock_run:
+            result = main(["db", "start", "--path", str(tmp_path)])
+
+        assert result == 1
+        captured = capsys.readouterr()
+        assert "active backend is SQLite" in captured.err
+        assert "no Neo4j container to manage" in captured.err
+        mock_run.assert_not_called()
+
+    def test_stop_reports_no_container_when_sqlite_is_active(
+        self, tmp_path: Path, capsys
+    ) -> None:
+        config_dir = tmp_path / ".memorable"
+        config_dir.mkdir()
+        (config_dir / "runtime.yaml").write_text("storage:\n  backend: sqlite\n")
+
+        with patch("memorable.runtime.docker.subprocess.run") as mock_run:
+            result = main(["db", "stop", "--path", str(tmp_path)])
+
+        assert result == 1
+        captured = capsys.readouterr()
+        assert "active backend is SQLite" in captured.err
+        assert "no Neo4j container to manage" in captured.err
+        mock_run.assert_not_called()
+
+    def test_eject_reports_no_container_when_sqlite_is_active(
+        self, tmp_path: Path, capsys
+    ) -> None:
+        config_dir = tmp_path / ".memorable"
+        config_dir.mkdir()
+        (config_dir / "runtime.yaml").write_text("storage:\n  backend: sqlite\n")
+
+        result = main(["db", "eject", "--path", str(tmp_path)])
+
+        assert result == 1
+        captured = capsys.readouterr()
+        assert "active backend is SQLite" in captured.err
+        assert "no Neo4j container to manage" in captured.err
+        assert not (tmp_path / ".memorable" / "docker-compose.yml").exists()
+
+
 class TestDbStop:
     """memorable db stop delegates to docker runtime stop()."""
 

@@ -140,3 +140,24 @@ class TestDbStatusOutput:
             "value": "128",
             "source": "runtime.yaml",
         }
+
+    def test_shows_active_backend_and_sqlite_path_source(
+        self, tmp_path: Path, capsys
+    ) -> None:
+        config_dir = tmp_path / ".memorable"
+        config_dir.mkdir()
+        (config_dir / "runtime.yaml").write_text(
+            "storage:\n  backend: sqlite\nsqlite:\n  path: .memorable/project.db\n"
+        )
+
+        main(["db", "status", "--path", str(tmp_path)])
+
+        output = json.loads(capsys.readouterr().out)
+        assert output["storage"]["backend"] == {
+            "value": "sqlite",
+            "source": "runtime.yaml",
+        }
+        assert output["sqlite"]["path"] == {
+            "value": ".memorable/project.db",
+            "source": "runtime.yaml",
+        }

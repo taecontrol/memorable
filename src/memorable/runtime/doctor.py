@@ -14,6 +14,7 @@ from memorable.storage.neo4j.schema import (
     expected_constraint_shapes,
     expected_vector_index_shape,
 )
+from memorable.storage.sqlite.connection import resolve_path as resolve_sqlite_path
 
 
 class DiagnosticResult(TypedDict):
@@ -52,6 +53,10 @@ EMBEDDING_PROBE_TEXT = "Memorable doctor embedding probe."
 FASTEMBED_DOWNLOAD_HINT = "fastembed first use may download the local model (~67MB)."
 MEMORY_PROFILE_HINT = "Fix .memorable/memory.yaml so it is valid MemoryProfile YAML."
 EMBEDDING_COVERAGE_CHECK = "embedding_index_coverage"
+STORAGE_BACKEND_CHECK = "storage_backend"
+STORAGE_BACKEND_HINT = "Active storage backend: {backend} (source: {source})."
+SQLITE_PATH_CHECK = "sqlite_path"
+SQLITE_PATH_HINT = "SQLite database path: {path} (source: {source})."
 
 # Bounded representative read run after basic connectivity succeeds. The Bolt
 # handshake can succeed on a defunct IPv6-first connection while a real read
@@ -418,6 +423,18 @@ def _embedding_probe_result(
     }
 
 
+def _storage_backend_note(config: RuntimeConfig) -> DiagnosticResult:
+    """Surface the active storage backend doctor will diagnose."""
+    return {
+        "check": STORAGE_BACKEND_CHECK,
+        "ok": True,
+        "hint": STORAGE_BACKEND_HINT.format(
+            backend=config.storage.backend,
+            source=config.sources.get("storage.backend", "built-in"),
+        ),
+    }
+
+
 def _database_note(config: RuntimeConfig) -> DiagnosticResult:
     """Surface the resolved Neo4j database doctor will use for sessions."""
     return {
@@ -426,6 +443,18 @@ def _database_note(config: RuntimeConfig) -> DiagnosticResult:
         "hint": NEO4J_DATABASE_HINT.format(
             database=config.neo4j.database,
             source=config.sources.get("neo4j.database", "built-in"),
+        ),
+    }
+
+
+def _sqlite_path_note(config: RuntimeConfig) -> DiagnosticResult:
+    """Surface the resolved SQLite database path doctor will use."""
+    return {
+        "check": SQLITE_PATH_CHECK,
+        "ok": True,
+        "hint": SQLITE_PATH_HINT.format(
+            path=resolve_sqlite_path(config),
+            source=config.sources.get("sqlite.path", "built-in"),
         ),
     }
 
@@ -449,6 +478,36 @@ def _local_endpoint_note(config: RuntimeConfig) -> DiagnosticResult | None:
     }
 
 
+def _append_memory_profile_results(
+    results: list[DiagnosticResult],
+    config: RuntimeConfig,
+    probes: DiagnosticProbes,
+) -> None:
+    profile_path = probes.resolved_profile_path()
+    if not profile_path.exists():
+        return
+
+    try:
+        profile = probes.load_profile_from_yaml(
+            profile_path.read_text(encoding="utf-8")
+        )
+    except Exception:
+        results.append(
+            {
+                "check": "memory_profile_parses",
+                "ok": False,
+                "hint": MEMORY_PROFILE_HINT,
+            }
+        )
+        return
+
+    results.append({"check": "memory_profile_parses", "ok": True, "hint": ""})
+    space_name = getattr(getattr(profile, "space", None), "name", None)
+    # SQLite uses an explicit placeholder RetrievalIndex until PRD B.
+    if config.storage.backend == "neo4j" and isinstance(space_name, str) and space_name:
+        results.append(_embedding_index_coverage_result(config, probes, space_name))
+
+
 def run_diagnostics(
     config: RuntimeConfig,
     *,
@@ -458,7 +517,13 @@ def run_diagnostics(
     if probes is None:
         probes = DiagnosticProbes()
 
-    results: list[DiagnosticResult] = []
+    results: list[DiagnosticResult] = [_storage_backend_note(config)]
+
+    if config.storage.backend == "sqlite":
+        results.append(_sqlite_path_note(config))
+        results.append(_embedding_probe_result(config, probes))
+        _append_memory_profile_results(results, config, probes)
+        return results
 
     try:
         probes.ping_neo4j(config)
@@ -525,28 +590,7 @@ def run_diagnostics(
         )
 
     results.append(_embedding_probe_result(config, probes))
-
-    profile_path = probes.resolved_profile_path()
-    if profile_path.exists():
-        try:
-            profile = probes.load_profile_from_yaml(
-                profile_path.read_text(encoding="utf-8")
-            )
-        except Exception:
-            results.append(
-                {
-                    "check": "memory_profile_parses",
-                    "ok": False,
-                    "hint": MEMORY_PROFILE_HINT,
-                }
-            )
-        else:
-            results.append({"check": "memory_profile_parses", "ok": True, "hint": ""})
-            space_name = getattr(getattr(profile, "space", None), "name", None)
-            if isinstance(space_name, str) and space_name:
-                results.append(
-                    _embedding_index_coverage_result(config, probes, space_name)
-                )
+    _append_memory_profile_results(results, config, probes)
 
     return results
 

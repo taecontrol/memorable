@@ -120,6 +120,12 @@ def _cmd_db_status(args: argparse.Namespace) -> int:
             "http_port": _field_entry(config.docker.http_port, "docker.http_port"),
             "bolt_port": _field_entry(config.docker.bolt_port, "docker.bolt_port"),
         },
+        "storage": {
+            "backend": _field_entry(config.storage.backend, "storage.backend"),
+        },
+        "sqlite": {
+            "path": _field_entry(config.sqlite.path, "sqlite.path"),
+        },
         "embeddings": {
             "provider": _field_entry(config.embeddings.provider, "embeddings.provider"),
             "model": _field_entry(config.embeddings.model, "embeddings.model"),
@@ -151,12 +157,24 @@ def _cmd_doctor(args: argparse.Namespace) -> int:
     return 0 if all_checks_passed(results) else 1
 
 
+def _sqlite_backend_db_command_message(command: str) -> str:
+    return (
+        "The active backend is SQLite; there is no Neo4j container to manage. "
+        "Select storage.backend: neo4j to use "
+        f"'memorable db {command}'."
+    )
+
+
 def _cmd_db_start(args: argparse.Namespace) -> int:
     """Start the local Neo4j container."""
     base_path = Path(args.path) if args.path else None
     config = load_runtime_config(
         base_path=base_path, include_environment_overrides=True
     )
+
+    if config.storage.backend == "sqlite":
+        print(_sqlite_backend_db_command_message("start"), file=sys.stderr)
+        return 1
 
     if is_remote_uri(config.neo4j.uri):
         print(
@@ -180,6 +198,10 @@ def _cmd_db_stop(args: argparse.Namespace) -> int:
         base_path=base_path, include_environment_overrides=True
     )
 
+    if config.storage.backend == "sqlite":
+        print(_sqlite_backend_db_command_message("stop"), file=sys.stderr)
+        return 1
+
     if is_remote_uri(config.neo4j.uri):
         print(
             "Using remote Neo4j, no local container to manage.",
@@ -198,6 +220,13 @@ def _cmd_db_stop(args: argparse.Namespace) -> int:
 def _cmd_db_eject(args: argparse.Namespace) -> int:
     """Copy compose template to .memorable/ for customization."""
     base_path = Path(args.path) if args.path else Path.cwd()
+    config = load_runtime_config(
+        base_path=base_path, include_environment_overrides=True
+    )
+    if config.storage.backend == "sqlite":
+        print(_sqlite_backend_db_command_message("eject"), file=sys.stderr)
+        return 1
+
     target_dir = base_path / ".memorable"
 
     result = docker_eject(target_dir)
