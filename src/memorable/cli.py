@@ -111,6 +111,7 @@ def _cmd_db_status(args: argparse.Namespace) -> int:
             "uri": _field_entry(config.neo4j.uri, "neo4j.uri"),
             "user": _field_entry(config.neo4j.user, "neo4j.user"),
             "password": _field_entry(config.neo4j.password, "neo4j.password"),
+            "database": _field_entry(config.neo4j.database, "neo4j.database"),
         },
         "docker": {
             "neo4j_version": _field_entry(

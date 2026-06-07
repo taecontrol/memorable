@@ -136,10 +136,21 @@ class TestConnect:
             except AssertionError as exc:
                 raise AssertionError(label) from exc
 
-    def test_failure_closes_driver_and_names_configured_uri(self) -> None:
+    def test_failure_closes_driver_and_names_configured_uri_and_database(
+        self,
+    ) -> None:
         import pytest
 
         from memorable.storage.neo4j.connection import connect
+
+        config = RuntimeConfig(
+            neo4j=Neo4jSettings(
+                uri="bolt://localhost:7687",
+                user="neo4j",
+                password="secret",
+                database="missing_database",
+            )
+        )
 
         with patch("memorable.storage.neo4j.connection.GraphDatabase") as mock_gdb:
             mock_driver = MagicMock()
@@ -147,10 +158,11 @@ class TestConnect:
             mock_gdb.driver.return_value = mock_driver
 
             with pytest.raises(ConnectionError) as excinfo:
-                connect(_config("bolt://localhost:7687"))
+                connect(config)
 
         message = str(excinfo.value)
         # Error names the configured URI, not the IPv4-rewritten one.
         assert "bolt://localhost:7687" in message
+        assert "missing_database" in message
         assert "memorable db start" in message
         mock_driver.close.assert_called_once()

@@ -98,8 +98,8 @@ def connect(config: RuntimeConfig) -> Neo4jDriver:
     driver with shared fail-fast settings and benign-notification suppression,
     verifies connectivity, then returns a facade that binds every session to the
     configured Neo4j database. On failure the driver is closed and a
-    ``ConnectionError`` naming the *configured* URI is raised so the owner
-    recognizes which runtime Memorable tried to reach.
+    ``ConnectionError`` naming the *configured* URI and database is raised so
+    the owner recognizes which runtime Memorable tried to reach.
     """
     effective_uri = resolve_bolt_uri(config.neo4j.uri)
     driver = GraphDatabase.driver(
@@ -115,7 +115,8 @@ def connect(config: RuntimeConfig) -> Neo4jDriver:
     except Exception as exc:
         driver.close()
         raise ConnectionError(
-            f"Cannot connect to Neo4j at {config.neo4j.uri}. "
+            f"Cannot connect to Neo4j database '{config.neo4j.database}' "
+            f"at {config.neo4j.uri}. "
             f"Is Neo4j running? Try 'memorable db start' or check your "
             f"runtime config in .memorable/runtime.yaml.\n"
             f"Original error: {exc}"
