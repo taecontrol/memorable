@@ -8,7 +8,6 @@ from mcp.server.fastmcp import FastMCP
 
 from memorable.config import load_runtime_config
 from memorable.core.application import (
-    AboutLinker,
     CompleteTaskService,
     CorrectService,
     CorrectTaskService,
@@ -388,14 +387,10 @@ def remember_decision_tool(
     except ProfileValidationError as e:
         return _profile_type_error(e)
 
-    about_linker = AboutLinker(
-        entity_repo=_context.entity_repo,
-        about_repo=_context.about_repo,
-    )
     service = RememberDecisionService(
         repository=_context.decision_repo,
         profile=profile,
-        about_linker=about_linker,
+        about_linker=_context.about_linker(),
     )
 
     timestamp = parse_iso_timestamp(at)
@@ -482,14 +477,10 @@ def remember_observation_tool(
     except ProfileValidationError as e:
         return _profile_type_error(e)
 
-    about_linker = AboutLinker(
-        entity_repo=_context.entity_repo,
-        about_repo=_context.about_repo,
-    )
     service = RememberObservationService(
         repository=_context.observation_repo,
         profile=profile,
-        about_linker=about_linker,
+        about_linker=_context.about_linker(),
     )
 
     timestamp = parse_iso_timestamp(at)
@@ -878,14 +869,10 @@ def remember_task_tool(
     except ProfileValidationError as e:
         return _profile_type_error(e)
 
-    about_linker = AboutLinker(
-        entity_repo=_context.entity_repo,
-        about_repo=_context.about_repo,
-    )
     service = RememberTaskService(
         repository=_context.task_repo,
         profile=profile,
-        about_linker=about_linker,
+        about_linker=_context.about_linker(),
     )
 
     timestamp = parse_iso_timestamp(at)
@@ -1405,10 +1392,7 @@ def correct_tool(
 
     Returns a dict with correction info on success, or an error dict.
     """
-    about_linker = AboutLinker(
-        entity_repo=_context.entity_repo,
-        about_repo=_context.about_repo,
-    )
+    about_linker = _context.about_linker()
     timestamp = parse_iso_timestamp(at)
 
     if new_statement is None and about is None:
