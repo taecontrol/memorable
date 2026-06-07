@@ -13,6 +13,7 @@ node_modules/
 .memorable/.env
 .memorable/docker-compose.yml
 
-# Pi AgentRoom runtime state
+# Pi local secrets and runtime state
+.pi/.env
 .pi/agent-room/runs/
 .pi/agent-room/worktrees/
