@@ -45,6 +45,7 @@ Memorable uses a three-layer runtime configuration with clear separation:
 neo4j:
   uri: bolt://127.0.0.1:7687
   user: neo4j
+  database: neo4j
 
 docker:
   neo4j_version: "5.26"
@@ -148,3 +149,27 @@ This amendment changes only the built-in default and its documentation:
   are local; remote/cloud hosts are remote.
 - `memorable db status` continues to report configured values and their sources
   (built-in, runtime.yaml, runtime.local.yaml, .env/environment).
+
+## Amendment (2026-06-07): Neo4j database selector
+
+The Neo4j runtime section includes `neo4j.database`, with the default literal
+`neo4j`. It is a runtime/storage selector for the physical Neo4j database that
+Memorable opens sessions against, and it uses the source key `neo4j.database`.
+
+`neo4j.database` resolves through the same runtime layers as the other Neo4j
+settings: built-in default, `runtime.yaml`, `runtime.local.yaml`, and mapped env
+var `MEMORABLE_NEO4J_DATABASE`. The env var is a non-secret environment override
+under ADR 0016: live commands may honor it when environment overrides are
+included, while `memorable db status` remains the file-resolved value/source
+view. `.env` handling matches the other mapped Neo4j keys.
+
+MemorySpace remains the logical boundary in Memorable Core. A MemorySpace is
+stored as a `space` tag and query filter, and multiple MemorySpaces may coexist
+inside one Neo4j database. `neo4j.database` is Neo4j/runtime vocabulary only; it
+does not become a Memorable Core term, profile field, or MCP memory parameter.
+
+The selector targets an existing Neo4j database. Memorable does not create or
+provision databases. The shipped local runtime uses Neo4j Community Edition,
+which cannot create additional physical databases, so this selector is not local
+multi-store isolation on the bundled image; use MemorySpace isolation or a
+separate runtime for that need.
