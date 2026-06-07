@@ -24,7 +24,10 @@ def _write_sqlite_workspace(path: Path) -> None:
         "  name: sqlite-project\n"
         "  description: SQLite skeleton test\n"
         "entities:\n"
-        "  - name: Component\n",
+        "  - name: Component\n"
+        "relations:\n"
+        "  - name: depends-on\n"
+        "    description: Component dependency.\n",
         encoding="utf-8",
     )
 
@@ -146,6 +149,72 @@ def test_cli_sqlite_observation_list_and_task_completion(
     task = json.loads(capsys.readouterr().out)
     assert task["lifecycle_state"] == "completed"
     assert task["completion_event_id"] == "event:complete-task:sqlite"
+
+
+def test_cli_sqlite_remember_relation_and_list_review(
+    tmp_path: Path,
+    monkeypatch,
+    capsys,
+) -> None:
+    _write_sqlite_workspace(tmp_path)
+    monkeypatch.chdir(tmp_path)
+
+    for entity_id, name in [
+        ("entity:source", "Source"),
+        ("entity:target", "Target"),
+    ]:
+        assert (
+            _run_without_neo4j(
+                [
+                    "remember",
+                    "entity",
+                    "--id",
+                    entity_id,
+                    "--type",
+                    "Component",
+                    "--name",
+                    name,
+                    "--source",
+                    "source:test",
+                    "--at",
+                    "2026-06-07T09:00:00Z",
+                ]
+            )
+            == 0
+        )
+        capsys.readouterr()
+
+    assert (
+        _run_without_neo4j(
+            [
+                "remember",
+                "relation",
+                "--id",
+                "relation:sqlite",
+                "--source-entity-id",
+                "entity:source",
+                "--target-entity-id",
+                "entity:target",
+                "--relation-type",
+                "depends-on",
+                "--statement",
+                "Source depends on Target.",
+                "--source",
+                "source:test",
+                "--at",
+                "2026-06-07T10:00:00Z",
+            ]
+        )
+        == 0
+    )
+    remembered = json.loads(capsys.readouterr().out)
+    assert remembered["relation_id"] == "relation:sqlite"
+    assert remembered["source_entity_id"] == "entity:source"
+    assert remembered["target_entity_id"] == "entity:target"
+
+    assert _run_without_neo4j(["list", "--record-kind", "relation"]) == 0
+    listed = json.loads(capsys.readouterr().out)
+    assert [record["id"] for record in listed["records"]] == ["relation:sqlite"]
 
 
 def test_cli_sqlite_decision_supersession_reads_current_as_of_and_history(

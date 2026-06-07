@@ -31,6 +31,7 @@ from memorable.storage.sqlite.repository import (
     SQLiteEntityRepository,
     SQLiteMemorySpaceRepository,
     SQLiteObservationRepository,
+    SQLiteRelationRepository,
     SQLiteRepositoryPlaceholder,
     SQLiteTaskRepository,
 )
@@ -82,7 +83,7 @@ def _build_sqlite_context(
         decision_repo=SQLiteDecisionRepository(handle),
         task_repo=SQLiteTaskRepository(handle),
         observation_repo=SQLiteObservationRepository(handle),
-        relation_repo=SQLiteRepositoryPlaceholder("Relation", 242),
+        relation_repo=SQLiteRelationRepository(handle),
         about_repo=SQLiteRepositoryPlaceholder("About", 243),
         forget_repo=SQLiteRepositoryPlaceholder("Forget", 244),
         memory_space_repo=SQLiteMemorySpaceRepository(handle),

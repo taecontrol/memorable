@@ -15,6 +15,7 @@ from memorable.core.models import (
     MemorySpace,
     Observation,
     Provenance,
+    Relation,
     Task,
 )
 
@@ -30,8 +31,10 @@ class EntityPortHarness:
 @dataclass(frozen=True)
 class TemporalRecordHarness:
     name: str
+    entity_repo: Any
     decision_repo: Any
     observation_repo: Any
+    relation_repo: Any
     task_repo: Any
     close: Any
 
@@ -61,15 +64,19 @@ def temporal_record_harness(
     if request.param == "in-memory":
         from memorable.core.repositories import (
             InMemoryDecisionRepository,
+            InMemoryEntityRepository,
             InMemoryObservationRepository,
+            InMemoryRelationRepository,
             InMemoryTaskRepository,
         )
 
         record_keys: set[tuple[str, str]] = set()
         yield TemporalRecordHarness(
             name="in-memory",
+            entity_repo=InMemoryEntityRepository(),
             decision_repo=InMemoryDecisionRepository(record_keys),
             observation_repo=InMemoryObservationRepository(record_keys),
+            relation_repo=InMemoryRelationRepository(record_keys),
             task_repo=InMemoryTaskRepository(record_keys),
             close=lambda: None,
         )
@@ -80,15 +87,19 @@ def temporal_record_harness(
 
         from memorable.storage.neo4j.repository import (
             Neo4jDecisionRepository,
+            Neo4jEntityRepository,
             Neo4jObservationRepository,
+            Neo4jRelationRepository,
             Neo4jTaskRepository,
         )
 
         driver = FakeDriver()
         yield TemporalRecordHarness(
             name="neo4j",
+            entity_repo=Neo4jEntityRepository(driver),
             decision_repo=Neo4jDecisionRepository(driver),
             observation_repo=Neo4jObservationRepository(driver),
+            relation_repo=Neo4jRelationRepository(driver),
             task_repo=Neo4jTaskRepository(driver),
             close=lambda: None,
         )
@@ -97,7 +108,9 @@ def temporal_record_harness(
     from memorable.storage.sqlite.connection import connect
     from memorable.storage.sqlite.repository import (
         SQLiteDecisionRepository,
+        SQLiteEntityRepository,
         SQLiteObservationRepository,
+        SQLiteRelationRepository,
         SQLiteTaskRepository,
     )
 
@@ -110,8 +123,10 @@ def temporal_record_harness(
     try:
         yield TemporalRecordHarness(
             name="sqlite",
+            entity_repo=SQLiteEntityRepository(handle),
             decision_repo=SQLiteDecisionRepository(handle),
             observation_repo=SQLiteObservationRepository(handle),
+            relation_repo=SQLiteRelationRepository(handle),
             task_repo=SQLiteTaskRepository(handle),
             close=handle.close,
         )
@@ -282,6 +297,50 @@ def _observation(record_id: str, harness_name: str, *, state: str) -> Observatio
     )
 
 
+def _relation(record_id: str, harness_name: str, *, state: str) -> Relation:
+    return Relation(
+        id=f"relation:{harness_name}:{record_id}",
+        source_entity_id=f"entity:{harness_name}:source",
+        target_entity_id=f"entity:{harness_name}:target",
+        relation_type="depends-on",
+        statement=f"Relation {record_id}.",
+        space="test-conformance",
+        validity_time=datetime(2026, 6, 7, 9, 0, tzinfo=UTC),
+        invalidation_time=(
+            datetime(2026, 6, 8, 9, 0, tzinfo=UTC) if state != "current" else None
+        ),
+        lifecycle_state=state,
+        supersedes=None,
+        superseded_by=None,
+    )
+
+
+def _save_relation_endpoints(
+    entity_repo: Any,
+    harness_name: str,
+    *,
+    space: str = "test-conformance",
+) -> None:
+    entity_repo.save(
+        Entity(
+            id=f"entity:{harness_name}:source",
+            entity_type="Component",
+            name="Source",
+            space=space,
+        ),
+        _provenance(f"entity:{harness_name}:source"),
+    )
+    entity_repo.save(
+        Entity(
+            id=f"entity:{harness_name}:target",
+            entity_type="Component",
+            name="Target",
+            space=space,
+        ),
+        _provenance(f"entity:{harness_name}:target"),
+    )
+
+
 def _task(record_id: str, harness_name: str, *, state: str) -> Task:
     completion_time = (
         datetime(2026, 6, 8, 9, 0, tzinfo=UTC) if state == "completed" else None
@@ -302,7 +361,7 @@ def _task(record_id: str, harness_name: str, *, state: str) -> Task:
 
 @pytest.mark.parametrize(
     "record_kind",
-    ["decision", "observation", "task"],
+    ["decision", "observation", "relation", "task"],
 )
 def test_temporal_record_save_round_trips_verbatim_through_repository_port(
     temporal_record_harness: TemporalRecordHarness,
@@ -344,6 +403,29 @@ def test_temporal_record_save_round_trips_verbatim_through_repository_port(
                 state="invalidated",
             ),
         ]
+    elif record_kind == "relation":
+        repo = temporal_record_harness.relation_repo
+        _save_relation_endpoints(
+            temporal_record_harness.entity_repo,
+            temporal_record_harness.name,
+        )
+        records = [
+            _relation(
+                "round-trip-current",
+                temporal_record_harness.name,
+                state="current",
+            ),
+            _relation(
+                "round-trip-superseded",
+                temporal_record_harness.name,
+                state="superseded",
+            ),
+            _relation(
+                "round-trip-invalidated",
+                temporal_record_harness.name,
+                state="invalidated",
+            ),
+        ]
     else:
         repo = temporal_record_harness.task_repo
         records = [
@@ -375,7 +457,7 @@ def test_temporal_record_save_round_trips_verbatim_through_repository_port(
 
 @pytest.mark.parametrize(
     "record_kind",
-    ["decision", "observation", "task"],
+    ["decision", "observation", "relation", "task"],
 )
 def test_temporal_record_current_and_as_of_include_open_ended_successor(
     temporal_record_harness: TemporalRecordHarness,
@@ -400,7 +482,7 @@ def test_temporal_record_current_and_as_of_include_open_ended_successor(
             superseded_by=None,
             record_type=successor.record_type,
         )
-    else:
+    elif record_kind == "observation":
         repo = temporal_record_harness.observation_repo
         predecessor = _observation("old", temporal_record_harness.name, state="current")
         successor = _observation("new", temporal_record_harness.name, state="current")
@@ -414,6 +496,27 @@ def test_temporal_record_current_and_as_of_include_open_ended_successor(
             supersedes=predecessor.id,
             superseded_by=None,
             record_type=successor.record_type,
+        )
+    else:
+        repo = temporal_record_harness.relation_repo
+        _save_relation_endpoints(
+            temporal_record_harness.entity_repo,
+            temporal_record_harness.name,
+        )
+        predecessor = _relation("old", temporal_record_harness.name, state="current")
+        successor = _relation("new", temporal_record_harness.name, state="current")
+        successor = Relation(
+            id=successor.id,
+            source_entity_id=successor.source_entity_id,
+            target_entity_id=successor.target_entity_id,
+            relation_type=successor.relation_type,
+            statement=successor.statement,
+            space=successor.space,
+            validity_time=successor.validity_time,
+            invalidation_time=None,
+            lifecycle_state=successor.lifecycle_state,
+            supersedes=predecessor.id,
+            superseded_by=None,
         )
 
     repo.save(predecessor, _record_provenance(predecessor.id, record_kind))
@@ -472,7 +575,7 @@ def test_task_completion_replays_as_completed_through_task_read_path(
 
 @pytest.mark.parametrize(
     "record_kind",
-    ["decision", "observation", "task"],
+    ["decision", "observation", "relation", "task"],
 )
 def test_temporal_record_list_by_space_returns_every_lifecycle_state(
     temporal_record_harness: TemporalRecordHarness,
@@ -516,6 +619,35 @@ def test_temporal_record_list_by_space_returns_every_lifecycle_state(
             supersedes=None,
             superseded_by=None,
         )
+    elif record_kind == "relation":
+        repo = temporal_record_harness.relation_repo
+        _save_relation_endpoints(
+            temporal_record_harness.entity_repo,
+            temporal_record_harness.name,
+        )
+        _save_relation_endpoints(
+            temporal_record_harness.entity_repo,
+            temporal_record_harness.name,
+            space="other-space",
+        )
+        records = [
+            _relation("current", temporal_record_harness.name, state="current"),
+            _relation("superseded", temporal_record_harness.name, state="superseded"),
+            _relation("invalidated", temporal_record_harness.name, state="invalidated"),
+        ]
+        other_space = Relation(
+            id=f"relation:{temporal_record_harness.name}:other",
+            source_entity_id=f"entity:{temporal_record_harness.name}:source",
+            target_entity_id=f"entity:{temporal_record_harness.name}:target",
+            relation_type="depends-on",
+            statement="Other space.",
+            space="other-space",
+            validity_time=datetime(2026, 6, 7, 9, 0, tzinfo=UTC),
+            invalidation_time=None,
+            lifecycle_state="current",
+            supersedes=None,
+            superseded_by=None,
+        )
     else:
         repo = temporal_record_harness.task_repo
         records = [
@@ -538,3 +670,60 @@ def test_temporal_record_list_by_space_returns_every_lifecycle_state(
     listed_ids = {record.id for record in repo.list_by_space("test-conformance")}
 
     assert listed_ids == {record.id for record in records}
+
+
+def test_relation_list_by_entity_returns_incident_relations(
+    temporal_record_harness: TemporalRecordHarness,
+) -> None:
+    repo = temporal_record_harness.relation_repo
+    entity_repo = temporal_record_harness.entity_repo
+    harness_name = temporal_record_harness.name
+    _save_relation_endpoints(entity_repo, harness_name)
+    entity_repo.save(
+        Entity(
+            id=f"entity:{harness_name}:other",
+            entity_type="Component",
+            name="Other",
+            space="test-conformance",
+        ),
+        _provenance(f"entity:{harness_name}:other"),
+    )
+    source_relation = _relation("source", harness_name, state="current")
+    target_relation = Relation(
+        id=f"relation:{harness_name}:target",
+        source_entity_id=f"entity:{harness_name}:other",
+        target_entity_id=f"entity:{harness_name}:source",
+        relation_type="depends-on",
+        statement="Other depends on Source.",
+        space="test-conformance",
+        validity_time=datetime(2026, 6, 7, 9, 0, tzinfo=UTC),
+        invalidation_time=None,
+        lifecycle_state="current",
+        supersedes=None,
+        superseded_by=None,
+    )
+    unrelated = Relation(
+        id=f"relation:{harness_name}:unrelated",
+        source_entity_id=f"entity:{harness_name}:target",
+        target_entity_id=f"entity:{harness_name}:other",
+        relation_type="depends-on",
+        statement="Target depends on Other.",
+        space="test-conformance",
+        validity_time=datetime(2026, 6, 7, 9, 0, tzinfo=UTC),
+        invalidation_time=None,
+        lifecycle_state="current",
+        supersedes=None,
+        superseded_by=None,
+    )
+    for relation in [source_relation, target_relation, unrelated]:
+        repo.save(relation, _record_provenance(relation.id, "relation"))
+
+    listed_ids = {
+        relation.id
+        for relation in repo.list_by_entity(
+            "test-conformance",
+            f"entity:{harness_name}:source",
+        )
+    }
+
+    assert listed_ids == {source_relation.id, target_relation.id}

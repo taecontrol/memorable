@@ -6,7 +6,14 @@ from pathlib import Path
 import pytest
 
 from memorable.config import RuntimeConfig, SQLiteSettings, StorageSettings
-from memorable.core.models import Decision, Entity, Observation, Provenance, Task
+from memorable.core.models import (
+    Decision,
+    Entity,
+    Observation,
+    Provenance,
+    Relation,
+    Task,
+)
 
 
 def _sqlite_config(tmp_path: Path) -> RuntimeConfig:
@@ -226,6 +233,452 @@ def test_sqlite_observation_repository_round_trips_record_and_provenance(
 
         assert repo.get("test-project", observation.id) == observation
         assert repo.get_provenance("test-project", observation.id) == provenance
+    finally:
+        handle.close()
+
+
+def _relation(
+    record_id: str,
+    *,
+    state: str = "current",
+    invalidation_time: datetime | None = None,
+    supersedes: str | None = None,
+    superseded_by: str | None = None,
+) -> Relation:
+    return Relation(
+        id=record_id,
+        source_entity_id="entity:source",
+        target_entity_id="entity:target",
+        relation_type="depends-on",
+        statement=f"Relation for {record_id}.",
+        space="test-project",
+        validity_time=datetime(2026, 6, 7, 9, 0, tzinfo=UTC),
+        invalidation_time=invalidation_time,
+        lifecycle_state=state,
+        supersedes=supersedes,
+        superseded_by=superseded_by,
+    )
+
+
+def _save_relation_endpoints(entity_repo: object) -> None:
+    entity_repo.save(
+        Entity(
+            id="entity:source",
+            entity_type="Component",
+            name="Source",
+            space="test-project",
+        ),
+        _provenance("entity:source", "entity"),
+    )
+    entity_repo.save(
+        Entity(
+            id="entity:target",
+            entity_type="Component",
+            name="Target",
+            space="test-project",
+        ),
+        _provenance("entity:target", "entity"),
+    )
+
+
+def test_sqlite_relation_repository_round_trips_record_and_provenance(
+    tmp_path: Path,
+) -> None:
+    from memorable.storage.sqlite.connection import connect
+    from memorable.storage.sqlite.repository import (
+        SQLiteEntityRepository,
+        SQLiteRelationRepository,
+    )
+
+    handle = connect(_sqlite_config(tmp_path))
+    try:
+        entity_repo = SQLiteEntityRepository(handle)
+        repo = SQLiteRelationRepository(handle)
+        _save_relation_endpoints(entity_repo)
+        relation = _relation(
+            "relation:sqlite",
+            state="superseded",
+            invalidation_time=datetime(2026, 6, 8, 9, 0, tzinfo=UTC),
+            supersedes="relation:old",
+            superseded_by="relation:new",
+        )
+        provenance = _provenance(relation.id, "relation")
+
+        repo.save(relation, provenance)
+
+        assert repo.get("test-project", relation.id) == relation
+        assert repo.get_provenance("test-project", relation.id) == provenance
+    finally:
+        handle.close()
+
+
+def test_sqlite_relation_repository_lists_all_lifecycle_states(
+    tmp_path: Path,
+) -> None:
+    from memorable.storage.sqlite.connection import connect
+    from memorable.storage.sqlite.repository import (
+        SQLiteEntityRepository,
+        SQLiteRelationRepository,
+    )
+
+    handle = connect(_sqlite_config(tmp_path))
+    try:
+        entity_repo = SQLiteEntityRepository(handle)
+        repo = SQLiteRelationRepository(handle)
+        _save_relation_endpoints(entity_repo)
+        current = _relation("relation:current")
+        superseded = _relation(
+            "relation:superseded",
+            state="superseded",
+            invalidation_time=datetime(2026, 6, 8, 9, 0, tzinfo=UTC),
+            superseded_by="relation:replacement",
+        )
+        invalidated = _relation(
+            "relation:invalidated",
+            state="invalidated",
+            invalidation_time=datetime(2026, 6, 9, 9, 0, tzinfo=UTC),
+        )
+        other_space = Relation(
+            id="relation:other-space",
+            source_entity_id="entity:source",
+            target_entity_id="entity:target",
+            relation_type="depends-on",
+            statement="Other space.",
+            space="other-space",
+            validity_time=datetime(2026, 6, 7, 9, 0, tzinfo=UTC),
+            invalidation_time=None,
+            lifecycle_state="current",
+            supersedes=None,
+            superseded_by=None,
+        )
+        other_entity_repo = SQLiteEntityRepository(handle)
+        other_entity_repo.save(
+            Entity(
+                id="entity:source",
+                entity_type="Component",
+                name="Source",
+                space="other-space",
+            ),
+            _provenance("entity:source", "entity"),
+        )
+        other_entity_repo.save(
+            Entity(
+                id="entity:target",
+                entity_type="Component",
+                name="Target",
+                space="other-space",
+            ),
+            _provenance("entity:target", "entity"),
+        )
+        for relation in [current, superseded, invalidated, other_space]:
+            repo.save(relation, _provenance(relation.id, "relation"))
+
+        listed_ids = {relation.id for relation in repo.list_by_space("test-project")}
+
+        assert listed_ids == {
+            "relation:current",
+            "relation:superseded",
+            "relation:invalidated",
+        }
+    finally:
+        handle.close()
+
+
+def test_sqlite_relation_repository_lists_relations_incident_to_entity(
+    tmp_path: Path,
+) -> None:
+    from memorable.storage.sqlite.connection import connect
+    from memorable.storage.sqlite.repository import (
+        SQLiteEntityRepository,
+        SQLiteRelationRepository,
+    )
+
+    handle = connect(_sqlite_config(tmp_path))
+    try:
+        entity_repo = SQLiteEntityRepository(handle)
+        repo = SQLiteRelationRepository(handle)
+        _save_relation_endpoints(entity_repo)
+        entity_repo.save(
+            Entity(
+                id="entity:other",
+                entity_type="Component",
+                name="Other",
+                space="test-project",
+            ),
+            _provenance("entity:other", "entity"),
+        )
+        source_relation = _relation("relation:source")
+        target_relation = Relation(
+            id="relation:target",
+            source_entity_id="entity:other",
+            target_entity_id="entity:source",
+            relation_type="depends-on",
+            statement="Other depends on Source.",
+            space="test-project",
+            validity_time=datetime(2026, 6, 7, 9, 0, tzinfo=UTC),
+            invalidation_time=None,
+            lifecycle_state="current",
+            supersedes=None,
+            superseded_by=None,
+        )
+        unrelated = Relation(
+            id="relation:unrelated",
+            source_entity_id="entity:target",
+            target_entity_id="entity:other",
+            relation_type="depends-on",
+            statement="Target depends on Other.",
+            space="test-project",
+            validity_time=datetime(2026, 6, 7, 9, 0, tzinfo=UTC),
+            invalidation_time=None,
+            lifecycle_state="current",
+            supersedes=None,
+            superseded_by=None,
+        )
+        for relation in [source_relation, target_relation, unrelated]:
+            repo.save(relation, _provenance(relation.id, "relation"))
+
+        listed_ids = {
+            relation.id
+            for relation in repo.list_by_entity("test-project", "entity:source")
+        }
+
+        assert listed_ids == {"relation:source", "relation:target"}
+    finally:
+        handle.close()
+
+
+def test_sqlite_relation_supersession_resolves_through_truth_services(
+    tmp_path: Path,
+) -> None:
+    from memorable.core.application import CurrentTruthService, PointInTimeTruthService
+    from memorable.storage.sqlite.connection import connect
+    from memorable.storage.sqlite.repository import (
+        SQLiteEntityRepository,
+        SQLiteRelationRepository,
+    )
+
+    handle = connect(_sqlite_config(tmp_path))
+    try:
+        entity_repo = SQLiteEntityRepository(handle)
+        repo = SQLiteRelationRepository(handle)
+        _save_relation_endpoints(entity_repo)
+        predecessor = _relation("relation:old")
+        successor = _relation("relation:new", supersedes=predecessor.id)
+        repo.save(predecessor, _provenance(predecessor.id, "relation"))
+        repo.save(successor, _provenance(successor.id, "relation"))
+
+        repo.mark_superseded(
+            "test-project",
+            predecessor.id,
+            superseded_by=successor.id,
+            invalidation_time=datetime(2026, 6, 8, 9, 0, tzinfo=UTC),
+        )
+
+        assert (
+            CurrentTruthService(repo).current(
+                space="test-project",
+                record_id=predecessor.id,
+            )
+            == successor
+        )
+        assert (
+            PointInTimeTruthService(repo).at(
+                space="test-project",
+                record_id=predecessor.id,
+                at=datetime(2026, 6, 9, 9, 0, tzinfo=UTC),
+            )
+            == successor
+        )
+    finally:
+        handle.close()
+
+
+def test_sqlite_relation_projections_are_ordered_filtered_and_bounded(
+    tmp_path: Path,
+) -> None:
+    from memorable.storage.sqlite.connection import connect
+    from memorable.storage.sqlite.repository import (
+        SQLiteEntityRepository,
+        SQLiteRelationRepository,
+    )
+
+    handle = connect(_sqlite_config(tmp_path))
+    try:
+        entity_repo = SQLiteEntityRepository(handle)
+        repo = SQLiteRelationRepository(handle)
+        _save_relation_endpoints(entity_repo)
+        records = [
+            _relation("relation:late"),
+            _relation("relation:early"),
+            _relation(
+                "relation:old",
+                state="superseded",
+                invalidation_time=datetime(2026, 6, 8, 9, 0, tzinfo=UTC),
+            ),
+        ]
+        creation_times = {
+            "relation:late": datetime(2026, 6, 7, 12, 0, tzinfo=UTC),
+            "relation:early": datetime(2026, 6, 7, 10, 0, tzinfo=UTC),
+            "relation:old": datetime(2026, 6, 7, 11, 0, tzinfo=UTC),
+        }
+        for relation in records:
+            provenance = _provenance(relation.id, "relation")
+            repo.save(
+                relation,
+                Provenance(
+                    record_id=provenance.record_id,
+                    record_kind=provenance.record_kind,
+                    source_id=provenance.source_id,
+                    episode_id=provenance.episode_id,
+                    writer=provenance.writer,
+                    reason=provenance.reason,
+                    creation_time=creation_times[relation.id],
+                    validity_time=provenance.validity_time,
+                ),
+            )
+
+        projections = repo.list_projections_by_space(
+            space="test-project",
+            state="current",
+            since=datetime(2026, 6, 7, 9, 30, tzinfo=UTC),
+            until=datetime(2026, 6, 7, 13, 0, tzinfo=UTC),
+            limit=2,
+        )
+
+        assert [projection.id for projection in projections] == [
+            "relation:early",
+            "relation:late",
+        ]
+        assert [projection.type for projection in projections] == [
+            "relation",
+            "relation",
+        ]
+        assert [projection.label for projection in projections] == [
+            "Relation for relation:early.",
+            "Relation for relation:late.",
+        ]
+        assert [projection.record_type for projection in projections] == [None, None]
+    finally:
+        handle.close()
+
+
+def test_sqlite_relation_correction_updates_statement_and_provenance(
+    tmp_path: Path,
+) -> None:
+    from memorable.core.application import CorrectService
+    from memorable.storage.sqlite.connection import connect
+    from memorable.storage.sqlite.repository import (
+        SQLiteEntityRepository,
+        SQLiteRelationRepository,
+    )
+
+    handle = connect(_sqlite_config(tmp_path))
+    try:
+        entity_repo = SQLiteEntityRepository(handle)
+        repo = SQLiteRelationRepository(handle)
+        _save_relation_endpoints(entity_repo)
+        relation = _relation("relation:correct-me")
+        repo.save(relation, _provenance(relation.id, "relation"))
+
+        CorrectService(repo).correct(
+            space="test-project",
+            record_id=relation.id,
+            new_statement="Corrected Relation.",
+            record_kind="relation",
+            source="source:correction",
+            writer="agent:test",
+            at=datetime(2026, 6, 9, 9, 0, tzinfo=UTC),
+            reason="fix typo",
+        )
+
+        corrected = repo.get("test-project", relation.id)
+        provenance = repo.get_provenance("test-project", relation.id)
+        assert corrected is not None
+        assert corrected.statement == "Corrected Relation."
+        assert provenance is not None
+        assert provenance.source_id == "source:correction"
+        assert provenance.reason.startswith("Corrected from")
+    finally:
+        handle.close()
+
+
+def test_sqlite_relation_invalidation_updates_lifecycle_read_path(
+    tmp_path: Path,
+) -> None:
+    from memorable.core.application import InvalidateService
+    from memorable.storage.sqlite.connection import connect
+    from memorable.storage.sqlite.repository import (
+        SQLiteEntityRepository,
+        SQLiteRelationRepository,
+    )
+
+    handle = connect(_sqlite_config(tmp_path))
+    try:
+        entity_repo = SQLiteEntityRepository(handle)
+        repo = SQLiteRelationRepository(handle)
+        _save_relation_endpoints(entity_repo)
+        relation = _relation("relation:invalidate-me")
+        repo.save(relation, _provenance(relation.id, "relation"))
+
+        InvalidateService(repo).invalidate(
+            space="test-project",
+            record_id=relation.id,
+            at=datetime(2026, 6, 9, 9, 0, tzinfo=UTC),
+        )
+
+        invalidated = repo.get("test-project", relation.id)
+        assert invalidated is not None
+        assert invalidated.lifecycle_state == "invalidated"
+        assert invalidated.invalidation_time == datetime(2026, 6, 9, 9, 0, tzinfo=UTC)
+    finally:
+        handle.close()
+
+
+def test_sqlite_relation_save_requires_existing_endpoint_entities(
+    tmp_path: Path,
+) -> None:
+    from memorable.storage.sqlite.connection import connect
+    from memorable.storage.sqlite.repository import (
+        SQLiteEntityRepository,
+        SQLiteRelationRepository,
+    )
+
+    handle = connect(_sqlite_config(tmp_path))
+    try:
+        entity_repo = SQLiteEntityRepository(handle)
+        repo = SQLiteRelationRepository(handle)
+        entity_repo.save(
+            Entity(
+                id="entity:source",
+                entity_type="Component",
+                name="Source",
+                space="test-project",
+            ),
+            _provenance("entity:source", "entity"),
+        )
+        relation = _relation("relation:needs-target")
+
+        with pytest.raises(ValueError) as exc_info:
+            repo.save(relation, _provenance(relation.id, "relation"))
+
+        message = str(exc_info.value)
+        assert "Relation" in message
+        assert "Entity" in message
+        assert relation.id in message
+        assert "constraint" not in message.lower()
+        entity_repo.save(
+            Entity(
+                id="entity:target",
+                entity_type="Component",
+                name="Target",
+                space="test-project",
+            ),
+            _provenance("entity:target", "entity"),
+        )
+
+        repo.save(relation, _provenance(relation.id, "relation"))
+
+        assert repo.get("test-project", relation.id) == relation
     finally:
         handle.close()
 
@@ -461,7 +914,7 @@ def test_sqlite_typed_record_projections_are_ordered_filtered_and_bounded(
     from memorable.storage.sqlite.repository import (
         SQLiteDecisionRepository,
         SQLiteObservationRepository,
-        SQLiteRepositoryPlaceholder,
+        SQLiteRelationRepository,
         SQLiteTaskRepository,
     )
 
@@ -469,6 +922,7 @@ def test_sqlite_typed_record_projections_are_ordered_filtered_and_bounded(
     try:
         decision_repo = SQLiteDecisionRepository(handle)
         observation_repo = SQLiteObservationRepository(handle)
+        relation_repo = SQLiteRelationRepository(handle)
         task_repo = SQLiteTaskRepository(handle)
         repo = {
             "decision": decision_repo,
@@ -512,7 +966,7 @@ def test_sqlite_typed_record_projections_are_ordered_filtered_and_bounded(
         projections = ListRecordsService(
             decision_repo=decision_repo,
             observation_repo=observation_repo,
-            relation_repo=SQLiteRepositoryPlaceholder("Relation", 242),
+            relation_repo=relation_repo,
             task_repo=task_repo,
         ).list_records(
             space="test-project",

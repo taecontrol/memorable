@@ -80,6 +80,7 @@ def test_build_production_context_wires_sqlite_implemented_repos_and_placeholder
         SQLiteEntityRepository,
         SQLiteMemorySpaceRepository,
         SQLiteObservationRepository,
+        SQLiteRelationRepository,
         SQLiteTaskRepository,
     )
 
@@ -95,11 +96,12 @@ def test_build_production_context_wires_sqlite_implemented_repos_and_placeholder
         assert isinstance(ctx.entity_repo, SQLiteEntityRepository)
         assert isinstance(ctx.decision_repo, SQLiteDecisionRepository)
         assert isinstance(ctx.observation_repo, SQLiteObservationRepository)
+        assert isinstance(ctx.relation_repo, SQLiteRelationRepository)
         assert isinstance(ctx.task_repo, SQLiteTaskRepository)
         assert isinstance(ctx.memory_space_repo, SQLiteMemorySpaceRepository)
         assert isinstance(ctx.retrieval_index, InMemoryEmbeddingIndex)
-        with pytest.raises(NotImplementedError, match="SQLite backend.*Relation.*#242"):
-            ctx.relation_repo.get("test-project", "relation:1")
+        with pytest.raises(NotImplementedError, match="SQLite backend.*About.*#243"):
+            ctx.about_repo.records_for_entity("test-project", "entity:1")
     finally:
         resource.close()
 

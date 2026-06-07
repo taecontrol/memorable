@@ -67,6 +67,27 @@ def initialize_schema(connection: sqlite3.Connection) -> None:
             PRIMARY KEY (space, id)
         );
 
+        CREATE TABLE IF NOT EXISTS relations (
+            space TEXT NOT NULL,
+            id TEXT NOT NULL,
+            source_entity_id TEXT NOT NULL,
+            target_entity_id TEXT NOT NULL,
+            relation_type TEXT NOT NULL,
+            statement TEXT NOT NULL,
+            validity_time TEXT NOT NULL,
+            invalidation_time TEXT,
+            lifecycle_state TEXT NOT NULL,
+            supersedes TEXT,
+            superseded_by TEXT,
+            PRIMARY KEY (space, id),
+            FOREIGN KEY (space, id)
+                REFERENCES memory_records (space, id),
+            FOREIGN KEY (space, source_entity_id)
+                REFERENCES entities (space, id),
+            FOREIGN KEY (space, target_entity_id)
+                REFERENCES entities (space, id)
+        );
+
         CREATE TABLE IF NOT EXISTS provenance (
             space TEXT NOT NULL,
             record_id TEXT NOT NULL,
