@@ -299,13 +299,13 @@ Use Temporal Semantics when discussing current truth, historical truth, validity
 
 Validity Time is when a remembered claim, state, or rule became true or applicable in the domain.
 
-Do not confuse Validity Time with Creation Time. A record can be stored today about something that became true last week.
+Do not confuse Validity Time with Creation Time. A record can be stored today about something that became true last week. On ambient writes, the caller-supplied time is Validity Time only; it does not set Creation Time.
 
 ### Creation Time
 
-Creation Time is when Memorable stored the memory record.
+Creation Time is when Memorable stored the memory record. It is system-stamped at write time by Memorable and is not caller-supplied on ambient Agent or Human Owner writes.
 
-Use Creation Time for audit and ordering of writes. Use Validity Time for when the remembered claim became true or applicable.
+Use Creation Time for audit and ordering of writes. Use Validity Time for the caller-supplied time when the remembered claim became true or applicable.
 
 ### Invalidation Time
 
