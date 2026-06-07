@@ -33,7 +33,12 @@ Five **state** roles:
 - `ready-for-human` — needs human implementation
 - `wontfix` — will not be actioned
 
-Every triaged issue should carry exactly one category role and one state role. If state roles conflict, flag it and ask the maintainer before doing anything else.
+Two non-state **kind** labels affect agent queues:
+
+- `PRD` — planning parent; never an AFK implementation assignment
+- `slice` — implementation assignment produced from a PRD/plan
+
+Every triaged issue should carry exactly one category role and one state role. Kind labels do not replace state labels. If state roles conflict, flag it and ask the maintainer before doing anything else. Do not mark a `PRD` issue `ready-for-agent`; only `slice` issues may enter an AFK worker queue.
 
 These are canonical role names — the actual label strings used in the issue tracker may differ. The mapping should have been provided to you - run `/setup-matt-pocock-skills` if not.
 
@@ -78,7 +83,7 @@ Show counts and a one-line summary per issue. Let the maintainer pick.
 
 ## Quick state override
 
-If the maintainer says "move #42 to ready-for-agent", trust them and apply the role directly. Confirm what you're about to do (role changes, comment, close), then act. Skip grilling. If moving to `ready-for-agent` without a grilling session, ask whether they want to write an agent brief.
+If the maintainer says "move #42 to ready-for-agent", trust them and apply the role directly unless the issue has the `PRD` kind label. Confirm what you're about to do (role changes, comment, close), then act. Skip grilling. If moving to `ready-for-agent` without a grilling session, ask whether they want to write an agent brief. For a `PRD`, ask whether they meant to slice it or mark one of its `slice` children ready.
 
 ## Needs-info template
 
