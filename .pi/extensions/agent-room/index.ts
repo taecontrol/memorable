@@ -1118,12 +1118,13 @@ async function commitCurrentSlice(room: AgentRoom, slice: PrdRunMetadata["ordere
 
 // Run the project's Python formatter so committed slices satisfy CI's
 // `ruff format --check`. The agent-room operates on the memorable repo, where `uv`
-// is the mandated toolchain. We tolerate a missing toolchain (warn, continue) so the
-// extension stays usable in environments without `uv`, but we let genuine formatter
-// failures (e.g. invalid Python) propagate and block the commit.
+// is the mandated toolchain and formatter lives in the `dev` extra. We tolerate a
+// missing toolchain (warn, continue) so the extension stays usable in environments
+// without `uv`, but we let genuine formatter failures (e.g. invalid Python) propagate
+// and block the commit.
 async function formatWorktree(room: AgentRoom, pi?: ExtensionAPI): Promise<void> {
 	try {
-		await execFile("uv", ["run", "ruff", "format", "."], { cwd: room.cwd, maxBuffer: 10 * 1024 * 1024 });
+		await execFile("uv", ["run", "--extra", "dev", "ruff", "format", "."], { cwd: room.cwd, maxBuffer: 10 * 1024 * 1024 });
 	} catch (error) {
 		const code = (error as NodeJS.ErrnoException).code;
 		if (code === "ENOENT") {
