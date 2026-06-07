@@ -325,6 +325,7 @@ class TestRememberDecisionService:
         from memorable.core.application import (
             RememberDecisionService,
         )
+        from memorable.core.clock import FixedClock
         from memorable.core.profile import load_profile_from_yaml
         from memorable.core.repositories import (
             InMemoryDecisionRepository,
@@ -333,7 +334,11 @@ class TestRememberDecisionService:
         repo = InMemoryDecisionRepository()
         profile = load_profile_from_yaml(VALID_PROFILE_YAML)
         return (
-            RememberDecisionService(repository=repo, profile=profile),
+            RememberDecisionService(
+                repository=repo,
+                profile=profile,
+                clock=FixedClock(FIXTURE_TIMESTAMP_V1),
+            ),
             repo,
         )
 

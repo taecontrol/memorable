@@ -329,6 +329,7 @@ class TestRememberRelationService:
 
     def _make_service(self):
         from memorable.core.application import RememberRelationService
+        from memorable.core.clock import FixedClock
         from memorable.core.profile import load_profile_from_yaml
         from memorable.core.repositories import (
             InMemoryEntityRepository,
@@ -342,6 +343,7 @@ class TestRememberRelationService:
             relation_repo=relation_repo,
             entity_repo=entity_repo,
             profile=profile,
+            clock=FixedClock(FIXTURE_TIMESTAMP_V1),
         )
         return service, relation_repo, entity_repo
 

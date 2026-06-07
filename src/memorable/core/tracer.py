@@ -18,6 +18,7 @@ from memorable.core.application import (
     RememberEntityService,
     RememberTaskService,
 )
+from memorable.core.clock import FixedClock
 from memorable.core.context import ApplicationContext
 from memorable.core.profile import MemoryProfile, load_profile_from_yaml
 
@@ -94,7 +95,11 @@ class TracerService:
     def _run_fixture(self, ctx: ApplicationContext, profile: MemoryProfile) -> None:
         """Run the 7-step fixed fixture."""
         # Step 3: Remember Entity
-        entity_svc = RememberEntityService(repository=ctx.entity_repo, profile=profile)
+        entity_svc = RememberEntityService(
+            repository=ctx.entity_repo,
+            profile=profile,
+            clock=FixedClock(FIXTURE_TIMESTAMPS["entity"]),
+        )
         entity_svc.remember(
             space="memorable",
             entity_id="entity:memorable",
@@ -108,7 +113,9 @@ class TracerService:
 
         # Step 4: Remember initial Decision
         decision_svc = RememberDecisionService(
-            repository=ctx.decision_repo, profile=profile
+            repository=ctx.decision_repo,
+            profile=profile,
+            clock=FixedClock(FIXTURE_TIMESTAMPS["decision_v1"]),
         )
         decision_svc.remember(
             space="memorable",
@@ -121,6 +128,11 @@ class TracerService:
         )
 
         # Step 5: Remember superseding Decision
+        decision_svc = RememberDecisionService(
+            repository=ctx.decision_repo,
+            profile=profile,
+            clock=FixedClock(FIXTURE_TIMESTAMPS["decision_v2"]),
+        )
         decision_svc.remember(
             space="memorable",
             decision_id="decision:storage-path:v2",
@@ -133,7 +145,11 @@ class TracerService:
         )
 
         # Step 6: Remember Task
-        task_svc = RememberTaskService(repository=ctx.task_repo, profile=profile)
+        task_svc = RememberTaskService(
+            repository=ctx.task_repo,
+            profile=profile,
+            clock=FixedClock(FIXTURE_TIMESTAMPS["task"]),
+        )
         task_svc.remember(
             space="memorable",
             task_id="task:mcp-smoke-path",

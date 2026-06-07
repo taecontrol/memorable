@@ -877,12 +877,18 @@ class TestMCPCorrectTool:
             "memorable", DECISION_ID
         ) == ["entity:wrong"]
 
-    def test_correct_restaples_task_about_edges_via_mcp(self) -> None:
+    def test_correct_restaples_task_about_edges_via_mcp(self, monkeypatch) -> None:
+        from memorable.core.clock import FixedClock
         from memorable.core.context import default_context
         from memorable.mcp.server import (
             correct_tool,
             remember_entity_tool,
             remember_task_tool,
+        )
+
+        monkeypatch.setattr(
+            "memorable.mcp.server.SystemClock",
+            lambda: FixedClock(CORRECTION_TIMESTAMP),
         )
 
         remember_entity_tool(
