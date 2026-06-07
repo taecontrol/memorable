@@ -35,7 +35,13 @@ def connect(config: RuntimeConfig) -> SQLiteHandle:
     """Open and initialize a SQLite-backed MemorySpace resource."""
     path = resolve_path(config)
     path.parent.mkdir(parents=True, exist_ok=True)
-    connection = sqlite3.connect(path, timeout=BUSY_TIMEOUT_MS / 1000)
+    connection = sqlite3.connect(
+        path,
+        timeout=BUSY_TIMEOUT_MS / 1000,
+        # The MCP server builds the context once, then may dispatch sync tools
+        # on worker threads while CLI processes open separate connections.
+        check_same_thread=False,
+    )
     connection.row_factory = sqlite3.Row
     try:
         _configure(connection)

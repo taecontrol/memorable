@@ -1,5 +1,8 @@
 from __future__ import annotations
 
+import queue
+import threading
+import time
 from datetime import UTC, date, datetime
 from pathlib import Path
 
@@ -57,6 +60,78 @@ def test_sqlite_connect_creates_file_and_sets_connection_invariants(
         )
     finally:
         second_handle.close()
+
+
+def test_sqlite_contended_writer_waits_for_single_writer_and_succeeds(
+    tmp_path: Path,
+) -> None:
+    from memorable.storage.sqlite.connection import connect
+    from memorable.storage.sqlite.repository import SQLiteEntityRepository
+
+    config = _sqlite_config(tmp_path)
+    holder_handle = connect(config)
+    writer_handle = connect(config)
+    release_holder = threading.Event()
+    holder_ready = threading.Event()
+    holder_results: queue.Queue[tuple[str, str]] = queue.Queue()
+    writer_results: queue.Queue[tuple[str, str]] = queue.Queue()
+
+    def _hold_writer() -> None:
+        try:
+            holder_handle.connection.execute("BEGIN IMMEDIATE")
+            holder_ready.set()
+            if not release_holder.wait(timeout=10):
+                raise AssertionError("contended writer did not finish before timeout")
+            holder_handle.connection.execute("COMMIT")
+            holder_results.put(("ok", ""))
+        except Exception as exc:
+            holder_results.put(("error", f"{type(exc).__name__}: {exc}"))
+            holder_ready.set()
+
+    entity = Entity(
+        id="entity:contended-writer",
+        entity_type="Component",
+        name="Contended Writer",
+        space="test-project",
+    )
+    repo = SQLiteEntityRepository(writer_handle)
+
+    def _write_entity() -> None:
+        try:
+            repo.save(entity, _provenance(entity.id, "entity"))
+            writer_results.put(("ok", ""))
+        except Exception as exc:
+            writer_results.put(("error", f"{type(exc).__name__}: {exc}"))
+
+    holder = threading.Thread(target=_hold_writer, daemon=True)
+    writer = threading.Thread(target=_write_entity, daemon=True)
+    try:
+        holder.start()
+        assert holder_ready.wait(timeout=5), "writer holder did not start"
+        if not holder_results.empty():
+            assert holder_results.get_nowait() == ("ok", "")
+
+        writer.start()
+        time.sleep(0.2)
+        assert writer_results.empty(), "contended writer did not wait"
+
+        release_holder.set()
+        writer.join(timeout=5)
+        holder.join(timeout=5)
+
+        assert not writer.is_alive(), "contended writer did not finish"
+        assert not holder.is_alive(), "writer holder did not finish"
+        assert holder_results.get(timeout=1) == ("ok", "")
+        assert writer_results.get(timeout=1) == ("ok", "")
+        assert repo.get("test-project", entity.id) == entity
+    finally:
+        release_holder.set()
+        if writer.ident is not None:
+            writer.join(timeout=5)
+        if holder.ident is not None:
+            holder.join(timeout=5)
+        writer_handle.close()
+        holder_handle.close()
 
 
 def test_sqlite_memory_space_repository_round_trips_created_space(

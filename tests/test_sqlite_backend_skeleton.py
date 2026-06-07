@@ -1,8 +1,15 @@
 from __future__ import annotations
 
 import json
+import os
+import queue
+import subprocess
+import sys
+import threading
 from pathlib import Path
 from unittest.mock import patch
+
+PROJECT_ROOT = Path(__file__).resolve().parents[1]
 
 
 def _write_sqlite_workspace(path: Path) -> None:
@@ -40,6 +47,118 @@ def _run_without_neo4j(argv: list[str]) -> int:
         side_effect=AssertionError("Neo4j must not be used by SQLite backend"),
     ):
         return main(argv)
+
+
+def _pythonpath_env() -> dict[str, str]:
+    env = os.environ.copy()
+    src_path = str(PROJECT_ROOT / "src")
+    existing = env.get("PYTHONPATH")
+    env["PYTHONPATH"] = (
+        src_path if not existing else f"{src_path}{os.pathsep}{existing}"
+    )
+    return env
+
+
+def _run_cli_process(
+    workspace: Path,
+    argv: list[str],
+) -> subprocess.CompletedProcess[str]:
+    return subprocess.run(
+        [sys.executable, "-m", "memorable.cli", *argv],
+        cwd=workspace,
+        env=_pythonpath_env(),
+        check=False,
+        capture_output=True,
+        text=True,
+        timeout=10,
+    )
+
+
+def test_cli_sqlite_writer_succeeds_while_mcp_shaped_reader_holds_read(
+    tmp_path: Path,
+) -> None:
+    from memorable.config import load_runtime_config
+    from memorable.storage.production import build_production_context
+
+    _write_sqlite_workspace(tmp_path)
+    seed = _run_cli_process(
+        tmp_path,
+        [
+            "remember",
+            "entity",
+            "--id",
+            "entity:mcp-reader",
+            "--type",
+            "Component",
+            "--name",
+            "MCP Reader",
+            "--source",
+            "source:test",
+            "--at",
+            "2026-06-07T09:00:00Z",
+        ],
+    )
+    assert seed.returncode == 0, seed.stderr
+
+    config = load_runtime_config(
+        base_path=tmp_path,
+        include_environment_overrides=True,
+    )
+    ctx, resource = build_production_context(config)
+    ready = threading.Event()
+    release = threading.Event()
+    reader_results: queue.Queue[tuple[str, object, object]] = queue.Queue()
+
+    def _mcp_shaped_reader() -> None:
+        try:
+            resource.connection.execute("BEGIN")
+            existing = ctx.entity_repo.get("sqlite-project", "entity:mcp-reader")
+            if existing is None:
+                raise AssertionError("MCP-shaped reader did not see seeded Entity")
+            ready.set()
+            if not release.wait(timeout=10):
+                raise AssertionError("CLI writer did not finish before timeout")
+            resource.connection.execute("COMMIT")
+            written = ctx.entity_repo.get("sqlite-project", "entity:cli-writer")
+            reader_results.put(("ok", written is not None, ""))
+        except Exception as exc:
+            reader_results.put(("error", type(exc).__name__, str(exc)))
+            ready.set()
+
+    reader = threading.Thread(target=_mcp_shaped_reader, daemon=True)
+    try:
+        reader.start()
+        assert ready.wait(timeout=5), "MCP-shaped reader did not start"
+        if not reader_results.empty():
+            assert reader_results.get_nowait() == ("ok", True, "")
+
+        writer = _run_cli_process(
+            tmp_path,
+            [
+                "remember",
+                "entity",
+                "--id",
+                "entity:cli-writer",
+                "--type",
+                "Component",
+                "--name",
+                "CLI Writer",
+                "--source",
+                "source:test",
+                "--at",
+                "2026-06-07T10:00:00Z",
+            ],
+        )
+        assert writer.returncode == 0, writer.stderr
+
+        release.set()
+        reader.join(timeout=5)
+        assert not reader.is_alive(), "MCP-shaped reader did not finish"
+        assert reader_results.get(timeout=1) == ("ok", True, "")
+    finally:
+        release.set()
+        reader.join(timeout=5)
+        resource.close()
 
 
 def test_cli_remember_entity_with_sqlite_writes_file_and_reads_back(
