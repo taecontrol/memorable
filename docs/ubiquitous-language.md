@@ -28,7 +28,7 @@ Memorable Core owns the language for:
 Supporting contexts include:
 
 - MCP agent interface;
-- Neo4j storage adapter;
+- storage adapters (SQLite, the embedded default, and Neo4j);
 - embedding providers and retrieval indexes;
 - optional Graphiti adapter or comparison spike;
 - Markdown, reports, summaries, reviews, and other generated views.
@@ -586,9 +586,19 @@ Do not expose raw storage terms through MCP unless the tool is explicitly diagno
 
 Duplicate MemoryRecord write errors should name the record id and MemorySpace, and should guide the Agent to correct the existing record or choose a new id.
 
+### Storage Adapters
+
+Memorable has co-equal storage adapters behind the storage ports. SQLite is the embedded default storage runtime; Neo4j is a co-equal, selectable backend (ADR 0021). The in-memory adapter exists for tests.
+
+### SQLite
+
+SQLite is the default, embedded storage adapter (ADR 0021). A single `.db` file holds a MemorySpace's Entities, MemoryRecords, Relations, About links, provenance, and derived Embeddings, with no server or daemon.
+
+SQLite tables, columns, foreign keys, and the `sqlite-vec` vector index (ADR 0022) are storage vocabulary, not Memorable Core language.
+
 ### Neo4j
 
-Neo4j is the first storage adapter.
+Neo4j was the first storage adapter and remains co-equal and selectable.
 
 Neo4j nodes and relationships may store Memorable Entities, MemoryRecords, Relations, provenance links, and lifecycle transitions. However, Neo4j Node and Relationship are storage vocabulary, not Memorable Core language.
 
@@ -598,7 +608,7 @@ Use storage-specific terms inside adapter implementation and translation docs. U
 
 Retrieval indexes and Embeddings are derived retrieval infrastructure.
 
-They may be stored in Neo4j vector indexes, local files, external vector stores, or provider-specific caches. Those storage choices do not define Memorable Core language.
+They may be stored in a Neo4j vector index, the SQLite `sqlite-vec` index, local files, external vector stores, or provider-specific caches. Those storage choices do not define Memorable Core language.
 
 Use Indexable Text, Embedding, Embedding Provider, GraphRAG Retrieval, and Hybrid Retrieval in product docs, schemas, specs, and agent-facing behavior. Keep provider-specific vocabulary inside retrieval adapter implementation unless it affects user-facing configuration or behavior.
 
