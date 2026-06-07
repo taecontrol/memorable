@@ -73,10 +73,11 @@ class TestConnect:
 
             driver = connect(_config("bolt://localhost:7687"))
 
-        assert driver is mock_driver
         mock_driver.verify_connectivity.assert_called_once()
         connect_uri = mock_gdb.driver.call_args.args[0]
         assert connect_uri == "bolt://127.0.0.1:7687"
+        driver.close()
+        mock_driver.close.assert_called_once()
 
     def test_applies_auth_fail_fast_and_notification_suppression(self) -> None:
         from memorable.storage.neo4j.connection import (
@@ -101,6 +102,39 @@ class TestConnect:
         )
         # Non-local host is preserved exactly.
         assert mock_gdb.driver.call_args.args[0] == "bolt://prod-server:7687"
+
+    def test_sessions_open_against_configured_database(self) -> None:
+        from memorable.storage.neo4j.connection import connect
+
+        configs = [
+            ("default", _config("bolt://prod-server:7687"), "neo4j"),
+            (
+                "overridden",
+                RuntimeConfig(
+                    neo4j=Neo4jSettings(
+                        uri="bolt://prod-server:7687",
+                        user="neo4j",
+                        password="secret",
+                        database="memory_prod",
+                    )
+                ),
+                "memory_prod",
+            ),
+        ]
+
+        for label, config, expected_database in configs:
+            with patch("memorable.storage.neo4j.connection.GraphDatabase") as mock_gdb:
+                mock_driver = MagicMock()
+                mock_driver.verify_connectivity.return_value = None
+                mock_gdb.driver.return_value = mock_driver
+
+                driver = connect(config)
+                driver.session()
+
+            try:
+                mock_driver.session.assert_called_once_with(database=expected_database)
+            except AssertionError as exc:
+                raise AssertionError(label) from exc
 
     def test_failure_closes_driver_and_names_configured_uri(self) -> None:
         import pytest

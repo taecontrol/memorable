@@ -33,7 +33,8 @@ def test_build_production_context_returns_context_and_driver() -> None:
         ctx, driver = build_production_context(config)
 
     assert isinstance(ctx, ApplicationContext)
-    assert driver is mock_driver
+    driver.close()
+    mock_driver.close.assert_called_once()
 
 
 def test_build_production_context_wires_all_neo4j_repos() -> None:
@@ -114,7 +115,8 @@ def test_build_production_context_routes_through_connection_policy() -> None:
 
         _, driver = build_production_context(config)
 
-    assert driver is mock_driver
+    driver.close()
+    mock_driver.close.assert_called_once()
     assert mock_gdb.driver.call_args.args[0] == "bolt://127.0.0.1:7687"
 
 

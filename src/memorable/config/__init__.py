@@ -22,6 +22,7 @@ class Neo4jSettings:
     uri: str = "bolt://127.0.0.1:7687"
     user: str = "neo4j"
     password: str = "memorable"
+    database: str = "neo4j"
 
 
 @dataclass(frozen=True)
@@ -98,6 +99,7 @@ _ENV_MAPPING: dict[str, str] = {
     "MEMORABLE_NEO4J_URI": "neo4j.uri",
     "MEMORABLE_NEO4J_USER": "neo4j.user",
     "MEMORABLE_NEO4J_PASSWORD": "neo4j.password",
+    "MEMORABLE_NEO4J_DATABASE": "neo4j.database",
     "MEMORABLE_OPENROUTER_API_KEY": "embeddings.api_key",
 }
 
@@ -179,6 +181,7 @@ def load_runtime_config(
         uri=neo4j_raw.get("uri", Neo4jSettings.uri),
         user=neo4j_raw.get("user", Neo4jSettings.user),
         password=neo4j_raw.get("password", Neo4jSettings.password),
+        database=neo4j_raw.get("database", Neo4jSettings.database),
     )
     docker = DockerSettings(
         neo4j_version=docker_raw.get("neo4j_version", DockerSettings.neo4j_version),
@@ -197,6 +200,7 @@ def load_runtime_config(
         "neo4j.uri",
         "neo4j.user",
         "neo4j.password",
+        "neo4j.database",
         "docker.neo4j_version",
         "docker.http_port",
         "docker.bolt_port",

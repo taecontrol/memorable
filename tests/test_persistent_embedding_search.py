@@ -3168,7 +3168,8 @@ def test_production_context_wires_neo4j_retrieval_index() -> None:
     ):
         ctx, returned_driver = build_production_context(RuntimeConfig())
 
-    assert returned_driver is driver
+    returned_driver.close()
+    driver.close.assert_called_once()
     assert isinstance(ctx.retrieval_index, Neo4jRetrievalIndex)
 
 
