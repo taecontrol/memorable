@@ -4,7 +4,13 @@ import json
 from pathlib import Path
 from types import SimpleNamespace
 
-from memorable.config import EmbeddingSettings, Neo4jSettings, RuntimeConfig
+from memorable.config import (
+    EmbeddingSettings,
+    Neo4jSettings,
+    RuntimeConfig,
+    SQLiteSettings,
+    StorageSettings,
+)
 from memorable.runtime.doctor import DiagnosticProbes
 
 EXPECTED_SCHEMA_CONSTRAINTS = [
@@ -139,6 +145,87 @@ def test_doctor_reports_active_neo4j_database_and_source() -> None:
         "ok": True,
         "hint": "Active Neo4j database: memory_prod (source: runtime.local.yaml).",
     }
+
+
+def test_doctor_reports_sqlite_backend_and_path_without_neo4j_probes(
+    tmp_path: Path,
+) -> None:
+    from memorable.runtime.doctor import run_diagnostics
+
+    def must_not_ping_neo4j(_config: RuntimeConfig) -> None:
+        raise AssertionError("doctor should not probe Neo4j when SQLite is active")
+
+    def must_not_read_neo4j(_config: RuntimeConfig) -> list:
+        raise AssertionError("doctor should not inspect Neo4j when SQLite is active")
+
+    config = RuntimeConfig(
+        storage=StorageSettings(backend="sqlite"),
+        sqlite=SQLiteSettings(path=".memorable/project.db"),
+        sources={
+            "storage.backend": "runtime.yaml",
+            "sqlite.path": "runtime.local.yaml",
+        },
+        base_path=tmp_path,
+    )
+
+    results = run_diagnostics(
+        config,
+        probes=_probes(
+            ping_neo4j=must_not_ping_neo4j,
+            list_schema_constraints=must_not_read_neo4j,
+            list_vector_indexes=must_not_read_neo4j,
+        ),
+    )
+
+    by_check = _by_check(results)
+    assert by_check["storage_backend"] == {
+        "check": "storage_backend",
+        "ok": True,
+        "hint": "Active storage backend: sqlite (source: runtime.yaml).",
+    }
+    assert by_check["sqlite_path"] == {
+        "check": "sqlite_path",
+        "ok": True,
+        "hint": (
+            "SQLite database path: "
+            f"{tmp_path / '.memorable' / 'project.db'} "
+            "(source: runtime.local.yaml)."
+        ),
+    }
+    assert "neo4j_connectivity" not in by_check
+
+
+def test_doctor_sqlite_profile_check_does_not_probe_placeholder_index(
+    tmp_path: Path,
+) -> None:
+    from memorable.runtime.doctor import run_diagnostics
+
+    profile_path = tmp_path / ".memorable" / "memory.yaml"
+    profile_path.parent.mkdir()
+    profile_path.write_text("valid profile", encoding="utf-8")
+
+    def must_not_collect_coverage(_config: RuntimeConfig, _space: str) -> object:
+        raise AssertionError("SQLite uses a placeholder RetrievalIndex in PRD A")
+
+    config = RuntimeConfig(
+        storage=StorageSettings(backend="sqlite"),
+        base_path=tmp_path,
+    )
+
+    results = run_diagnostics(
+        config,
+        probes=_probes(
+            profile_path=profile_path,
+            load_profile_from_yaml=lambda _yaml_text: SimpleNamespace(
+                space=SimpleNamespace(name="test-space")
+            ),
+            collect_embedding_coverage=must_not_collect_coverage,
+        ),
+    )
+
+    by_check = _by_check(results)
+    assert by_check["memory_profile_parses"]["ok"] is True
+    assert "embedding_index_coverage" not in by_check
 
 
 def test_doctor_reports_schema_constraints_pass() -> None:
@@ -832,6 +919,39 @@ def test_doctor_cli_json_outputs_structured_results(monkeypatch, capsys) -> None
     assert json.loads(capsys.readouterr().out) == [
         {"check": "neo4j_connectivity", "ok": True, "hint": ""},
     ]
+
+
+def test_doctor_cli_json_shows_sqlite_backend_and_path(
+    tmp_path: Path,
+    monkeypatch,
+    capsys,
+    clean_memorable_environment,
+) -> None:
+    from memorable.cli import main
+
+    config_dir = tmp_path / ".memorable"
+    config_dir.mkdir()
+    (config_dir / "runtime.yaml").write_text(
+        "storage:\n"
+        "  backend: sqlite\n"
+        "embeddings:\n"
+        "  provider: fake\n"
+        "  dimensions: 32\n",
+        encoding="utf-8",
+    )
+    monkeypatch.chdir(tmp_path)
+
+    rc = main(["doctor", "--json"])
+
+    assert rc == 0
+    by_check = _by_check(json.loads(capsys.readouterr().out))
+    assert by_check["storage_backend"]["hint"] == (
+        "Active storage backend: sqlite (source: runtime.yaml)."
+    )
+    assert by_check["sqlite_path"]["hint"] == (
+        f"SQLite database path: {tmp_path / '.memorable' / 'memory.db'} "
+        "(source: built-in)."
+    )
 
 
 def test_doctor_cli_resolves_config_with_environment_overrides(

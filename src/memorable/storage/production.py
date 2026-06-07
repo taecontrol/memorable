@@ -1,14 +1,17 @@
 """Production context factory for Memorable.
 
-Creates a Neo4j driver from RuntimeConfig, wires all Neo4j repository
-adapters into ApplicationContext, and verifies connectivity on creation.
-Entry points (CLI, MCP) own the driver lifecycle (close on exit).
+Creates a storage resource from RuntimeConfig, wires repository adapters into
+ApplicationContext, and returns the closeable resource to entry points.
+Entry points (CLI, MCP) own that resource lifecycle (close on exit).
 """
 
 from __future__ import annotations
 
+from typing import Protocol
+
 from memorable.config import RuntimeConfig
 from memorable.core.context import ApplicationContext
+from memorable.retrieval.index import InMemoryEmbeddingIndex
 from memorable.storage.neo4j.connection import Neo4jDriver, connect
 from memorable.storage.neo4j.repository import (
     Neo4jAboutRepository,
@@ -21,25 +24,43 @@ from memorable.storage.neo4j.repository import (
     Neo4jTaskRepository,
 )
 from memorable.storage.neo4j.retrieval_index import Neo4jRetrievalIndex
+from memorable.storage.sqlite.connection import SQLiteHandle
+from memorable.storage.sqlite.connection import connect as connect_sqlite
+from memorable.storage.sqlite.repository import (
+    SQLiteAboutRepository,
+    SQLiteDecisionRepository,
+    SQLiteEntityRepository,
+    SQLiteForgetRepository,
+    SQLiteMemorySpaceRepository,
+    SQLiteObservationRepository,
+    SQLiteRelationRepository,
+    SQLiteTaskRepository,
+)
+
+
+class CloseableResource(Protocol):
+    def close(self) -> None: ...
 
 
 def build_production_context(
     config: RuntimeConfig,
-) -> tuple[ApplicationContext, Neo4jDriver]:
-    """Create a Neo4j-backed ApplicationContext from resolved config.
+) -> tuple[ApplicationContext, CloseableResource]:
+    """Create an ApplicationContext from resolved runtime storage config.
 
-    Creates a Neo4j driver, verifies connectivity (fail-fast), instantiates
-    all four Neo4j repository adapters, and returns both the wired
-    ApplicationContext and the driver.
-
-    The caller owns the driver lifecycle and must close it on exit.
-
-    Raises:
-        ConnectionError: If Neo4j is unreachable, with an actionable message
-            suggesting ``memorable db start`` or checking the config.
+    The caller owns the returned resource lifecycle and must close it on exit.
+    Neo4j remains the default path for this PRD slice; SQLite is selectable.
     """
-    driver = connect(config)
+    if config.storage.backend == "neo4j":
+        return _build_neo4j_context(config)
+    if config.storage.backend == "sqlite":
+        return _build_sqlite_context(config)
+    raise ValueError(f"Unsupported storage backend: {config.storage.backend}")
 
+
+def _build_neo4j_context(
+    config: RuntimeConfig,
+) -> tuple[ApplicationContext, Neo4jDriver]:
+    driver = connect(config)
     ctx = ApplicationContext(
         entity_repo=Neo4jEntityRepository(driver),
         decision_repo=Neo4jDecisionRepository(driver),
@@ -51,5 +72,23 @@ def build_production_context(
         memory_space_repo=Neo4jMemorySpaceRepository(driver),
         retrieval_index=Neo4jRetrievalIndex(driver),
     )
-
     return ctx, driver
+
+
+def _build_sqlite_context(
+    config: RuntimeConfig,
+) -> tuple[ApplicationContext, SQLiteHandle]:
+    handle = connect_sqlite(config)
+    ctx = ApplicationContext(
+        entity_repo=SQLiteEntityRepository(handle),
+        decision_repo=SQLiteDecisionRepository(handle),
+        task_repo=SQLiteTaskRepository(handle),
+        observation_repo=SQLiteObservationRepository(handle),
+        relation_repo=SQLiteRelationRepository(handle),
+        about_repo=SQLiteAboutRepository(handle),
+        forget_repo=SQLiteForgetRepository(handle),
+        memory_space_repo=SQLiteMemorySpaceRepository(handle),
+        # PRD B replaces this documented placeholder with sqlite-vec.
+        retrieval_index=InMemoryEmbeddingIndex(),
+    )
+    return ctx, handle

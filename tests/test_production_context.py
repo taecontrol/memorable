@@ -65,6 +65,47 @@ def test_build_production_context_wires_all_neo4j_repos() -> None:
     assert isinstance(ctx.memory_space_repo, Neo4jMemorySpaceRepository)
 
 
+def test_build_production_context_wires_sqlite_implemented_repos_and_placeholders(
+    tmp_path,
+) -> None:
+    """SQLite selection wires implemented ports and clear placeholders."""
+    from memorable.config import SQLiteSettings, StorageSettings
+    from memorable.retrieval.index import InMemoryEmbeddingIndex
+    from memorable.storage.production import build_production_context
+    from memorable.storage.sqlite.connection import SQLiteHandle
+    from memorable.storage.sqlite.repository import (
+        SQLiteAboutRepository,
+        SQLiteDecisionRepository,
+        SQLiteEntityRepository,
+        SQLiteForgetRepository,
+        SQLiteMemorySpaceRepository,
+        SQLiteObservationRepository,
+        SQLiteRelationRepository,
+        SQLiteTaskRepository,
+    )
+
+    config = RuntimeConfig(
+        storage=StorageSettings(backend="sqlite"),
+        sqlite=SQLiteSettings(path=str(tmp_path / "memory.db")),
+        base_path=tmp_path,
+    )
+
+    ctx, resource = build_production_context(config)
+    try:
+        assert isinstance(resource, SQLiteHandle)
+        assert isinstance(ctx.entity_repo, SQLiteEntityRepository)
+        assert isinstance(ctx.decision_repo, SQLiteDecisionRepository)
+        assert isinstance(ctx.observation_repo, SQLiteObservationRepository)
+        assert isinstance(ctx.relation_repo, SQLiteRelationRepository)
+        assert isinstance(ctx.task_repo, SQLiteTaskRepository)
+        assert isinstance(ctx.about_repo, SQLiteAboutRepository)
+        assert isinstance(ctx.forget_repo, SQLiteForgetRepository)
+        assert isinstance(ctx.memory_space_repo, SQLiteMemorySpaceRepository)
+        assert isinstance(ctx.retrieval_index, InMemoryEmbeddingIndex)
+    finally:
+        resource.close()
+
+
 def test_build_production_context_fails_fast_when_neo4j_unreachable() -> None:
     """When Neo4j is unreachable, raises ConnectionError with actionable message."""
     import pytest
@@ -245,6 +286,40 @@ def test_cli_init_bootstraps_constraints_with_production_context(
 
         # Driver should be closed after init completes
         mock_driver.close.assert_called_once()
+
+
+def test_cli_init_with_sqlite_initializes_space_and_closes_resource(
+    tmp_path,
+    capsys,
+) -> None:
+    """memorable init works with SQLite without Neo4j schema bootstrap."""
+    import json
+
+    from memorable.cli import main
+
+    memorable_dir = tmp_path / ".memorable"
+    memorable_dir.mkdir()
+    (memorable_dir / "runtime.yaml").write_text(
+        "storage:\n  backend: sqlite\nsqlite:\n  path: .memorable/memory.db\n",
+        encoding="utf-8",
+    )
+    (memorable_dir / "memory.yaml").write_text(
+        "version: 1\n"
+        "space:\n"
+        "  name: sqlite-project\n"
+        "  description: Test\n"
+        "entities:\n"
+        "  - name: Component\n",
+        encoding="utf-8",
+    )
+
+    rc = main(["init", "--path", str(tmp_path)])
+
+    assert rc == 0
+    output = json.loads(capsys.readouterr().out)
+    assert output["space"] == "sqlite-project"
+    assert output["status"] == "initialized"
+    assert (memorable_dir / "memory.db").exists()
 
 
 def test_cli_init_prints_connection_error_when_neo4j_unreachable(

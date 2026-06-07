@@ -114,6 +114,10 @@ ALL_REPOS = [
     "observation_projection_inmemory_harness",
     "relation_projection_inmemory_harness",
     "task_projection_inmemory_harness",
+    "decision_projection_sqlite_harness",
+    "observation_projection_sqlite_harness",
+    "relation_projection_sqlite_harness",
+    "task_projection_sqlite_harness",
     pytest.param("decision_projection_neo4j_harness", marks=pytest.mark.integration),
     pytest.param("observation_projection_neo4j_harness", marks=pytest.mark.integration),
     pytest.param("relation_projection_neo4j_harness", marks=pytest.mark.integration),
@@ -124,6 +128,9 @@ SUBTYPED_REPOS = [
     "decision_projection_inmemory_harness",
     "observation_projection_inmemory_harness",
     "task_projection_inmemory_harness",
+    "decision_projection_sqlite_harness",
+    "observation_projection_sqlite_harness",
+    "task_projection_sqlite_harness",
     pytest.param("decision_projection_neo4j_harness", marks=pytest.mark.integration),
     pytest.param("observation_projection_neo4j_harness", marks=pytest.mark.integration),
     pytest.param("task_projection_neo4j_harness", marks=pytest.mark.integration),
@@ -364,6 +371,34 @@ def test_list_projections_by_space_truncates_to_limit(
     )
 
     assert [p.id for p in projections] == ["rec-0", "rec-1"]
+
+
+@pytest.mark.parametrize("harness_fixture", ALL_REPOS)
+def test_list_projections_by_space_scopes_provenance_integrity_to_returned_rows(
+    harness_fixture: str,
+    request: pytest.FixtureRequest,
+) -> None:
+    harness = _harness(harness_fixture, request)
+    repo = harness.repository
+    space = _unique_space()
+    t1 = datetime(2026, 5, 25, 10, 0, 0, tzinfo=UTC)
+    t2 = datetime(2026, 5, 25, 11, 0, 0, tzinfo=UTC)
+    t3 = datetime(2026, 5, 25, 12, 0, 0, tzinfo=UTC)
+
+    _save(harness, space=space, record_id="rec-a", creation_time=t1)
+    _save(harness, space=space, record_id="rec-b", creation_time=t2)
+    _save(harness, space=space, record_id="rec-broken", creation_time=t3)
+    harness.remove_provenance(space=space, record_id="rec-broken")
+
+    projections = repo.list_projections_by_space(
+        space=space,
+        state=None,
+        since=None,
+        until=None,
+        limit=2,
+    )
+
+    assert [p.id for p in projections] == ["rec-a", "rec-b"]
 
 
 @pytest.mark.parametrize("harness_fixture", ALL_REPOS)

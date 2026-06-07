@@ -4,6 +4,7 @@ from __future__ import annotations
 
 from collections.abc import Iterator
 from dataclasses import dataclass
+from pathlib import Path
 from typing import Any
 from unittest.mock import MagicMock, patch
 
@@ -160,6 +161,49 @@ class TaskProjectionNeo4jHarness:
         self.repository.save(record, provenance)
 
 
+@dataclass(frozen=True)
+class SQLiteProjectionHarness:
+    repository: Any
+    handle: Any
+    record_type: str
+    entity_repository: Any | None = None
+
+    def remove_provenance(self, *, space: str, record_id: str) -> None:
+        with self.handle.connection:
+            self.handle.connection.execute(
+                """
+                DELETE FROM provenance
+                WHERE space = ? AND record_id = ? AND record_kind = ?
+                """,
+                (space, record_id, self.record_type),
+            )
+
+    def save(self, record: Any, provenance: Any) -> None:
+        if self.entity_repository is not None:
+            from memorable.core.models import Entity, Provenance
+
+            for entity_id in (record.source_entity_id, record.target_entity_id):
+                self.entity_repository.save(
+                    Entity(
+                        id=entity_id,
+                        entity_type="test-entity",
+                        name=entity_id,
+                        space=record.space,
+                    ),
+                    Provenance(
+                        record_id=entity_id,
+                        record_kind="entity",
+                        source_id=provenance.source_id,
+                        episode_id=provenance.episode_id,
+                        writer=provenance.writer,
+                        reason="test relation endpoint",
+                        creation_time=provenance.creation_time,
+                        validity_time=provenance.validity_time,
+                    ),
+                )
+        self.repository.save(record, provenance)
+
+
 @pytest.fixture()
 def live_neo4j_driver() -> Iterator[Any]:
     """Yield a raw driver for the live Neo4j runtime via the shared seam.
@@ -202,6 +246,92 @@ def task_projection_inmemory_harness() -> TaskProjectionInMemoryHarness:
     from memorable.core.repositories import InMemoryTaskRepository
 
     return TaskProjectionInMemoryHarness(InMemoryTaskRepository())
+
+
+def _sqlite_projection_config(tmp_path: Path) -> RuntimeConfig:
+    from memorable.config import SQLiteSettings, StorageSettings
+
+    return RuntimeConfig(
+        storage=StorageSettings(backend="sqlite"),
+        sqlite=SQLiteSettings(path=str(tmp_path / "memory.db")),
+        base_path=tmp_path,
+    )
+
+
+@pytest.fixture()
+def decision_projection_sqlite_harness(
+    tmp_path: Path,
+) -> Iterator[SQLiteProjectionHarness]:
+    from memorable.storage.sqlite.connection import connect
+    from memorable.storage.sqlite.repository import SQLiteDecisionRepository
+
+    handle = connect(_sqlite_projection_config(tmp_path))
+    try:
+        yield SQLiteProjectionHarness(
+            repository=SQLiteDecisionRepository(handle),
+            handle=handle,
+            record_type="decision",
+        )
+    finally:
+        handle.close()
+
+
+@pytest.fixture()
+def observation_projection_sqlite_harness(
+    tmp_path: Path,
+) -> Iterator[SQLiteProjectionHarness]:
+    from memorable.storage.sqlite.connection import connect
+    from memorable.storage.sqlite.repository import SQLiteObservationRepository
+
+    handle = connect(_sqlite_projection_config(tmp_path))
+    try:
+        yield SQLiteProjectionHarness(
+            repository=SQLiteObservationRepository(handle),
+            handle=handle,
+            record_type="observation",
+        )
+    finally:
+        handle.close()
+
+
+@pytest.fixture()
+def relation_projection_sqlite_harness(
+    tmp_path: Path,
+) -> Iterator[SQLiteProjectionHarness]:
+    from memorable.storage.sqlite.connection import connect
+    from memorable.storage.sqlite.repository import (
+        SQLiteEntityRepository,
+        SQLiteRelationRepository,
+    )
+
+    handle = connect(_sqlite_projection_config(tmp_path))
+    try:
+        yield SQLiteProjectionHarness(
+            repository=SQLiteRelationRepository(handle),
+            handle=handle,
+            record_type="relation",
+            entity_repository=SQLiteEntityRepository(handle),
+        )
+    finally:
+        handle.close()
+
+
+@pytest.fixture()
+def task_projection_sqlite_harness(
+    tmp_path: Path,
+) -> Iterator[SQLiteProjectionHarness]:
+    from memorable.storage.sqlite.connection import connect
+    from memorable.storage.sqlite.repository import SQLiteTaskRepository
+
+    handle = connect(_sqlite_projection_config(tmp_path))
+    try:
+        yield SQLiteProjectionHarness(
+            repository=SQLiteTaskRepository(handle),
+            handle=handle,
+            record_type="task",
+        )
+    finally:
+        handle.close()
 
 
 @pytest.fixture()
@@ -304,6 +434,9 @@ def clean_memorable_environment(monkeypatch: pytest.MonkeyPatch) -> None:
         "MEMORABLE_NEO4J_URI",
         "MEMORABLE_NEO4J_USER",
         "MEMORABLE_NEO4J_PASSWORD",
+        "MEMORABLE_NEO4J_DATABASE",
+        "MEMORABLE_STORAGE_BACKEND",
+        "MEMORABLE_SQLITE_PATH",
         "MEMORABLE_OPENROUTER_API_KEY",
     ):
         monkeypatch.delenv(key, raising=False)

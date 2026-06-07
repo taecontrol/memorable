@@ -52,6 +52,14 @@ class TestDefaultsOnly:
         assert config.embeddings.dimensions == 384
         assert config.embeddings.api_key is None
 
+    def test_returns_default_storage_settings(self, tmp_path: Path) -> None:
+        from memorable.config import load_runtime_config
+
+        config = load_runtime_config(base_path=tmp_path)
+
+        assert config.storage.backend == "neo4j"
+        assert config.sqlite.path == ".memorable/memory.db"
+
     def test_all_sources_are_builtin(self, tmp_path: Path) -> None:
         from memorable.config import load_runtime_config
 
@@ -171,6 +179,34 @@ class TestRuntimeYaml:
         assert config.sources["embeddings.dimensions"] == "runtime.yaml"
         assert config.sources["embeddings.provider"] == "built-in"
 
+    def test_reads_storage_backend_and_sqlite_path_from_yaml(
+        self, tmp_path: Path
+    ) -> None:
+        from memorable.config import load_runtime_config
+
+        config_dir = tmp_path / ".memorable"
+        config_dir.mkdir()
+        (config_dir / "runtime.yaml").write_text(
+            "storage:\n  backend: sqlite\nsqlite:\n  path: .memorable/custom.db\n"
+        )
+
+        config = load_runtime_config(base_path=tmp_path)
+
+        assert config.storage.backend == "sqlite"
+        assert config.sqlite.path == ".memorable/custom.db"
+        assert config.sources["storage.backend"] == "runtime.yaml"
+        assert config.sources["sqlite.path"] == "runtime.yaml"
+
+    def test_rejects_unknown_storage_backend(self, tmp_path: Path) -> None:
+        from memorable.config import load_runtime_config
+
+        config_dir = tmp_path / ".memorable"
+        config_dir.mkdir()
+        (config_dir / "runtime.yaml").write_text("storage:\n  backend: mystery\n")
+
+        with pytest.raises(ValueError, match="storage.backend"):
+            load_runtime_config(base_path=tmp_path)
+
 
 class TestLocalOverrideMerging:
     """runtime.local.yaml deep-merges over runtime.yaml, overriding leaf values."""
@@ -229,6 +265,35 @@ class TestLocalOverrideMerging:
 
         assert local_config.neo4j.database == "local_db"
         assert local_config.sources["neo4j.database"] == "runtime.local.yaml"
+
+    def test_storage_settings_resolve_from_runtime_yaml_then_local_yaml(
+        self, tmp_path: Path
+    ) -> None:
+        from memorable.config import load_runtime_config
+
+        config_dir = tmp_path / ".memorable"
+        config_dir.mkdir()
+        (config_dir / "runtime.yaml").write_text(
+            "storage:\n  backend: sqlite\nsqlite:\n  path: .memorable/project.db\n"
+        )
+
+        project_config = load_runtime_config(base_path=tmp_path)
+
+        assert project_config.storage.backend == "sqlite"
+        assert project_config.sqlite.path == ".memorable/project.db"
+        assert project_config.sources["storage.backend"] == "runtime.yaml"
+        assert project_config.sources["sqlite.path"] == "runtime.yaml"
+
+        (config_dir / "runtime.local.yaml").write_text(
+            "sqlite:\n  path: .memorable/local.db\n"
+        )
+
+        local_config = load_runtime_config(base_path=tmp_path)
+
+        assert local_config.storage.backend == "sqlite"
+        assert local_config.sqlite.path == ".memorable/local.db"
+        assert local_config.sources["storage.backend"] == "runtime.yaml"
+        assert local_config.sources["sqlite.path"] == "runtime.local.yaml"
 
     def test_deep_merge_preserves_sibling_sections(self, tmp_path: Path) -> None:
         from memorable.config import load_runtime_config
@@ -429,6 +494,27 @@ class TestEnvironmentFallback:
         assert config.neo4j.user == "env_user"
         assert config.sources["neo4j.uri"] == "environment"
         assert config.sources["neo4j.user"] == "environment"
+
+    def test_storage_environment_overrides_are_opt_in(
+        self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        from memorable.config import load_runtime_config
+
+        monkeypatch.setenv("MEMORABLE_STORAGE_BACKEND", "sqlite")
+        monkeypatch.setenv("MEMORABLE_SQLITE_PATH", ".memorable/env.db")
+
+        file_only_config = load_runtime_config(base_path=tmp_path)
+        assert file_only_config.storage.backend == "neo4j"
+        assert file_only_config.sqlite.path == ".memorable/memory.db"
+
+        env_config = load_runtime_config(
+            base_path=tmp_path,
+            include_environment_overrides=True,
+        )
+        assert env_config.storage.backend == "sqlite"
+        assert env_config.sqlite.path == ".memorable/env.db"
+        assert env_config.sources["storage.backend"] == "environment"
+        assert env_config.sources["sqlite.path"] == "environment"
 
     def test_reads_from_os_environ(
         self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch

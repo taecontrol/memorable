@@ -71,6 +71,103 @@ class FakeSession:
         if "CREATE CONSTRAINT" in query:
             return FakeResult()
 
+        # --- Forget queries ---
+        if "DELETE record" in query:
+            space = str(params.get("space", ""))
+            record_id = str(params.get("id", ""))
+            record_kind, label = _fake_record_kind_and_label_from_query(query)
+            if record_kind is not None and label is not None:
+                self._store.get(label, {}).pop((space, record_id), None)
+                self._store.get("Provenance", {}).pop(
+                    (record_kind, space, record_id), None
+                )
+                self._store["About"] = {
+                    link
+                    for link in self._store.setdefault("About", set())
+                    if not (link[0] == space and link[1] == record_id)
+                }
+            return FakeResult()
+        if "DELETE entity" in query:
+            space = str(params.get("space", ""))
+            entity_id = str(params.get("id", ""))
+            relation_ids = {
+                relation_id
+                for (relation_space, relation_id), relation in self._store.get(
+                    "Relation", {}
+                ).items()
+                if relation_space == space
+                and (
+                    relation["source_entity_id"] == entity_id
+                    or relation["target_entity_id"] == entity_id
+                )
+            }
+            for relation_id in relation_ids:
+                self._store.get("Relation", {}).pop((space, relation_id), None)
+                self._store.get("Provenance", {}).pop(
+                    ("relation", space, relation_id), None
+                )
+            self._store.get("Entity", {}).pop((space, entity_id), None)
+            self._store.get("Provenance", {}).pop(("entity", space, entity_id), None)
+            self._store["About"] = {
+                link
+                for link in self._store.setdefault("About", set())
+                if not (
+                    link[0] == space
+                    and (link[2] == entity_id or link[1] in relation_ids)
+                )
+            }
+            return FakeResult()
+
+        # --- About link queries ---
+        if "ABOUT" in query:
+            space = str(params.get("space", ""))
+            links = self._store.setdefault("About", set())
+            if "MERGE" in query:
+                record_id = str(params.get("record_id", ""))
+                entities = self._store.get("Entity", {})
+                for entity_id in params.get("entity_ids", []):
+                    entity_id = str(entity_id)
+                    if (
+                        _fake_record_exists(self._store, space, record_id)
+                        and (
+                            space,
+                            entity_id,
+                        )
+                        in entities
+                    ):
+                        links.add((space, record_id, entity_id))
+                return FakeResult()
+            if "DELETE about" in query:
+                record_id = str(params.get("record_id", ""))
+                self._store["About"] = {
+                    link
+                    for link in links
+                    if not (link[0] == space and link[1] == record_id)
+                }
+                return FakeResult()
+            if "RETURN entity.id AS entity_id" in query:
+                record_id = str(params.get("record_id", ""))
+                return FakeResult(
+                    [
+                        {"entity_id": linked_entity_id}
+                        for link_space, linked_record_id, linked_entity_id in sorted(
+                            links
+                        )
+                        if link_space == space and linked_record_id == record_id
+                    ]
+                )
+            if "RETURN record.id AS record_id" in query:
+                entity_id = str(params.get("entity_id", ""))
+                return FakeResult(
+                    [
+                        {"record_id": linked_record_id}
+                        for link_space, linked_record_id, linked_entity_id in sorted(
+                            links
+                        )
+                        if link_space == space and linked_entity_id == entity_id
+                    ]
+                )
+
         # --- Provenance retrieval (must be checked BEFORE record MATCH) ---
         # Exclude SET queries (save_provenance writes) and CREATE queries
         # (record save with embedded provenance creation).
@@ -87,6 +184,8 @@ class FakeSession:
                 prov = provs.get(("entity", space, record_id))
             elif "Decision" in query:
                 prov = provs.get(("decision", space, record_id))
+            elif "Observation" in query:
+                prov = provs.get(("observation", space, record_id))
             elif "Task" in query:
                 prov = provs.get(("task", space, record_id))
             elif "Relation" in query:
@@ -236,6 +335,87 @@ class FakeSession:
                 return FakeResult([decision])
             return FakeResult()
 
+        # --- Observation CREATE ---
+        if "Observation" in query and "CREATE" in query:
+            observations = self._store.setdefault("Observation", {})
+            space = str(params.get("space", ""))
+            observation_id = str(params.get("id", ""))
+            key = (space, observation_id)
+            observations[key] = {
+                "id": observation_id,
+                "statement": params.get("statement", ""),
+                "space": space,
+                "validity_time": params.get("validity_time", ""),
+                "invalidation_time": params.get("invalidation_time"),
+                "lifecycle_state": params.get("lifecycle_state", ""),
+                "supersedes": params.get("supersedes"),
+                "superseded_by": params.get("superseded_by"),
+                "record_type": params.get("record_type"),
+            }
+            if "record_id" in params:
+                provs = self._store.setdefault("Provenance", {})
+                provs[("observation", space, observation_id)] = {
+                    "record_id": params.get("record_id", ""),
+                    "record_kind": params.get("record_kind", ""),
+                    "source_id": params.get("source_id", ""),
+                    "episode_id": params.get("episode_id", ""),
+                    "writer": params.get("writer", ""),
+                    "reason": params.get("reason", ""),
+                    "creation_time": params.get("creation_time", ""),
+                    "validity_time": params.get("prov_validity_time", ""),
+                }
+            return FakeResult()
+
+        # --- Observation save_provenance (Provenance + Observation + SET) ---
+        if "Provenance" in query and "Observation" in query and "SET" in query:
+            space = str(params.get("space", ""))
+            record_id = str(params.get("id", ""))
+            provs = self._store.setdefault("Provenance", {})
+            provs[("observation", space, record_id)] = {
+                "record_id": params.get("record_id", ""),
+                "record_kind": params.get("record_kind", ""),
+                "source_id": params.get("source_id", ""),
+                "episode_id": params.get("episode_id", ""),
+                "writer": params.get("writer", ""),
+                "reason": params.get("reason", ""),
+                "creation_time": params.get("creation_time", ""),
+                "validity_time": params.get("validity_time", ""),
+            }
+            return FakeResult()
+
+        # --- Observation MATCH + SET (mark_superseded, invalidate, correct) ---
+        if "Observation" in query and "SET" in query:
+            space = str(params.get("space", ""))
+            observation_id = str(params.get("id", ""))
+            observations = self._store.get("Observation", {})
+            key = (space, observation_id)
+            if key in observations:
+                if "superseded_by" in params:
+                    observations[key]["superseded_by"] = params.get("superseded_by")
+                if "invalidation_time" in params:
+                    observations[key]["invalidation_time"] = params.get(
+                        "invalidation_time"
+                    )
+                if "lifecycle_state" in params:
+                    observations[key]["lifecycle_state"] = params.get("lifecycle_state")
+                if "statement" in params:
+                    observations[key]["statement"] = params.get("statement")
+            return FakeResult()
+
+        # --- Observation MATCH (single or list) ---
+        if "Observation" in query and "MATCH" in query:
+            space = str(params.get("space", ""))
+            if "id" not in params:
+                observations = self._store.get("Observation", {})
+                results = [o for (s, _), o in observations.items() if s == space]
+                return FakeResult(results)
+            observation_id = str(params["id"])
+            observations = self._store.get("Observation", {})
+            observation = observations.get((space, observation_id))
+            if observation:
+                return FakeResult([observation])
+            return FakeResult()
+
         # --- Task CREATE ---
         if "Task" in query and "CREATE" in query:
             tasks = self._store.setdefault("Task", {})
@@ -251,6 +431,8 @@ class FakeSession:
                 "completion_time": params.get("completion_time"),
                 "completion_event_id": params.get("completion_event_id"),
                 "record_type": params.get("record_type"),
+                "supersedes": None,
+                "superseded_by": None,
             }
             if "record_id" in params:
                 provs = self._store.setdefault("Provenance", {})
@@ -411,6 +593,24 @@ class FakeSession:
             return FakeResult()
 
         return FakeResult()
+
+
+def _fake_record_exists(store: dict, space: str, record_id: str) -> bool:
+    return any(
+        (space, record_id) in store.get(record_kind, {})
+        for record_kind in ["Decision", "Observation", "Relation", "Task"]
+    )
+
+
+def _fake_record_kind_and_label_from_query(query: str) -> tuple[str | None, str | None]:
+    for record_kind, label in [
+        ("decision", "Decision"),
+        ("observation", "Observation"),
+        ("task", "Task"),
+    ]:
+        if label in query:
+            return record_kind, label
+    return None, None
 
 
 def _fake_storage_attribute_value(value: object) -> object:
