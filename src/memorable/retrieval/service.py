@@ -307,9 +307,7 @@ class HybridRetrievalService:
             top_k: Maximum number of results to return
             record_type: Optional Record Subtype filter
         """
-        validated_attribute_filter = self._validated_attribute_filter(
-            attribute_filter
-        )
+        validated_attribute_filter = self._validated_attribute_filter(attribute_filter)
 
         # Step 1: Semantic candidates from the persistent index.
         try:
@@ -975,8 +973,7 @@ def _matches_attribute_filter(
     if result.source_kind != "Entity":
         return False
     return all(
-        result.attributes.get(name) == value
-        for name, value in attribute_filter.items()
+        result.attributes.get(name) == value for name, value in attribute_filter.items()
     )
 
 

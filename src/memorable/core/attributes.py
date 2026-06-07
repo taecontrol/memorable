@@ -171,9 +171,7 @@ def _validate_number_attribute(name: str, value: object) -> int | float:
 
 def _validate_date_attribute(name: str, value: object) -> date:
     if isinstance(value, datetime):
-        raise AttributeValidationError(
-            f"Attribute '{name}' must be an ISO date value."
-        )
+        raise AttributeValidationError(f"Attribute '{name}' must be an ISO date value.")
     if isinstance(value, date):
         return value
     if isinstance(value, str):

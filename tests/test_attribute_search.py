@@ -134,15 +134,9 @@ def test_search_attribute_filter_validates_and_coerces_full_type_set() -> None:
         attribute_filter={"aliases": ["demo", "walkthrough"]},
     )
 
-    assert [result.source_id for result in number_results] == [
-        "entity:video-reference"
-    ]
-    assert [result.source_id for result in date_results] == [
-        "entity:video-reference"
-    ]
-    assert [result.source_id for result in list_results] == [
-        "entity:video-reference"
-    ]
+    assert [result.source_id for result in number_results] == ["entity:video-reference"]
+    assert [result.source_id for result in date_results] == ["entity:video-reference"]
+    assert [result.source_id for result in list_results] == ["entity:video-reference"]
 
 
 def test_cli_search_attr_filter_surfaces_attributes(

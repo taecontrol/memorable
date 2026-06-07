@@ -426,11 +426,7 @@ def _cmd_remember_entity(
     at = parse_iso_timestamp(args.at)
 
     declared_attributes = next(
-        (
-            entity.attributes
-            for entity in profile.entities
-            if entity.name == args.type
-        ),
+        (entity.attributes for entity in profile.entities if entity.name == args.type),
         (),
     )
 
@@ -1115,9 +1111,7 @@ def _cmd_search(
     )
 
     declared_attributes = tuple(
-        attribute
-        for entity in profile.entities
-        for attribute in entity.attributes
+        attribute for entity in profile.entities for attribute in entity.attributes
     )
     try:
         attribute_filter = _parse_attribute_flags(

@@ -106,9 +106,7 @@ class FakeSession:
             attribute_prefix = str(params.get("attribute_prefix", "attr__"))
             attribute_properties = {
                 key: _fake_storage_attribute_value(value)
-                for key, value in dict(
-                    params.get("attribute_properties", {})
-                ).items()
+                for key, value in dict(params.get("attribute_properties", {})).items()
             }
             existing = dict(entities.get(key, {}))
             for existing_key in list(existing):
