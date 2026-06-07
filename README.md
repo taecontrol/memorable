@@ -139,7 +139,7 @@ overriding the one before it:
 1. **Built-in defaults** (shown below).
 2. **`.memorable/runtime.yaml`** — committed, shared project defaults.
 3. **`.memorable/runtime.local.yaml`** — gitignored, per-developer overrides.
-4. **`.memorable/.env`** (or environment variables) — secrets only.
+4. **`.memorable/.env`** (or environment variables) — secrets and mapped overrides.
 
 Inspect the resolved values and where each one came from:
 
@@ -149,13 +149,17 @@ memorable db status
 
 ### What you can configure
 
-All non-secret settings live in `runtime.yaml` / `runtime.local.yaml`. Secrets
-(Neo4j password, embedding API key) come from `.env` or the environment.
+Durable non-secret settings live in `runtime.yaml` / `runtime.local.yaml`.
+Mapped `MEMORABLE_*` variables can override live commands from automation;
+`memorable db status` intentionally shows the file-resolved value and source.
+Secrets (Neo4j password, embedding API key) come from `.env` or the
+environment.
 
 | Setting | Env var | Default | Notes |
 |---|---|---|---|
 | `neo4j.uri` | `MEMORABLE_NEO4J_URI` | `bolt://127.0.0.1:7687` | Bolt URI (IPv4 loopback by default to avoid ambiguous `localhost` resolution). Use `neo4j+s://…` for cloud. |
 | `neo4j.user` | `MEMORABLE_NEO4J_USER` | `neo4j` | Database user. |
+| `neo4j.database` | `MEMORABLE_NEO4J_DATABASE` | `neo4j` | Physical Neo4j database to open sessions against. It must already exist. |
 | `neo4j.password` | `MEMORABLE_NEO4J_PASSWORD` | `memorable` | **Secret** — set via `.env`/env. |
 | `docker.neo4j_version` | — | `5.26` | Image tag for the local container. |
 | `docker.http_port` | — | `7474` | Local Neo4j HTTP port. |
@@ -164,6 +168,24 @@ All non-secret settings live in `runtime.yaml` / `runtime.local.yaml`. Secrets
 | `embeddings.model` | — | `BAAI/bge-small-en-v1.5` | Model name for the provider. |
 | `embeddings.dimensions` | — | `384` | Vector size; must match the model. |
 | `embeddings.api_key` | `MEMORABLE_OPENROUTER_API_KEY` | — | **Secret** — required for `openrouter`. |
+
+### MemorySpace vs Neo4j database
+
+A MemorySpace is Memorable's logical project boundary. It is named in
+`.memorable/memory.yaml` under `space.name`, stored as a `space` tag on memory,
+and used as a query filter for reads and writes. Many MemorySpaces can coexist
+in one Neo4j database.
+
+`neo4j.database` selects the physical Neo4j database that Memorable opens Neo4j
+sessions against. It defaults to `neo4j`, can be set in `runtime.yaml` or
+`runtime.local.yaml`, and can be overridden for live commands with
+`MEMORABLE_NEO4J_DATABASE`. Memorable connects to the configured database; it
+does not create, drop, or migrate Neo4j databases.
+
+The bundled local runtime uses Neo4j Community Edition, which cannot create
+additional physical databases. The selector targets the default/existing local
+database or an externally provisioned Enterprise/Aura database; it is not a way
+to spin up a second local store on the shipped image.
 
 ### Embeddings
 
@@ -244,6 +266,7 @@ Point Memorable at an existing instance instead of running Docker. In
 neo4j:
   uri: neo4j+s://<your-instance>.databases.neo4j.io
   user: neo4j
+  database: <your-database-name>  # optional; defaults to neo4j
 ```
 
 And the password in `.memorable/.env`:

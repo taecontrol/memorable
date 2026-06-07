@@ -31,6 +31,7 @@ class TestDefaultsOnly:
         assert config.neo4j.uri == "bolt://127.0.0.1:7687"
         assert config.neo4j.user == "neo4j"
         assert config.neo4j.password == "memorable"
+        assert config.neo4j.database == "neo4j"
 
     def test_returns_default_docker_settings(self, tmp_path: Path) -> None:
         from memorable.config import load_runtime_config
@@ -59,6 +60,7 @@ class TestDefaultsOnly:
         assert config.sources["neo4j.uri"] == "built-in"
         assert config.sources["neo4j.user"] == "built-in"
         assert config.sources["neo4j.password"] == "built-in"
+        assert config.sources["neo4j.database"] == "built-in"
         assert config.sources["docker.neo4j_version"] == "built-in"
         assert config.sources["embeddings.provider"] == "built-in"
         assert config.sources["embeddings.dimensions"] == "built-in"
@@ -207,6 +209,27 @@ class TestLocalOverrideMerging:
         assert config.sources["neo4j.uri"] == "runtime.local.yaml"
         assert config.sources["neo4j.user"] == "runtime.yaml"
 
+    def test_database_resolves_from_runtime_yaml_then_runtime_local_yaml(
+        self, tmp_path: Path
+    ) -> None:
+        from memorable.config import load_runtime_config
+
+        config_dir = tmp_path / ".memorable"
+        config_dir.mkdir()
+        (config_dir / "runtime.yaml").write_text("neo4j:\n  database: project_db\n")
+
+        project_config = load_runtime_config(base_path=tmp_path)
+
+        assert project_config.neo4j.database == "project_db"
+        assert project_config.sources["neo4j.database"] == "runtime.yaml"
+
+        (config_dir / "runtime.local.yaml").write_text("neo4j:\n  database: local_db\n")
+
+        local_config = load_runtime_config(base_path=tmp_path)
+
+        assert local_config.neo4j.database == "local_db"
+        assert local_config.sources["neo4j.database"] == "runtime.local.yaml"
+
     def test_deep_merge_preserves_sibling_sections(self, tmp_path: Path) -> None:
         from memorable.config import load_runtime_config
 
@@ -344,6 +367,35 @@ class TestOpenRouterApiKeyFromDotEnv:
 
 class TestEnvironmentFallback:
     """When no .env file exists, secrets fall back to os.environ."""
+
+    def test_database_env_override_uses_dotenv_then_opted_in_environment(
+        self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        from memorable.config import load_runtime_config
+
+        config_dir = tmp_path / ".memorable"
+        config_dir.mkdir()
+        (config_dir / "runtime.yaml").write_text("neo4j:\n  database: project_db\n")
+        (config_dir / ".env").write_text("MEMORABLE_NEO4J_DATABASE=dotenv_db\n")
+        monkeypatch.setenv("MEMORABLE_NEO4J_DATABASE", "env_db")
+
+        dotenv_config = load_runtime_config(base_path=tmp_path)
+
+        assert dotenv_config.neo4j.database == "dotenv_db"
+        assert dotenv_config.sources["neo4j.database"] == ".env"
+
+        (config_dir / ".env").unlink()
+
+        file_only_config = load_runtime_config(base_path=tmp_path)
+        assert file_only_config.neo4j.database == "project_db"
+        assert file_only_config.sources["neo4j.database"] == "runtime.yaml"
+
+        env_config = load_runtime_config(
+            base_path=tmp_path,
+            include_environment_overrides=True,
+        )
+        assert env_config.neo4j.database == "env_db"
+        assert env_config.sources["neo4j.database"] == "environment"
 
     def test_non_secret_environ_ignored_by_default(
         self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch

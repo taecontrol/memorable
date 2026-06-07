@@ -7,11 +7,9 @@ Entry points (CLI, MCP) own the driver lifecycle (close on exit).
 
 from __future__ import annotations
 
-from neo4j import Driver
-
 from memorable.config import RuntimeConfig
 from memorable.core.context import ApplicationContext
-from memorable.storage.neo4j.connection import connect
+from memorable.storage.neo4j.connection import Neo4jDriver, connect
 from memorable.storage.neo4j.repository import (
     Neo4jAboutRepository,
     Neo4jDecisionRepository,
@@ -27,7 +25,7 @@ from memorable.storage.neo4j.retrieval_index import Neo4jRetrievalIndex
 
 def build_production_context(
     config: RuntimeConfig,
-) -> tuple[ApplicationContext, Driver]:
+) -> tuple[ApplicationContext, Neo4jDriver]:
     """Create a Neo4j-backed ApplicationContext from resolved config.
 
     Creates a Neo4j driver, verifies connectivity (fail-fast), instantiates

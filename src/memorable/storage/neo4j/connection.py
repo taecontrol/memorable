@@ -10,12 +10,15 @@ context creation, and — once routed — runtime diagnostics). It encapsulates:
   non-local hosts, and remote/cloud schemes are preserved exactly.
 - fail-fast connection settings so an unreachable runtime returns an actionable
   error in seconds instead of stalling for minutes.
+- database binding: callers receive a driver facade whose ``session()`` opens
+  against the configured Neo4j database.
 
 Neo4j/Bolt/driver vocabulary stays inside this storage-adapter boundary.
 """
 
 from __future__ import annotations
 
+from typing import Any, Protocol, runtime_checkable
 from urllib.parse import urlsplit, urlunsplit
 
 from neo4j import Driver, GraphDatabase
@@ -38,6 +41,29 @@ _NOTIFICATIONS_DISABLED_CLASSIFICATIONS = ["UNRECOGNIZED"]
 # Schemes whose `localhost` host is a local compatibility case we resolve to
 # IPv4. Remote/cloud schemes (neo4j+s, neo4j+ssc) are never rewritten.
 _LOCAL_COMPATIBILITY_SCHEMES = {"bolt", "neo4j"}
+
+
+@runtime_checkable
+class Neo4jDriver(Protocol):
+    """Minimal connected driver surface returned to live callers."""
+
+    def session(self) -> Any: ...
+
+    def close(self) -> None: ...
+
+
+class _DatabaseBoundDriver:
+    """Driver facade whose sessions always target one Neo4j database."""
+
+    def __init__(self, driver: Driver, database: str) -> None:
+        self._driver = driver
+        self._database = database
+
+    def session(self) -> Any:
+        return self._driver.session(database=self._database)
+
+    def close(self) -> None:
+        self._driver.close()
 
 
 def resolve_bolt_uri(uri: str) -> str:
@@ -65,14 +91,16 @@ def resolve_bolt_uri(uri: str) -> str:
     return urlunsplit((parts.scheme, netloc, parts.path, parts.query, parts.fragment))
 
 
-def connect(config: RuntimeConfig) -> Driver:
+def connect(config: RuntimeConfig) -> Neo4jDriver:
     """Return a connectivity-verified Neo4j driver for live callers.
 
     Resolves the configured URI through the local endpoint policy, constructs a
     driver with shared fail-fast settings and benign-notification suppression,
-    and verifies connectivity before returning. On failure the driver is closed
-    and a ``ConnectionError`` naming the *configured* URI is raised so the owner
-    recognizes which runtime Memorable tried to reach.
+    verifies connectivity, probes the configured database with a lightweight
+    read, then returns a facade that binds every session to that Neo4j database.
+    On failure the driver is closed and a
+    ``ConnectionError`` naming the *configured* URI and database is raised so
+    the owner recognizes which runtime Memorable tried to reach.
     """
     effective_uri = resolve_bolt_uri(config.neo4j.uri)
     driver = GraphDatabase.driver(
@@ -85,13 +113,16 @@ def connect(config: RuntimeConfig) -> Driver:
 
     try:
         driver.verify_connectivity()
+        with driver.session(database=config.neo4j.database) as session:
+            session.run("RETURN 1").consume()
     except Exception as exc:
         driver.close()
         raise ConnectionError(
-            f"Cannot connect to Neo4j at {config.neo4j.uri}. "
+            f"Cannot connect to Neo4j database '{config.neo4j.database}' "
+            f"at {config.neo4j.uri}. "
             f"Is Neo4j running? Try 'memorable db start' or check your "
             f"runtime config in .memorable/runtime.yaml.\n"
             f"Original error: {exc}"
         ) from exc
 
-    return driver
+    return _DatabaseBoundDriver(driver, config.neo4j.database)

@@ -4,7 +4,7 @@ import json
 from pathlib import Path
 from types import SimpleNamespace
 
-from memorable.config import EmbeddingSettings, RuntimeConfig
+from memorable.config import EmbeddingSettings, Neo4jSettings, RuntimeConfig
 from memorable.runtime.doctor import DiagnosticProbes
 
 EXPECTED_SCHEMA_CONSTRAINTS = [
@@ -121,6 +121,23 @@ def test_doctor_reports_neo4j_connectivity_pass() -> None:
         "check": "neo4j_connectivity",
         "ok": True,
         "hint": "",
+    }
+
+
+def test_doctor_reports_active_neo4j_database_and_source() -> None:
+    from memorable.runtime.doctor import run_diagnostics
+
+    config = RuntimeConfig(
+        neo4j=Neo4jSettings(database="memory_prod"),
+        sources={"neo4j.database": "runtime.local.yaml"},
+    )
+
+    results = run_diagnostics(config, probes=_probes())
+
+    assert _by_check(results)["neo4j_database"] == {
+        "check": "neo4j_database",
+        "ok": True,
+        "hint": "Active Neo4j database: memory_prod (source: runtime.local.yaml).",
     }
 
 

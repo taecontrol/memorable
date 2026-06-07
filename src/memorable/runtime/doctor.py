@@ -60,6 +60,8 @@ EMBEDDING_COVERAGE_CHECK = "embedding_index_coverage"
 # GraphRAG Retrieval, or MemorySpace-specific query.
 REPRESENTATIVE_READ_QUERY = "RETURN 1"
 
+NEO4J_DATABASE_CHECK = "neo4j_database"
+NEO4J_DATABASE_HINT = "Active Neo4j database: {database} (source: {source})."
 LOCAL_ENDPOINT_CHECK = "neo4j_local_endpoint"
 LOCALHOST_COMPATIBILITY_HINT = (
     "Configured Neo4j URI uses 'localhost'; doctor connected via IPv4 loopback "
@@ -416,6 +418,18 @@ def _embedding_probe_result(
     }
 
 
+def _database_note(config: RuntimeConfig) -> DiagnosticResult:
+    """Surface the resolved Neo4j database doctor will use for sessions."""
+    return {
+        "check": NEO4J_DATABASE_CHECK,
+        "ok": True,
+        "hint": NEO4J_DATABASE_HINT.format(
+            database=config.neo4j.database,
+            source=config.sources.get("neo4j.database", "built-in"),
+        ),
+    }
+
+
 def _local_endpoint_note(config: RuntimeConfig) -> DiagnosticResult | None:
     """Surface the localhost->IPv4 compatibility rewrite as an informational note.
 
@@ -460,6 +474,7 @@ def run_diagnostics(
             "hint": "" if connectivity_ok else NEO4J_CONNECTIVITY_HINT,
         }
     )
+    results.append(_database_note(config))
 
     endpoint_note = _local_endpoint_note(config)
     if endpoint_note is not None:

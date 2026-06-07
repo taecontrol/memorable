@@ -64,6 +64,23 @@ class TestDbStatusOutput:
         assert output["neo4j"]["uri"]["value"] == "bolt://prod:7687"
         assert output["neo4j"]["uri"]["source"] == "runtime.yaml"
 
+    def test_shows_neo4j_database_value_and_source(
+        self, tmp_path: Path, capsys
+    ) -> None:
+        config_dir = tmp_path / ".memorable"
+        config_dir.mkdir()
+        (config_dir / "runtime.yaml").write_text(
+            "neo4j:\n  database: project_database\n"
+        )
+
+        main(["db", "status", "--path", str(tmp_path)])
+
+        output = json.loads(capsys.readouterr().out)
+        assert output["neo4j"]["database"] == {
+            "value": "project_database",
+            "source": "runtime.yaml",
+        }
+
     def test_uses_cwd_when_no_path_given(
         self, tmp_path: Path, capsys, monkeypatch
     ) -> None:
