@@ -115,6 +115,33 @@ class TestToolRegistration:
                 f"Tool {tool.name!r} missing memorable_ prefix"
             )
 
+    def test_truth_tools_use_record_kind_and_record_subtype_names(self) -> None:
+        tools = {tool.name: tool for tool in _list_tools()}
+        for tool_name in (
+            "memorable_current_truth",
+            "memorable_point_in_time_truth",
+            "memorable_inspect_history",
+        ):
+            properties = tools[tool_name].inputSchema["properties"]
+            assert "record_kind" in properties
+            assert "record_type" not in properties
+        for tool_name in (
+            "memorable_current_truth",
+            "memorable_point_in_time_truth",
+        ):
+            assert "record_subtype" in tools[tool_name].inputSchema["properties"]
+
+    def test_lifecycle_tools_use_record_kind_for_kernel_selector(self) -> None:
+        tools = {tool.name: tool for tool in _list_tools()}
+        for tool_name in (
+            "memorable_invalidate",
+            "memorable_correct",
+            "memorable_forget_record",
+        ):
+            properties = tools[tool_name].inputSchema["properties"]
+            assert "record_kind" in properties
+            assert "record_type" not in properties
+
     def test_list_records_tool_contract_signature_is_stable(self) -> None:
         tools = {tool.name: tool for tool in _list_tools()}
         tool = tools["memorable_list_records"]
@@ -147,6 +174,11 @@ class TestToolRegistration:
                     "anyOf": [{"type": "string"}, {"type": "null"}],
                     "default": None,
                     "title": "About",
+                },
+                "record_type": {
+                    "anyOf": [{"type": "string"}, {"type": "null"}],
+                    "default": None,
+                    "title": "Record Type",
                 },
                 "limit": {"default": 50, "title": "Limit", "type": "integer"},
             },
@@ -355,7 +387,7 @@ class TestCallToolSuccessPath:
             {
                 "space": "memorable",
                 "record_id": "task:about-only",
-                "record_type": "task",
+                "record_kind": "task",
                 "source": "source:correction",
                 "at": "2026-05-31T10:00:00Z",
                 "about": ["entity:right"],
@@ -453,18 +485,18 @@ class TestCallToolErrorPath:
         assert "Relation type 'blocks'" in structured["error"]
         assert 'memorable_guide("profiles")' in structured["error"]
 
-    def test_unknown_record_type_error_is_self_sufficient(self) -> None:
+    def test_unknown_record_kind_error_is_self_sufficient(self) -> None:
         result = _call_tool(
             "memorable_current_truth",
             {
                 "space": "memorable",
                 "record_id": "anything",
-                "record_type": "evidence",
+                "record_kind": "evidence",
             },
         )
 
         _, structured = result
-        assert "Unknown record_type 'evidence'" in structured["error"]
+        assert "Unknown record_kind 'evidence'" in structured["error"]
         assert "memorable_guide" not in structured["error"]
 
     def test_non_writable_extends_error_points_to_profiles_guide(

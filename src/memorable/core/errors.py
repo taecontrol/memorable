@@ -1,6 +1,16 @@
 from __future__ import annotations
 
 
+class UndeclaredTypeError(ValueError):
+    """Raised when a write names a type the MemoryProfile does not declare.
+
+    Subclasses ``ValueError`` so existing ``except ValueError`` handlers and
+    message-matching tests keep working. The MCP boundary uses the type (rather
+    than the message wording) to decide that this error is fixable by evolving
+    the MemoryProfile, and so should carry the memorable_guide("profiles") hint.
+    """
+
+
 class DuplicateRecordError(ValueError):
     """Raised when remembering a MemoryRecord would reuse an id in a space."""
 

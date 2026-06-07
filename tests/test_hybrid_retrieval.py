@@ -1046,6 +1046,111 @@ class TestProvenanceAwareExplanation:
 # =====================================================================
 
 
+class TestSearchRecordSubtype:
+    """GraphRAG search surfaces Record Subtype on results."""
+
+    def test_search_result_surfaces_record_subtype(self) -> None:
+        from memorable.core.application import RememberDecisionService
+        from memorable.core.profile import load_profile_from_yaml
+        from memorable.core.repositories import (
+            InMemoryDecisionRepository,
+            InMemoryEntityRepository,
+            InMemoryObservationRepository,
+            InMemoryTaskRepository,
+        )
+        from memorable.retrieval.embeddings import FakeEmbeddingProvider
+        from memorable.retrieval.service import HybridRetrievalService
+
+        decision_repo = InMemoryDecisionRepository()
+        profile = load_profile_from_yaml(VALID_PROFILE_YAML)
+        RememberDecisionService(repository=decision_repo, profile=profile).remember(
+            space="memorable",
+            decision_id="decision:subtyped-search",
+            statement="Search results should surface a subtype marker.",
+            source_id=SOURCE_ID,
+            at=FIXTURE_TIMESTAMPS["decision_v1"],
+            record_type="ArchitectureDecision",
+        )
+        service = HybridRetrievalService(
+            entity_repo=InMemoryEntityRepository(),
+            decision_repo=decision_repo,
+            task_repo=InMemoryTaskRepository(),
+            observation_repo=InMemoryObservationRepository(),
+            embedding_provider=FakeEmbeddingProvider(dimensions=32),
+        )
+        service.reindex("memorable")
+
+        results = service.search(
+            space="memorable",
+            query="subtype marker search result",
+        )
+
+        result = next(r for r in results if r.source_id == "decision:subtyped-search")
+        assert result.record_type == "ArchitectureDecision"
+
+    def test_record_subtype_filter_excludes_plain_records_and_entities(self) -> None:
+        from memorable.core.application import (
+            RememberDecisionService,
+            RememberEntityService,
+        )
+        from memorable.core.profile import load_profile_from_yaml
+        from memorable.core.repositories import (
+            InMemoryDecisionRepository,
+            InMemoryEntityRepository,
+            InMemoryObservationRepository,
+            InMemoryTaskRepository,
+        )
+        from memorable.retrieval.embeddings import FakeEmbeddingProvider
+        from memorable.retrieval.service import HybridRetrievalService
+
+        entity_repo = InMemoryEntityRepository()
+        decision_repo = InMemoryDecisionRepository()
+        profile = load_profile_from_yaml(VALID_PROFILE_YAML)
+        RememberEntityService(repository=entity_repo, profile=profile).remember(
+            space="memorable",
+            entity_id="entity:memorable",
+            entity_type="Project",
+            name="Memorable",
+            source_id=SOURCE_ID,
+            at=FIXTURE_TIMESTAMPS["entity"],
+        )
+        decision_service = RememberDecisionService(
+            repository=decision_repo,
+            profile=profile,
+        )
+        decision_service.remember(
+            space="memorable",
+            decision_id="decision:architecture",
+            statement="ArchitectureDecision record for search filtering.",
+            source_id=SOURCE_ID,
+            at=FIXTURE_TIMESTAMPS["decision_v1"],
+            record_type="ArchitectureDecision",
+        )
+        decision_service.remember(
+            space="memorable",
+            decision_id="decision:plain",
+            statement="Plain decision should not match subtype filtering.",
+            source_id=SOURCE_ID,
+            at=FIXTURE_TIMESTAMPS["decision_v2"],
+        )
+        service = HybridRetrievalService(
+            entity_repo=entity_repo,
+            decision_repo=decision_repo,
+            task_repo=InMemoryTaskRepository(),
+            observation_repo=InMemoryObservationRepository(),
+            embedding_provider=FakeEmbeddingProvider(dimensions=32),
+        )
+        service.reindex("memorable")
+
+        results = service.search(
+            space="memorable",
+            query="search subtype filtering",
+            record_type="ArchitectureDecision",
+        )
+
+        assert [result.source_id for result in results] == ["decision:architecture"]
+
+
 class TestContractQuery:
     """Full integration test matching the contract expected output."""
 
@@ -1246,6 +1351,74 @@ class TestCLISearch:
         # v1 is superseded -- not returned as a result in current mode
         assert "decision:storage-path:v1" not in result_ids
 
+    def test_search_command_filters_by_record_subtype(self, capsys) -> None:
+        import json as json_mod
+
+        from memorable.cli import main
+
+        assert (
+            main(
+                [
+                    "remember",
+                    "decision",
+                    "--space",
+                    "memorable",
+                    "--id",
+                    "decision:cli-architecture",
+                    "--statement",
+                    "ArchitectureDecision should match CLI search filter.",
+                    "--type",
+                    "ArchitectureDecision",
+                    "--source",
+                    SOURCE_ID,
+                    "--at",
+                    "2026-05-23T10:15:00Z",
+                ]
+            )
+            == 0
+        )
+        assert (
+            main(
+                [
+                    "remember",
+                    "decision",
+                    "--space",
+                    "memorable",
+                    "--id",
+                    "decision:cli-plain",
+                    "--statement",
+                    "Plain decision should not match CLI search filter.",
+                    "--source",
+                    SOURCE_ID,
+                    "--at",
+                    "2026-05-23T10:20:00Z",
+                ]
+            )
+            == 0
+        )
+        assert main(["reindex", "--space", "memorable"]) == 0
+        capsys.readouterr()
+
+        exit_code = main(
+            [
+                "search",
+                "--space",
+                "memorable",
+                "--query",
+                "CLI search filter",
+                "--type",
+                "ArchitectureDecision",
+            ]
+        )
+
+        assert exit_code == 0
+        parsed = json_mod.loads(capsys.readouterr().out)
+        records = parsed["results"]
+        assert [record["source_id"] for record in records] == [
+            "decision:cli-architecture"
+        ]
+        assert records[0]["record_type"] == "ArchitectureDecision"
+
 
 # =====================================================================
 # 12. MCP adapter tests
@@ -1321,6 +1494,43 @@ class TestMCPSearchTool:
         assert "error" not in result
         result_ids = [r["source_id"] for r in result["results"]]
         assert "decision:storage-path:v1" not in result_ids
+
+    def test_search_memory_tool_filters_by_record_subtype(self) -> None:
+        from memorable.mcp.server import (
+            reindex_space_tool,
+            remember_decision_tool,
+            search_memory_tool,
+        )
+
+        remember_decision_tool(
+            space="memorable",
+            decision_id="decision:mcp-architecture",
+            statement="ArchitectureDecision should match MCP search filter.",
+            source=SOURCE_ID,
+            at="2026-05-23T10:15:00Z",
+            record_type="ArchitectureDecision",
+        )
+        remember_decision_tool(
+            space="memorable",
+            decision_id="decision:mcp-plain",
+            statement="Plain decision should not match MCP search filter.",
+            source=SOURCE_ID,
+            at="2026-05-23T10:20:00Z",
+        )
+        reindex_space_tool(space="memorable")
+
+        result = search_memory_tool(
+            space="memorable",
+            query="MCP search filter",
+            record_type="ArchitectureDecision",
+        )
+
+        assert "error" not in result
+        records = result["results"]
+        assert [record["source_id"] for record in records] == [
+            "decision:mcp-architecture"
+        ]
+        assert records[0]["record_type"] == "ArchitectureDecision"
 
 
 # =====================================================================

@@ -6,8 +6,11 @@ used for search and ranking.
 
 from __future__ import annotations
 
+from collections.abc import Mapping
 from dataclasses import dataclass, field
 from datetime import UTC, datetime
+
+from memorable.core.attributes import AttributeValue
 
 
 @dataclass(frozen=True)
@@ -147,8 +150,8 @@ class SearchCandidate:
 class RetrievalResult:
     """A ranked retrieval result with provenance-aware explanation.
 
-    Each result explains why it was returned, including lifecycle state
-    and provenance summary.
+    Each result explains why it was returned, including lifecycle state,
+    optional Record Subtype, and provenance summary.
     """
 
     source_id: str
@@ -157,3 +160,5 @@ class RetrievalResult:
     score: float
     explanation: list[str]
     provenance_summary: dict[str, str]
+    record_type: str | None = None
+    attributes: Mapping[str, AttributeValue] = field(default_factory=dict)

@@ -6,13 +6,23 @@ Integration tests (marked with @pytest.mark.integration) need a running Neo4j.
 
 from __future__ import annotations
 
-from datetime import UTC, datetime, timedelta, timezone
+from datetime import UTC, date, datetime, timedelta, timezone
 
 import pytest
 
 from memorable.core.models import Decision, Entity, Provenance, Relation, Task
 
 # --- Fake driver for unit tests ---
+
+
+class FakeNeo4jDate:
+    """Fake storage-native date returned by the Neo4j driver."""
+
+    def __init__(self, value: date) -> None:
+        self._value = value
+
+    def to_native(self) -> date:
+        return self._value
 
 
 class FakeResult:
@@ -93,7 +103,18 @@ class FakeSession:
             space = str(params.get("space", ""))
             entity_id = str(params.get("id", ""))
             key = (space, entity_id)
+            attribute_prefix = str(params.get("attribute_prefix", "attr__"))
+            attribute_properties = {
+                key: _fake_storage_attribute_value(value)
+                for key, value in dict(params.get("attribute_properties", {})).items()
+            }
+            existing = dict(entities.get(key, {}))
+            for existing_key in list(existing):
+                if existing_key.startswith(attribute_prefix):
+                    existing.pop(existing_key)
+            existing.update(attribute_properties)
             entities[key] = {
+                **existing,
                 "id": entity_id,
                 "entity_type": params.get("entity_type", ""),
                 "name": params.get("name", ""),
@@ -121,13 +142,17 @@ class FakeSession:
             space = str(params.get("space", ""))
             if "id" not in params:
                 entities = self._store.get("Entity", {})
-                results = [e for (s, _), e in entities.items() if s == space]
+                results = [
+                    {**e, "entity_properties": dict(e)}
+                    for (s, _), e in entities.items()
+                    if s == space
+                ]
                 return FakeResult(results)
             entity_id = str(params["id"])
             entities = self._store.get("Entity", {})
             entity = entities.get((space, entity_id))
             if entity:
-                return FakeResult([entity])
+                return FakeResult([{**entity, "entity_properties": dict(entity)}])
             return FakeResult()
 
         # --- Decision CREATE ---
@@ -145,6 +170,7 @@ class FakeSession:
                 "lifecycle_state": params.get("lifecycle_state", ""),
                 "supersedes": params.get("supersedes"),
                 "superseded_by": params.get("superseded_by"),
+                "record_type": params.get("record_type"),
             }
             if "record_id" in params:
                 provs = self._store.setdefault("Provenance", {})
@@ -224,6 +250,7 @@ class FakeSession:
                 "validity_time": params.get("validity_time", ""),
                 "completion_time": params.get("completion_time"),
                 "completion_event_id": params.get("completion_event_id"),
+                "record_type": params.get("record_type"),
             }
             if "record_id" in params:
                 provs = self._store.setdefault("Provenance", {})
@@ -384,6 +411,14 @@ class FakeSession:
             return FakeResult()
 
         return FakeResult()
+
+
+def _fake_storage_attribute_value(value: object) -> object:
+    if type(value) is date:
+        return FakeNeo4jDate(value)
+    if isinstance(value, list):
+        return list(value)
+    return value
 
 
 class FakeDriver:
@@ -561,6 +596,57 @@ class TestNeo4jEntityRepository:
         assert result.name == "Auth Service"
         assert result.space == "proj-a"
 
+    def test_save_and_get_roundtrip_preserves_entity_attributes(self) -> None:
+        """save then get returns an Entity's durable Attributes."""
+        from memorable.storage.neo4j.repository import Neo4jEntityRepository
+
+        repo = Neo4jEntityRepository(driver=FakeDriver())
+        entity = Entity(
+            id="ent-1",
+            entity_type="reference",
+            name="Example Reference",
+            space="proj-a",
+            attributes={"url": "https://example.test", "medium": "video"},
+        )
+        provenance = _make_provenance("ent-1", "entity")
+
+        repo.save(entity, provenance)
+        result = repo.get("proj-a", "ent-1")
+
+        assert result is not None
+        assert result.attributes == {
+            "url": "https://example.test",
+            "medium": "video",
+        }
+
+    def test_save_and_get_roundtrip_preserves_typed_entity_attributes(self) -> None:
+        """save then get returns number, date, and list[string] Attributes."""
+        from memorable.storage.neo4j.repository import Neo4jEntityRepository
+
+        repo = Neo4jEntityRepository(driver=FakeDriver())
+        entity = Entity(
+            id="ent-1",
+            entity_type="reference",
+            name="Example Reference",
+            space="proj-a",
+            attributes={
+                "rating": 5,
+                "published_on": date(2026, 6, 6),
+                "aliases": [],
+            },
+        )
+        provenance = _make_provenance("ent-1", "entity")
+
+        repo.save(entity, provenance)
+        result = repo.get("proj-a", "ent-1")
+
+        assert result is not None
+        assert result.attributes == {
+            "rating": 5,
+            "published_on": date(2026, 6, 6),
+            "aliases": [],
+        }
+
     def test_get_returns_none_for_missing(self) -> None:
         """get returns None when entity does not exist."""
         from memorable.storage.neo4j.repository import Neo4jEntityRepository
@@ -732,6 +818,7 @@ class TestNeo4jDecisionRepository:
             lifecycle_state="active",
             supersedes=None,
             superseded_by=None,
+            record_type="ArchitectureDecision",
         )
         provenance = _make_provenance("dec-1", "decision")
 
@@ -746,6 +833,7 @@ class TestNeo4jDecisionRepository:
         assert result.invalidation_time is None
         assert result.supersedes is None
         assert result.superseded_by is None
+        assert result.record_type == "ArchitectureDecision"
 
     def test_get_returns_none_for_missing(self) -> None:
         """get returns None when decision does not exist."""
@@ -997,6 +1085,7 @@ class TestNeo4jTaskRepository:
             validity_time=ts,
             completion_time=None,
             completion_event_id=None,
+            record_type="FollowUp",
         )
         provenance = _make_provenance("task-1", "task")
 
@@ -1010,6 +1099,7 @@ class TestNeo4jTaskRepository:
         assert result.lifecycle_state == "open"
         assert result.completion_time is None
         assert result.completion_event_id is None
+        assert result.record_type == "FollowUp"
 
     def test_get_returns_none_for_missing(self) -> None:
         """get returns None when task does not exist."""

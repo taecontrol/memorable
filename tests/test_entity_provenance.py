@@ -222,12 +222,20 @@ class TestRememberEntityService:
 
     def _make_service(self):
         from memorable.core.application import RememberEntityService
+        from memorable.core.clock import FixedClock
         from memorable.core.profile import load_profile_from_yaml
         from memorable.core.repositories import InMemoryEntityRepository
 
         repo = InMemoryEntityRepository()
         profile = load_profile_from_yaml(VALID_PROFILE_YAML)
-        return RememberEntityService(repository=repo, profile=profile), repo
+        return (
+            RememberEntityService(
+                repository=repo,
+                profile=profile,
+                clock=FixedClock(FIXTURE_TIMESTAMP),
+            ),
+            repo,
+        )
 
     def test_remember_entity_stores_entity_with_provenance(self) -> None:
         service, repo = self._make_service()
@@ -306,12 +314,17 @@ class TestInspectProvenance:
 
     def _remember_fixture_entity(self):
         from memorable.core.application import RememberEntityService
+        from memorable.core.clock import FixedClock
         from memorable.core.profile import load_profile_from_yaml
         from memorable.core.repositories import InMemoryEntityRepository
 
         repo = InMemoryEntityRepository()
         profile = load_profile_from_yaml(VALID_PROFILE_YAML)
-        service = RememberEntityService(repository=repo, profile=profile)
+        service = RememberEntityService(
+            repository=repo,
+            profile=profile,
+            clock=FixedClock(FIXTURE_TIMESTAMP),
+        )
 
         service.remember(
             space="memorable",
@@ -589,8 +602,14 @@ class TestMCPRememberEntity:
 class TestMCPInspectProvenance:
     """MCP inspect_provenance_tool shows where a memory came from."""
 
-    def test_inspect_provenance_tool(self) -> None:
+    def test_inspect_provenance_tool(self, monkeypatch) -> None:
+        from memorable.core.clock import FixedClock
         from memorable.mcp.server import inspect_provenance_tool, remember_entity_tool
+
+        monkeypatch.setattr(
+            "memorable.mcp.server.SystemClock",
+            lambda: FixedClock(FIXTURE_TIMESTAMP),
+        )
 
         remember_entity_tool(
             space="memorable",

@@ -6,7 +6,36 @@ and that production wiring includes it.
 
 from __future__ import annotations
 
+from datetime import UTC, datetime
 from unittest.mock import MagicMock, patch
+
+
+def _observation_with_record_type():
+    from memorable.core.models import Observation, Provenance
+
+    at = datetime(2026, 6, 6, 10, 0, tzinfo=UTC)
+    observation = Observation(
+        id="observation:episode-1",
+        statement="Episode 1 happened.",
+        space="memorable",
+        validity_time=at,
+        invalidation_time=None,
+        lifecycle_state="current",
+        supersedes=None,
+        superseded_by=None,
+        record_type="Episode",
+    )
+    provenance = Provenance(
+        record_id=observation.id,
+        record_kind="observation",
+        source_id="source:test",
+        episode_id="episode:test",
+        writer="agent:test",
+        reason="test",
+        creation_time=at,
+        validity_time=at,
+    )
+    return observation, provenance
 
 
 class TestNeo4jObservationRepositoryExists:
@@ -37,6 +66,53 @@ class TestNeo4jObservationRepositoryExists:
         driver = MagicMock()
         repo = Neo4jObservationRepository(driver)
         assert isinstance(repo, TemporalRecordRepository)
+
+
+class TestNeo4jObservationRecordSubtype:
+    def test_save_persists_record_type_property(self) -> None:
+        from memorable.storage.neo4j.repository import Neo4jObservationRepository
+
+        observation, provenance = _observation_with_record_type()
+        driver = MagicMock()
+        session = MagicMock()
+        driver.session.return_value.__enter__.return_value = session
+        driver.session.return_value.__exit__.return_value = False
+
+        Neo4jObservationRepository(driver).save(observation, provenance)
+
+        _, kwargs = session.run.call_args
+        assert "record_type" in kwargs
+        assert kwargs["record_type"] == "Episode"
+
+    def test_get_returns_record_type_property(self) -> None:
+        from memorable.storage.neo4j.repository import Neo4jObservationRepository
+
+        observation, _provenance = _observation_with_record_type()
+        driver = MagicMock()
+        session = MagicMock()
+        session.run.return_value.single.return_value = {
+            "id": observation.id,
+            "statement": observation.statement,
+            "space": observation.space,
+            "validity_time": observation.validity_time.isoformat(
+                timespec="microseconds"
+            ),
+            "invalidation_time": None,
+            "lifecycle_state": observation.lifecycle_state,
+            "supersedes": None,
+            "superseded_by": None,
+            "record_type": "Episode",
+        }
+        driver.session.return_value.__enter__.return_value = session
+        driver.session.return_value.__exit__.return_value = False
+
+        retrieved = Neo4jObservationRepository(driver).get(
+            observation.space,
+            observation.id,
+        )
+
+        assert retrieved is not None
+        assert retrieved.record_type == "Episode"
 
 
 class TestProductionWiringIncludesObservation:

@@ -135,6 +135,45 @@ class TestInMemoryDecisionRepositoryCorrect:
         assert updated.supersedes is None
         assert updated.superseded_by is None
 
+    def test_correct_preserves_record_subtype(self) -> None:
+        from memorable.core.models import Decision, Provenance
+        from memorable.core.repositories import InMemoryDecisionRepository
+
+        repo = InMemoryDecisionRepository()
+        repo.save(
+            Decision(
+                id=DECISION_ID,
+                statement="Use Graphiti for storage.",
+                space="memorable",
+                validity_time=FIXTURE_TIMESTAMP,
+                invalidation_time=None,
+                lifecycle_state="current",
+                supersedes=None,
+                superseded_by=None,
+                record_type="ArchitectureDecision",
+            ),
+            Provenance(
+                record_id=DECISION_ID,
+                record_kind="decision",
+                source_id=SOURCE_ID,
+                episode_id="episode:agent-session:2026-05-25T09:00:00+00:00",
+                writer="agent:test",
+                reason="test decision",
+                creation_time=FIXTURE_TIMESTAMP,
+                validity_time=FIXTURE_TIMESTAMP,
+            ),
+        )
+
+        repo.correct(
+            space="memorable",
+            record_id=DECISION_ID,
+            new_statement="Use Neo4j for storage.",
+        )
+
+        updated = repo.get(space="memorable", record_id=DECISION_ID)
+        assert updated is not None
+        assert updated.record_type == "ArchitectureDecision"
+
 
 # =====================================================================
 # InMemoryObservationRepository.correct() tests
@@ -640,7 +679,7 @@ class TestMCPCorrectTool:
         result = correct_tool(
             space="memorable",
             record_id=DECISION_ID,
-            record_type="decision",
+            record_kind="decision",
             new_statement="Use Neo4j for storage.",
             source=CORRECTION_SOURCE_ID,
             at="2026-05-25T10:00:00Z",
@@ -666,7 +705,7 @@ class TestMCPCorrectTool:
         result = correct_tool(
             space="memorable",
             record_id=OBSERVATION_ID,
-            record_type="observation",
+            record_kind="observation",
             new_statement="The team prefers synchronous communication.",
             source=CORRECTION_SOURCE_ID,
             at="2026-05-25T10:00:00Z",
@@ -694,14 +733,14 @@ class TestMCPCorrectTool:
         invalidate_tool(
             space="memorable",
             record_id=DECISION_ID,
-            record_type="decision",
+            record_kind="decision",
             at="2026-05-25T10:00:00Z",
         )
 
         result = correct_tool(
             space="memorable",
             record_id=DECISION_ID,
-            record_type="decision",
+            record_kind="decision",
             new_statement="anything",
             source=CORRECTION_SOURCE_ID,
             at="2026-05-25T10:00:00Z",
@@ -725,7 +764,7 @@ class TestMCPCorrectTool:
         result = correct_tool(
             space="memorable",
             record_id=DECISION_ID,
-            record_type="decision",
+            record_kind="decision",
             new_statement="Use Neo4j for storage.",
             source=CORRECTION_SOURCE_ID,
             at="2026-05-25T10:00:00Z",
@@ -778,7 +817,7 @@ class TestMCPCorrectTool:
         result = correct_tool(
             space="memorable",
             record_id=DECISION_ID,
-            record_type="decision",
+            record_kind="decision",
             new_statement="Use Neo4j for storage.",
             source=CORRECTION_SOURCE_ID,
             at="2026-05-25T10:00:00Z",
@@ -822,7 +861,7 @@ class TestMCPCorrectTool:
         result = correct_tool(
             space="memorable",
             record_id=DECISION_ID,
-            record_type="decision",
+            record_kind="decision",
             new_statement="Use Neo4j for storage.",
             source=CORRECTION_SOURCE_ID,
             at="2026-05-25T10:00:00Z",
@@ -838,12 +877,18 @@ class TestMCPCorrectTool:
             "memorable", DECISION_ID
         ) == ["entity:wrong"]
 
-    def test_correct_restaples_task_about_edges_via_mcp(self) -> None:
+    def test_correct_restaples_task_about_edges_via_mcp(self, monkeypatch) -> None:
+        from memorable.core.clock import FixedClock
         from memorable.core.context import default_context
         from memorable.mcp.server import (
             correct_tool,
             remember_entity_tool,
             remember_task_tool,
+        )
+
+        monkeypatch.setattr(
+            "memorable.mcp.server.SystemClock",
+            lambda: FixedClock(CORRECTION_TIMESTAMP),
         )
 
         remember_entity_tool(
@@ -874,7 +919,7 @@ class TestMCPCorrectTool:
         result = correct_tool(
             space="memorable",
             record_id="task:about-correction",
-            record_type="task",
+            record_kind="task",
             new_statement="Verify About correction.",
             source=CORRECTION_SOURCE_ID,
             at="2026-05-25T10:00:00Z",
@@ -938,7 +983,7 @@ class TestMCPCorrectTool:
         result = correct_tool(
             space="memorable",
             record_id="task:about-only",
-            record_type="task",
+            record_kind="task",
             source=CORRECTION_SOURCE_ID,
             at="2026-05-25T10:00:00Z",
             about=["entity:right"],
@@ -979,7 +1024,7 @@ class TestMCPCorrectTool:
         result = correct_tool(
             space="memorable",
             record_id="task:about-correction",
-            record_type="task",
+            record_kind="task",
             new_statement="Verify About correction.",
             source=CORRECTION_SOURCE_ID,
             at="2026-05-25T10:00:00Z",
@@ -995,20 +1040,20 @@ class TestMCPCorrectTool:
             "memorable", "task:about-correction"
         ) == ["entity:wrong"]
 
-    def test_correct_unknown_record_type(self) -> None:
+    def test_correct_unknown_record_kind(self) -> None:
         from memorable.mcp.server import correct_tool
 
         result = correct_tool(
             space="memorable",
             record_id="something:v1",
-            record_type="unknown",
+            record_kind="unknown",
             new_statement="anything",
             source=CORRECTION_SOURCE_ID,
             at="2026-05-25T10:00:00Z",
         )
 
         assert "error" in result
-        assert "Unknown record_type" in result["error"]
+        assert "Unknown record_kind" in result["error"]
 
 
 # =====================================================================

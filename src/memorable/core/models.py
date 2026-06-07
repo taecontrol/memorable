@@ -2,8 +2,12 @@
 
 from __future__ import annotations
 
-from dataclasses import dataclass
+from collections.abc import Mapping
+from dataclasses import dataclass, field
 from datetime import datetime
+from types import MappingProxyType
+
+from memorable.core.attributes import AttributeValue, copy_attribute_values
 
 
 @dataclass(frozen=True)
@@ -33,12 +37,18 @@ class Entity:
     entity_type: str
     name: str
     space: str
+    attributes: Mapping[str, AttributeValue] = field(default_factory=dict)
 
     def __post_init__(self) -> None:
         if not self.id:
             raise ValueError("Entity id must not be empty")
         if not self.name:
             raise ValueError("Entity name must not be empty")
+        object.__setattr__(
+            self,
+            "attributes",
+            MappingProxyType(copy_attribute_values(self.attributes)),
+        )
 
 
 @dataclass(frozen=True)
@@ -92,13 +102,17 @@ class ProvenanceIntegrityError(Exception):
 
 @dataclass(frozen=True)
 class RecordProjection:
-    """A compact, type-agnostic view of a MemoryRecord for Memory Review."""
+    """A compact, type-agnostic view of a MemoryRecord for Memory Review.
+
+    ``type`` is the kernel kind; ``record_type`` is the optional Record Subtype.
+    """
 
     id: str
     type: str
     label: str
     lifecycle_state: str
     creation_time: datetime
+    record_type: str | None = None
 
 
 @dataclass(frozen=True)
@@ -128,6 +142,7 @@ class Decision:
     lifecycle_state: str
     supersedes: str | None
     superseded_by: str | None
+    record_type: str | None = None
 
     def __post_init__(self) -> None:
         if not self.id:
@@ -153,6 +168,7 @@ class Observation:
     lifecycle_state: str
     supersedes: str | None
     superseded_by: str | None
+    record_type: str | None = None
 
     def __post_init__(self) -> None:
         if not self.id:
@@ -176,6 +192,7 @@ class Task:
     validity_time: datetime
     completion_time: datetime | None
     completion_event_id: str | None
+    record_type: str | None = None
 
     def __post_init__(self) -> None:
         if not self.id:

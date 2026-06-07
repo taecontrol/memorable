@@ -113,7 +113,8 @@ class TestProductionPathAppliesConnectionPolicy:
             patcher.stop()
 
         assert mock_gdb.driver.call_args.args[0] == effective
-        assert returned is driver
+        returned.close()
+        driver.close.assert_called_once()
 
 
 class TestCliAndMcpShareEffectiveConnection:

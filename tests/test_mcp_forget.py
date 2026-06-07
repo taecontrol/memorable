@@ -141,7 +141,7 @@ def test_forget_record_tool_erases_record() -> None:
     result = forget_record_tool(
         space="memorable",
         record_id="decision:scratch",
-        record_type="decision",
+        record_kind="decision",
     )
 
     assert result == {
@@ -159,7 +159,7 @@ def test_forget_record_tool_missing_id_returns_error() -> None:
     result = forget_record_tool(
         space="memorable",
         record_id="decision:missing",
-        record_type="decision",
+        record_kind="decision",
     )
 
     assert "forgotten" not in result
@@ -183,7 +183,7 @@ def test_forget_record_tool_refuses_supersession_chain() -> None:
     result = forget_record_tool(
         space="memorable",
         record_id="decision:v1",
-        record_type="decision",
+        record_kind="decision",
     )
 
     assert "forgotten" not in result

@@ -38,6 +38,7 @@ class _ProjectionCandidate:
     lifecycle_state: str
     creation_time: datetime | None
     has_provenance: bool
+    record_type: str | None = None
 
 
 def _bounded_projections(
@@ -87,6 +88,7 @@ def _bounded_projections(
             label=candidate.label,
             lifecycle_state=candidate.lifecycle_state,
             creation_time=candidate.creation_time,
+            record_type=candidate.record_type,
         )
         for candidate in selected
     ]
@@ -165,6 +167,7 @@ class InMemoryTemporalRepository[T: TemporalRecord]:
         record_ids: set[str] | None,
         record_type: str,
         label: Callable[[T], str],
+        record_subtype: str | None = None,
     ) -> list[RecordProjection]:
         candidates: list[_ProjectionCandidate] = []
         for (record_space, _), record in self._records.items():
@@ -173,6 +176,11 @@ class InMemoryTemporalRepository[T: TemporalRecord]:
             if record_ids is not None and record.id not in record_ids:
                 continue
             if state is not None and record.lifecycle_state != state:
+                continue
+            if (
+                record_subtype is not None
+                and getattr(record, "record_type", None) != record_subtype
+            ):
                 continue
             provenance = self._provenance.get((space, record.id))
             creation_time = provenance.creation_time if provenance else None
@@ -184,6 +192,7 @@ class InMemoryTemporalRepository[T: TemporalRecord]:
                     lifecycle_state=record.lifecycle_state,
                     creation_time=creation_time,
                     has_provenance=provenance is not None,
+                    record_type=getattr(record, "record_type", None),
                 )
             )
         return _bounded_projections(candidates, space, since, until, limit)
@@ -362,6 +371,7 @@ class InMemoryDecisionRepository(InMemoryTemporalRepository[Decision]):
         until: datetime | None,
         limit: int,
         record_ids: set[str] | None = None,
+        record_type: str | None = None,
     ) -> list[RecordProjection]:
         return self._list_record_projections_by_space(
             space=space,
@@ -372,6 +382,7 @@ class InMemoryDecisionRepository(InMemoryTemporalRepository[Decision]):
             record_ids=record_ids,
             record_type="decision",
             label=lambda decision: decision.statement,
+            record_subtype=record_type,
         )
 
 
@@ -394,6 +405,7 @@ class InMemoryObservationRepository(InMemoryTemporalRepository[Observation]):
         until: datetime | None,
         limit: int,
         record_ids: set[str] | None = None,
+        record_type: str | None = None,
     ) -> list[RecordProjection]:
         return self._list_record_projections_by_space(
             space=space,
@@ -404,6 +416,7 @@ class InMemoryObservationRepository(InMemoryTemporalRepository[Observation]):
             record_ids=record_ids,
             record_type="observation",
             label=lambda observation: observation.statement,
+            record_subtype=record_type,
         )
 
 
@@ -427,6 +440,7 @@ class InMemoryRelationRepository(InMemoryTemporalRepository[Relation]):
         until: datetime | None,
         limit: int,
         record_ids: set[str] | None = None,
+        record_type: str | None = None,
     ) -> list[RecordProjection]:
         return self._list_record_projections_by_space(
             space=space,
@@ -437,6 +451,7 @@ class InMemoryRelationRepository(InMemoryTemporalRepository[Relation]):
             record_ids=record_ids,
             record_type="relation",
             label=lambda relation: relation.statement,
+            record_subtype=record_type,
         )
 
     def list_by_entity(self, space: str, entity_id: str) -> list[Relation]:
@@ -485,6 +500,7 @@ class InMemoryTaskRepository:
         until: datetime | None,
         limit: int,
         record_ids: set[str] | None = None,
+        record_type: str | None = None,
     ) -> list[RecordProjection]:
         candidates: list[_ProjectionCandidate] = []
         for (record_space, _), task in self._tasks.items():
@@ -493,6 +509,8 @@ class InMemoryTaskRepository:
             if record_ids is not None and task.id not in record_ids:
                 continue
             if state is not None and task.lifecycle_state != state:
+                continue
+            if record_type is not None and task.record_type != record_type:
                 continue
             provenance = self._provenance.get((space, task.id))
             creation_time = provenance.creation_time if provenance else None
@@ -504,6 +522,7 @@ class InMemoryTaskRepository:
                     lifecycle_state=task.lifecycle_state,
                     creation_time=creation_time,
                     has_provenance=provenance is not None,
+                    record_type=task.record_type,
                 )
             )
         return _bounded_projections(candidates, space, since, until, limit)
@@ -555,6 +574,7 @@ class InMemoryTaskRepository:
             validity_time=old.validity_time,
             completion_time=completion_time,
             completion_event_id=completion_event_id,
+            record_type=old.record_type,
         )
         self._tasks[key] = updated
 

@@ -28,7 +28,7 @@ Memorable Core owns the language for:
 Supporting contexts include:
 
 - MCP agent interface;
-- Neo4j storage adapter;
+- storage adapters (SQLite, the embedded default, and Neo4j);
 - embedding providers and retrieval indexes;
 - optional Graphiti adapter or comparison spike;
 - Markdown, reports, summaries, reviews, and other generated views.
@@ -87,7 +87,11 @@ Example: the `memorable` workspace has its own MemorySpace.
 
 A MemoryProfile is the project-specific schema and policy that specializes the universal memory kernel for one MemorySpace.
 
-As a target design it defines domain-specific entity types, record types, relation types, metric keys, workflows, write policies, sensitive categories, lifecycle rules, and common queries. **The current build parses only a subset:** `version`, `space.{name,description}`, `entity/relation/record` declarations (each `name` plus `description`, and `extends` on records). Every other key is rejected at load time rather than silently ignored (ADR-0017). Metric keys, workflows, write policies (removed by ADR-0014), sensitive categories, lifecycle rules, and common queries are not yet part of the parsed schema.
+As a target design it defines domain-specific entity types, record types, relation types, metric keys, workflows, write policies, sensitive categories, lifecycle rules, and common queries. **The parsed profile schema is versioned:** v1 includes `version`, `space.{name,description}`, `entity/relation/record` declarations (each `name` plus `description`, `extends` on records, and optional `attributes` schemas on entity declarations). Every other key is rejected at load time rather than silently ignored (ADR-0017). Metric keys, workflows, write policies (removed by ADR-0014), sensitive categories, lifecycle rules, and common queries are not yet part of the parsed schema.
+
+Entity declarations may carry an `attributes:` schema: an ordered collection of Attribute declarations, each with `name` and `type`, parsed and validated fail-loud. Record Subtype declarations reuse the same Attribute schema after the post-#206 follow-up.
+
+A valid `records:` declaration is a Record Subtype declaration, not only profile documentation or validation metadata. It names an optional subtype that an Agent may select when writing a Decision, Observation, or Task whose kernel kind matches the declaration's `extends`; read surfaces can return that subtype, and retrieval/review surfaces can filter by it. Kernel Decision, Observation, and Task writes still require no `records:` declaration.
 
 The first representation is `.memorable/memory.yaml`.
 
@@ -105,17 +109,19 @@ Project memory profiles specialize the kernel; they do not replace it.
 
 The kernel names a vocabulary, not all of which is writable yet. Distinguish:
 
-- **Writable Record Types** — kernel record types that have a write path today: Decision, Observation, and Task. A MemoryProfile `records:` declaration may only extend a Writable Record Type.
+- **Writable Record Types** — kernel record types that have a write path today: Decision, Observation, and Task. A MemoryProfile `records:` declaration may only extend a Writable Record Type; the declaration creates an optional Record Subtype for records of that kind, not a new kernel kind.
 - **Structural kernel types** — Entity and Relation, written through their own primitives and enforced against the MemoryProfile.
 - **Kernel Vocabulary (not yet writable)** — Evidence, Measurement, Event, and DerivedMemory. These are accepted language and part of the kernel concept set, but have no model, repository, or write path in the current build. They are not valid `extends` targets. Each is marked below.
 
-See ADR-0017 (fail-loud profile validation) for the rule that profiles fail to load when they extend a non-writable type or declare unknown keys.
+See ADR-0017 (fail-loud profile validation) for the rule that profiles fail to load when they extend a non-writable type or declare unknown keys. See ADR-0021 for the rule that a valid `records:` declaration becomes an optional on-record subtype that affects writes and reads. See ADR-0022 for typed durable Attributes on declared types.
 
 ### MemoryRecord
 
 A MemoryRecord is a structured, truth-bearing unit of memory.
 
 Use MemoryRecord for records that carry shared temporal and provenance semantics. Decisions, observations, evidence, relations, rules, derived summaries, and project-specific records can all be MemoryRecords or specializations of MemoryRecord.
+
+A Decision, Observation, or Task may carry an optional Record Subtype when the active MemoryProfile declares one whose `extends` matches the record's kernel kind.
 
 Do not use MemoryRecord for every database row, graph node, or generated Markdown paragraph.
 
@@ -125,9 +131,23 @@ A Writable Record Type is a kernel record type that has a write path in the curr
 
 Use Writable Record Type when stating the contract for MemoryProfile `records:` declarations. A custom record type may only `extends` a Writable Record Type; extending a non-writable Kernel Vocabulary term (Evidence, Measurement, Event, DerivedMemory) or a structural type (Entity, Relation) fails profile validation.
 
+A `records:` declaration whose `extends` names a Writable Record Type declares a Record Subtype that an Agent may optionally apply to records of that kernel kind and later read or filter. It does not replace or rename the kernel kind: `Episode extends Observation` means an Observation with Record Subtype `Episode`.
+
 This term names a moving line, not a permanent one. When a Kernel Vocabulary term gains a write path, it becomes a Writable Record Type and a valid `extends` target. The distinction exists so the language and the build stay honest about what an agent can actually write today.
 
-Do not confuse a Writable Record Type with the broader Universal Memory Kernel vocabulary, which also names concepts that are accepted language but not yet writable.
+Do not confuse a Writable Record Type with the broader Universal Memory Kernel vocabulary, which also names concepts that are accepted language but not yet writable. Do not use Writable Record Type for a project-declared subtype; use Record Subtype.
+
+### Record Subtype
+
+A Record Subtype is an optional, project-declared label on a Decision, Observation, or Task that says which custom `records[].name` specializes the record's kernel kind.
+
+Example: if a MemoryProfile declares `Episode extends Observation`, an Agent may write an Observation with Record Subtype `Episode`. The record remains an Observation for kernel lifecycle, provenance, correction, supersession, and temporal semantics.
+
+A Record Subtype is selected explicitly at write time and validated against the active MemoryProfile: the subtype name must be declared under `records:`, and that declaration's `extends` must match the kernel kind being written. On a non-supersession write, no subtype means a plain kernel record and is always valid. On a supersession write, omitting the subtype preserves the predecessor's Record Subtype; the inherited subtype is still validated against the active MemoryProfile before the successor is persisted.
+
+Read surfaces should return the Record Subtype when present. Memory Review, GraphRAG Retrieval, and truth reads can filter by Record Subtype so an Agent can ask for records such as Episodes, Patterns, Commitments, or ArchitectureDecisions.
+
+Do not use Record Subtype for Entity or Relation types. Do not model it as provenance, a free-form tag, or a storage label in core language. Do not confuse Record Subtype with Attributes; Attributes are a separate typed durable-value layer that can build on the same declaration.
 
 ### Entity
 
@@ -135,11 +155,23 @@ An Entity is a remembered thing with identity inside a MemorySpace.
 
 Use Entity for named domain things that memory can refer to over time, such as a project, component, API, storage adapter, stakeholder, race, or training phase.
 
+An Entity may carry declared Attributes when its Entity type declares an `attributes:` schema in the MemoryProfile.
+
 Do not confuse a Memorable Entity with a Neo4j node or Graphiti `EntityNode`. A storage node may store a Memorable Entity, but the storage shape is not the domain concept.
 
 Correct: "Memorable is an Entity remembered in the project MemorySpace."
 
 Avoid: "Every Neo4j node is a Memorable Entity."
+
+### Attribute
+
+An Attribute is a typed, declared, durable value on an Entity and, after the post-#206 follow-up, on a Record Subtype.
+
+Attributes are declared in the MemoryProfile under a type's `attributes:` schema and validated fail-loud at write and filter time. All Attributes are optional in v1. The v1 type set is `string`, `number`, `date`, and `list[string]`; widening that set requires a profile version change.
+
+An Attribute is a stable fact, changeable only by Correction or an explicit Attribute-changing write path. It must not model mutable current state or temporal facts. Route mutable status to Lifecycle State; when something became true to Validity Time; what kind of thing something is to the Entity type or Record Subtype; and genuinely time-varying values to Relation.
+
+Do not use Attribute as a synonym for a Neo4j property; native storage representation stays inside the storage adapter. Do not confuse Attribute with a Measurement metric key, which names a different quantitative memory concept. Do not flatten Attribute values into Source/provenance text or Indexable Text as canonical memory.
 
 ### Relation
 
@@ -267,13 +299,13 @@ Use Temporal Semantics when discussing current truth, historical truth, validity
 
 Validity Time is when a remembered claim, state, or rule became true or applicable in the domain.
 
-Do not confuse Validity Time with Creation Time. A record can be stored today about something that became true last week.
+Do not confuse Validity Time with Creation Time. A record can be stored today about something that became true last week. On ambient writes, the caller-supplied time is Validity Time only; it does not set Creation Time.
 
 ### Creation Time
 
-Creation Time is when Memorable stored the memory record.
+Creation Time is when Memorable stored the memory record. It is system-stamped at write time by Memorable and is not caller-supplied on ambient Agent or Human Owner writes.
 
-Use Creation Time for audit and ordering of writes. Use Validity Time for when the remembered claim became true or applicable.
+Use Creation Time for audit and ordering of writes. Use Validity Time for the caller-supplied time when the remembered claim became true or applicable.
 
 ### Invalidation Time
 
@@ -502,6 +534,22 @@ Reason: Edge is graph storage vocabulary. Memorable Core should name domain rela
 
 Exception: "About edge" is an accepted compound term — it names the specific domain concept of record→Entity membership (see the About entry and ADR-0018), not generic storage-edge vocabulary. Still avoid bare "node/edge" graph-storage language for domain relationships.
 
+### Field
+
+Avoid using Field as the domain term for a typed durable value declared on a type.
+
+Preferred term: Attribute.
+
+Reason: "field" is overloaded implementation vocabulary. ADR-0022 makes Attribute the accepted term and `attributes:` the YAML key for typed durable values on declared types.
+
+### Property
+
+Avoid using Property as the core domain term for a typed durable value declared on a type.
+
+Preferred term: Attribute. Use storage property only inside storage-adapter context.
+
+Reason: Property is graph/storage vocabulary and leaks representation into Memorable Core language.
+
 ### Fact
 
 Avoid using Fact when the memory may be uncertain, superseded, contextual, or time-bound.
@@ -538,9 +586,19 @@ Do not expose raw storage terms through MCP unless the tool is explicitly diagno
 
 Duplicate MemoryRecord write errors should name the record id and MemorySpace, and should guide the Agent to correct the existing record or choose a new id.
 
+### Storage Adapters
+
+Memorable has co-equal storage adapters behind the storage ports. SQLite is the embedded default storage runtime; Neo4j is a co-equal, selectable backend (ADR 0021). The in-memory adapter exists for tests.
+
+### SQLite
+
+SQLite is the default, embedded storage adapter (ADR 0021). A single `.db` file holds a MemorySpace's Entities, MemoryRecords, Relations, About links, provenance, and derived Embeddings, with no server or daemon.
+
+SQLite tables, columns, foreign keys, and the `sqlite-vec` vector index (ADR 0022) are storage vocabulary, not Memorable Core language.
+
 ### Neo4j
 
-Neo4j is the first storage adapter.
+Neo4j was the first storage adapter and remains co-equal and selectable.
 
 Neo4j nodes and relationships may store Memorable Entities, MemoryRecords, Relations, provenance links, and lifecycle transitions. However, Neo4j Node and Relationship are storage vocabulary, not Memorable Core language.
 
@@ -550,7 +608,7 @@ Use storage-specific terms inside adapter implementation and translation docs. U
 
 Retrieval indexes and Embeddings are derived retrieval infrastructure.
 
-They may be stored in Neo4j vector indexes, local files, external vector stores, or provider-specific caches. Those storage choices do not define Memorable Core language.
+They may be stored in a Neo4j vector index, the SQLite `sqlite-vec` index, local files, external vector stores, or provider-specific caches. Those storage choices do not define Memorable Core language.
 
 Use Indexable Text, Embedding, Embedding Provider, GraphRAG Retrieval, and Hybrid Retrieval in product docs, schemas, specs, and agent-facing behavior. Keep provider-specific vocabulary inside retrieval adapter implementation unless it affects user-facing configuration or behavior.
 

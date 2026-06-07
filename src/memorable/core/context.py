@@ -13,6 +13,7 @@ MemoryProfile Resolution amendment).
 from __future__ import annotations
 
 from pathlib import Path
+from typing import TYPE_CHECKING
 
 import yaml
 
@@ -42,6 +43,9 @@ from memorable.core.repositories import (
     InMemoryTaskRepository,
 )
 from memorable.retrieval.index import InMemoryEmbeddingIndex, RetrievalIndex
+
+if TYPE_CHECKING:
+    from memorable.core.application import AboutLinker
 
 # Default profile YAML used when no .memorable/memory.yaml is found.
 # This supports the tracer fixture and tests that call remember/inspect
@@ -107,6 +111,12 @@ class ApplicationContext:
         )
         self.memory_space_repo = memory_space_repo or InMemoryMemorySpaceRepository()
         self.retrieval_index = retrieval_index or InMemoryEmbeddingIndex()
+
+    def about_linker(self) -> AboutLinker:
+        """Return the AboutLinker wired to this context's repositories."""
+        from memorable.core.application import AboutLinker
+
+        return AboutLinker(entity_repo=self.entity_repo, about_repo=self.about_repo)
 
     def load_profile(self) -> MemoryProfile:
         """Resolve the MemoryProfile live from the current working directory.

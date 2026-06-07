@@ -376,7 +376,7 @@ class TestMCPInvalidateTool:
         result = invalidate_tool(
             space="memorable",
             record_id=DECISION_ID,
-            record_type="decision",
+            record_kind="decision",
             at="2026-05-25T10:00:00Z",
         )
 
@@ -398,7 +398,7 @@ class TestMCPInvalidateTool:
         result = invalidate_tool(
             space="memorable",
             record_id=OBSERVATION_ID,
-            record_type="observation",
+            record_kind="observation",
             at="2026-05-25T10:00:00Z",
         )
 
@@ -420,32 +420,32 @@ class TestMCPInvalidateTool:
         invalidate_tool(
             space="memorable",
             record_id=DECISION_ID,
-            record_type="decision",
+            record_kind="decision",
             at="2026-05-25T10:00:00Z",
         )
 
         result = invalidate_tool(
             space="memorable",
             record_id=DECISION_ID,
-            record_type="decision",
+            record_kind="decision",
             at="2026-05-25T10:00:00Z",
         )
 
         assert "error" in result
         assert "already invalidated" in result["error"]
 
-    def test_invalidate_unknown_record_type(self) -> None:
+    def test_invalidate_unknown_record_kind(self) -> None:
         from memorable.mcp.server import invalidate_tool
 
         result = invalidate_tool(
             space="memorable",
             record_id="something:v1",
-            record_type="unknown",
+            record_kind="unknown",
             at="2026-05-25T10:00:00Z",
         )
 
         assert "error" in result
-        assert "Unknown record_type" in result["error"]
+        assert "Unknown record_kind" in result["error"]
 
 
 # =====================================================================
@@ -488,7 +488,7 @@ class TestCLIInvalidateCommand:
                 "memorable",
                 "--id",
                 DECISION_ID,
-                "--record-type",
+                "--record-kind",
                 "decision",
                 "--at",
                 "2026-05-25T10:00:00Z",

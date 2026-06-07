@@ -2,8 +2,9 @@
 
 Covers slice #83: a deep query service in core that deterministically lists
 MemoryRecords (Decision, Observation, Relation, Task) in a MemorySpace,
-projecting each to {id, type, label, lifecycle_state, creation_time}, ordered
-by Creation Time and capped by a limit (default 50). Entities are excluded.
+projecting each to {id, type, label, lifecycle_state, creation_time,
+record_type}, ordered by Creation Time and capped by a limit (default 50).
+Entities are excluded.
 
 Service tests drive the service against in-memory repositories and assert on
 returned projections — never on storage internals.
@@ -12,6 +13,7 @@ returned projections — never on storage internals.
 from __future__ import annotations
 
 from datetime import UTC, datetime
+from unittest.mock import patch
 
 SPACE = "memorable"
 SOURCE_ID = "source:tracer-fixture"
@@ -20,6 +22,19 @@ T1 = datetime(2026, 5, 23, 10, 0, 0, tzinfo=UTC)
 T2 = datetime(2026, 5, 23, 11, 0, 0, tzinfo=UTC)
 T3 = datetime(2026, 5, 23, 12, 0, 0, tzinfo=UTC)
 T4 = datetime(2026, 5, 23, 13, 0, 0, tzinfo=UTC)
+
+
+class _ValidityEchoClock:
+    """Test clock that preserves legacy fixture Creation Times from service at."""
+
+    def now(self) -> datetime:
+        import inspect
+
+        for frame_info in inspect.stack():
+            value = frame_info.frame.f_locals.get("at")
+            if isinstance(value, datetime):
+                return value
+        raise AssertionError("No Validity Time found for test clock.")
 
 
 def _make_context():
@@ -43,12 +58,14 @@ def _remember_decision(
     about: list[str] | None = None,
 ):
     from memorable.core.application import RememberDecisionService
+    from memorable.core.clock import FixedClock
 
     profile = ctx.load_profile()
     service = RememberDecisionService(
         repository=ctx.decision_repo,
         profile=profile,
         about_linker=_about_linker(ctx) if about is not None else None,
+        clock=FixedClock(at),
     )
     service.remember(
         space=SPACE,
@@ -67,14 +84,17 @@ def _remember_observation(
     statement: str,
     at: datetime,
     about: list[str] | None = None,
+    record_type: str | None = None,
 ):
     from memorable.core.application import RememberObservationService
+    from memorable.core.clock import FixedClock
 
     profile = ctx.load_profile()
     service = RememberObservationService(
         repository=ctx.observation_repo,
         profile=profile,
         about_linker=_about_linker(ctx) if about is not None else None,
+        clock=FixedClock(at),
     )
     service.remember(
         space=SPACE,
@@ -83,14 +103,20 @@ def _remember_observation(
         source_id=SOURCE_ID,
         at=at,
         about=about,
+        record_type=record_type,
     )
 
 
 def _remember_entities(ctx, *entity_ids: str, at: datetime):
     from memorable.core.application import RememberEntityService
+    from memorable.core.clock import FixedClock
 
     profile = ctx.load_profile()
-    service = RememberEntityService(repository=ctx.entity_repo, profile=profile)
+    service = RememberEntityService(
+        repository=ctx.entity_repo,
+        profile=profile,
+        clock=FixedClock(at),
+    )
     for entity_id in entity_ids:
         service.remember(
             space=SPACE,
@@ -112,12 +138,14 @@ def _remember_relation(
     at: datetime,
 ):
     from memorable.core.application import RememberRelationService
+    from memorable.core.clock import FixedClock
 
     profile = ctx.load_profile()
     service = RememberRelationService(
         relation_repo=ctx.relation_repo,
         entity_repo=ctx.entity_repo,
         profile=profile,
+        clock=FixedClock(at),
     )
     service.remember(
         space=SPACE,
@@ -138,14 +166,17 @@ def _remember_task(
     title: str,
     at: datetime,
     about: list[str] | None = None,
+    record_type: str | None = None,
 ):
     from memorable.core.application import RememberTaskService
+    from memorable.core.clock import FixedClock
 
     profile = ctx.load_profile()
     service = RememberTaskService(
         repository=ctx.task_repo,
         profile=profile,
         about_linker=_about_linker(ctx) if about is not None else None,
+        clock=FixedClock(at),
     )
     service.remember(
         space=SPACE,
@@ -154,6 +185,7 @@ def _remember_task(
         source_id=SOURCE_ID,
         at=at,
         about=about,
+        record_type=record_type,
     )
 
 
@@ -203,6 +235,23 @@ class TestListRecordsService:
         assert projection.label == "Adopt Neo4j for storage."
         assert projection.lifecycle_state == "current"
         assert projection.creation_time == T1
+
+    def test_projection_surfaces_record_subtype(self) -> None:
+        ctx = _make_context()
+        _remember_observation(
+            ctx,
+            observation_id="observation:episode-1",
+            statement="Migration episode preserved.",
+            at=T1,
+            record_type="GeneralObservation",
+        )
+        service = self._make_service(ctx)
+
+        projections = service.list_records(space=SPACE)
+
+        assert len(projections) == 1
+        assert projections[0].id == "observation:episode-1"
+        assert projections[0].record_type == "GeneralObservation"
 
     def test_includes_observation_and_relation_with_statement_labels(self) -> None:
         ctx = _make_context()
@@ -356,11 +405,13 @@ class TestListRecordsService:
                 until: datetime | None,
                 limit: int,
                 record_ids: set[str] | None = None,
+                record_type: str | None = None,
             ) -> list[RecordProjection]:
                 assert space == SPACE
                 assert state is None
                 assert since is None
                 assert until is None
+                assert record_type is None
                 rows = self._rows
                 if record_ids is not None:
                     rows = [row for row in rows if row.id in record_ids]
@@ -545,6 +596,40 @@ class TestListRecordsServiceTypeFilter:
             "relation",
             "task",
         }
+
+    def test_filters_to_record_subtype(self) -> None:
+        ctx = _make_context()
+        _remember_observation(
+            ctx,
+            observation_id="observation:typed",
+            statement="Typed observation.",
+            at=T1,
+            record_type="GeneralObservation",
+        )
+        _remember_observation(
+            ctx,
+            observation_id="observation:plain",
+            statement="Plain observation.",
+            at=T2,
+        )
+        _remember_entities(ctx, "entity:a", "entity:b", at=T1)
+        _remember_relation(
+            ctx,
+            relation_id="relation:plain",
+            source_entity_id="entity:a",
+            target_entity_id="entity:b",
+            statement="Relation has no Record Subtype.",
+            at=T3,
+        )
+        service = self._make_service(ctx)
+
+        projections = service.list_records(
+            space=SPACE,
+            record_type="GeneralObservation",
+        )
+
+        assert [p.id for p in projections] == ["observation:typed"]
+        assert all(p.record_type == "GeneralObservation" for p in projections)
 
     def test_entity_type_is_rejected(self) -> None:
         import pytest
@@ -855,12 +940,14 @@ class TestListRecordsServiceAboutFilter:
                 until: datetime | None,
                 limit: int,
                 record_ids: set[str] | None = None,
+                record_type: str | None = None,
             ) -> list[RecordProjection]:
                 assert space == SPACE
                 assert state is None
                 assert since is None
                 assert until is None
                 assert record_ids == {"decision:build-2"}
+                assert record_type is None
                 return [row for row in self._rows if row.id in record_ids][:limit]
 
         service = ListRecordsService(
@@ -977,6 +1064,71 @@ class TestListRecordsServiceAboutFilter:
 
         assert [p.id for p in projections] == ["decision:in"]
 
+    def test_record_subtype_and_existing_filters_compose(self) -> None:
+        ctx = _make_context()
+        _remember_entities(ctx, "entity:build-2", "entity:other", at=T1)
+        _remember_task(
+            ctx,
+            task_id="task:wanted",
+            title="Open FollowUp for Build 2.",
+            at=T2,
+            about=["entity:build-2"],
+            record_type="FollowUp",
+        )
+        _remember_task(
+            ctx,
+            task_id="task:plain",
+            title="Plain task for Build 2.",
+            at=T2,
+            about=["entity:build-2"],
+        )
+        _remember_task(
+            ctx,
+            task_id="task:done",
+            title="Completed FollowUp for Build 2.",
+            at=T2,
+            about=["entity:build-2"],
+            record_type="FollowUp",
+        )
+        _complete_task(ctx, task_id="task:done", at=T3)
+        _remember_task(
+            ctx,
+            task_id="task:other",
+            title="Open FollowUp for another Entity.",
+            at=T2,
+            about=["entity:other"],
+            record_type="FollowUp",
+        )
+        _remember_task(
+            ctx,
+            task_id="task:late",
+            title="Late FollowUp for Build 2.",
+            at=T4,
+            about=["entity:build-2"],
+            record_type="FollowUp",
+        )
+        _remember_decision(
+            ctx,
+            decision_id="decision:build-2",
+            statement="ArchitectureDecision for Build 2.",
+            at=T2,
+            about=["entity:build-2"],
+        )
+        service = self._make_service(ctx)
+
+        projections = service.list_records(
+            space=SPACE,
+            type="task",
+            state="open",
+            since=T2,
+            until=T4,
+            about="entity:build-2",
+            record_type="FollowUp",
+        )
+
+        assert [p.id for p in projections] == ["task:wanted"]
+        assert projections[0].record_type == "FollowUp"
+
 
 class TestMCPListRecords:
     """MCP list_records_tool wraps ListRecordsService and returns projections."""
@@ -985,6 +1137,14 @@ class TestMCPListRecords:
         from memorable.core.context import default_context
 
         default_context.reset()
+        self._clock_patcher = patch(
+            "memorable.mcp.server.SystemClock",
+            _ValidityEchoClock,
+        )
+        self._clock_patcher.start()
+
+    def teardown_method(self) -> None:
+        self._clock_patcher.stop()
 
     def test_list_records_tool_contract_shape_and_order_are_stable(self) -> None:
         import asyncio
@@ -1055,10 +1215,10 @@ class TestMCPListRecords:
         assert "error" not in result
         records = result["records"]
         assert [set(record) for record in records] == [
-            {"id", "type", "label", "lifecycle_state", "creation_time"},
-            {"id", "type", "label", "lifecycle_state", "creation_time"},
-            {"id", "type", "label", "lifecycle_state", "creation_time"},
-            {"id", "type", "label", "lifecycle_state", "creation_time"},
+            {"id", "type", "label", "lifecycle_state", "creation_time", "record_type"},
+            {"id", "type", "label", "lifecycle_state", "creation_time", "record_type"},
+            {"id", "type", "label", "lifecycle_state", "creation_time", "record_type"},
+            {"id", "type", "label", "lifecycle_state", "creation_time", "record_type"},
         ]
         assert records == [
             {
@@ -1067,6 +1227,7 @@ class TestMCPListRecords:
                 "label": "Keep the MCP listing contract stable.",
                 "lifecycle_state": "current",
                 "creation_time": "2026-05-23T10:00:00+00:00",
+                "record_type": None,
             },
             {
                 "id": "observation:contract",
@@ -1074,6 +1235,7 @@ class TestMCPListRecords:
                 "label": "Agents depend on this projection shape.",
                 "lifecycle_state": "current",
                 "creation_time": "2026-05-23T11:00:00+00:00",
+                "record_type": None,
             },
             {
                 "id": "relation:contract",
@@ -1081,6 +1243,7 @@ class TestMCPListRecords:
                 "label": "Contract source depends on contract target.",
                 "lifecycle_state": "current",
                 "creation_time": "2026-05-23T12:00:00+00:00",
+                "record_type": None,
             },
             {
                 "id": "task:contract",
@@ -1088,6 +1251,7 @@ class TestMCPListRecords:
                 "label": "Verify the MCP contract.",
                 "lifecycle_state": "open",
                 "creation_time": "2026-05-23T13:00:00+00:00",
+                "record_type": None,
             },
         ]
 
@@ -1188,6 +1352,32 @@ class TestMCPListRecords:
             set_mcp_context(default_context)
 
         assert "error" in result
+
+    def test_list_records_tool_filters_by_record_subtype(self) -> None:
+        from memorable.mcp.server import list_records_tool, remember_observation_tool
+
+        remember_observation_tool(
+            space=SPACE,
+            observation_id="observation:typed",
+            statement="Typed observation.",
+            source=SOURCE_ID,
+            at="2026-05-23T10:00:00Z",
+            record_type="GeneralObservation",
+        )
+        remember_observation_tool(
+            space=SPACE,
+            observation_id="observation:plain",
+            statement="Plain observation.",
+            source=SOURCE_ID,
+            at="2026-05-23T11:00:00Z",
+        )
+
+        result = list_records_tool(space=SPACE, record_type="GeneralObservation")
+
+        assert "error" not in result
+        records = result["records"]
+        assert [r["id"] for r in records] == ["observation:typed"]
+        assert records[0]["record_type"] == "GeneralObservation"
 
     def test_list_records_tool_filters_by_type(self) -> None:
         from memorable.mcp.server import (
@@ -1407,3 +1597,71 @@ class TestMCPListRecords:
         records = result["records"]
         assert [r["id"] for r in records] == ["task:open"]
         assert all(r["lifecycle_state"] == "open" for r in records)
+
+
+class TestCLIListRecords:
+    """CLI list exposes Memory Review subtype filtering."""
+
+    def test_list_type_filters_by_record_subtype(
+        self,
+        cli_in_memory_context,
+        capsys,
+    ) -> None:
+        import json
+
+        from memorable.cli import main
+
+        exit_code = main(
+            [
+                "remember",
+                "observation",
+                "--space",
+                SPACE,
+                "--id",
+                "observation:typed",
+                "--statement",
+                "Typed observation.",
+                "--type",
+                "GeneralObservation",
+                "--source",
+                SOURCE_ID,
+                "--at",
+                "2026-05-23T10:00:00Z",
+            ]
+        )
+        assert exit_code == 0
+        capsys.readouterr()
+
+        exit_code = main(
+            [
+                "remember",
+                "observation",
+                "--space",
+                SPACE,
+                "--id",
+                "observation:plain",
+                "--statement",
+                "Plain observation.",
+                "--source",
+                SOURCE_ID,
+                "--at",
+                "2026-05-23T11:00:00Z",
+            ]
+        )
+        assert exit_code == 0
+        capsys.readouterr()
+
+        exit_code = main(
+            [
+                "list",
+                "--space",
+                SPACE,
+                "--type",
+                "GeneralObservation",
+            ]
+        )
+
+        assert exit_code == 0
+        output = json.loads(capsys.readouterr().out)
+        assert [r["id"] for r in output["records"]] == ["observation:typed"]
+        assert output["records"][0]["record_type"] == "GeneralObservation"

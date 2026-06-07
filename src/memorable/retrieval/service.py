@@ -7,10 +7,16 @@ and provenance-aware explanation into ranked retrieval results.
 from __future__ import annotations
 
 import hashlib
+from collections.abc import Mapping
 from datetime import datetime
 from typing import TYPE_CHECKING, Literal
 
 from memorable.core.application import InspectTaskService, PointInTimeTruthService
+from memorable.core.attributes import (
+    AttributeValidationError,
+    copy_attribute_values,
+    validate_attribute_filter_values,
+)
 from memorable.core.models import Decision, Entity, Observation, Relation, Task
 from memorable.core.ports import (
     AboutRepository,
@@ -40,6 +46,7 @@ from memorable.retrieval.models import (
 
 if TYPE_CHECKING:
     from memorable.core.context import ApplicationContext
+    from memorable.core.profile import MemoryProfile
 
 
 SOURCE_KINDS = ("Entity", "Decision", "Task", "Observation", "Relation")
@@ -71,6 +78,7 @@ class HybridRetrievalService:
         relation_repo: RelationRepository | None = None,
         about_repo: AboutRepository | None = None,
         retrieval_index: RetrievalIndex | None = None,
+        profile: MemoryProfile | None = None,
     ) -> None:
         self._entity_repo = entity_repo
         self._decision_repo = decision_repo
@@ -83,6 +91,7 @@ class HybridRetrievalService:
         self._index = (
             retrieval_index if retrieval_index is not None else InMemoryEmbeddingIndex()
         )
+        self._profile = profile
         self._point_in_time_service = (
             point_in_time_service
             if point_in_time_service is not None
@@ -276,6 +285,8 @@ class HybridRetrievalService:
         mode: Literal["current", "as-of"] = "current",
         as_of: datetime | None = None,
         top_k: int = 10,
+        record_type: str | None = None,
+        attribute_filter: Mapping[str, object] | None = None,
     ) -> list[RetrievalResult]:
         """Perform hybrid GraphRAG retrieval.
 
@@ -283,8 +294,9 @@ class HybridRetrievalService:
         1. Embed query and find semantic candidates in the persistent index
         2. Graph expansion: find related records for each candidate
         3. Temporal filtering based on mode
-        4. Rank by cosine similarity
-        5. Build provenance-aware explanations
+        4. Record Subtype filtering when requested
+        5. Rank by cosine similarity
+        6. Build provenance-aware explanations
 
         Args:
             space: MemorySpace to search
@@ -293,7 +305,10 @@ class HybridRetrievalService:
                   "as-of" for Point-In-Time Truth
             as_of: Required when mode is "as-of"
             top_k: Maximum number of results to return
+            record_type: Optional Record Subtype filter
         """
+        validated_attribute_filter = self._validated_attribute_filter(attribute_filter)
+
         # Step 1: Semantic candidates from the persistent index.
         try:
             query_vector = self._embedding_provider.embed(query)
@@ -359,7 +374,7 @@ class HybridRetrievalService:
                     )
                     graph_expanded_ids.add(related_id)
 
-        # Step 4: Temporal filtering and result building
+        # Step 4: Temporal filtering, result building, and subtype filtering
         results: list[RetrievalResult] = []
         seen_ids: set[str] = set()
 
@@ -380,12 +395,36 @@ class HybridRetrievalService:
                 is_semantic=source_id in semantic_ids,
                 is_graph_expanded=source_id in graph_expanded_ids,
             )
-            if result is not None:
-                results.append(result)
+            if result is None:
+                continue
+            if record_type is not None and result.record_type != record_type:
+                continue
+            if validated_attribute_filter is not None and not _matches_attribute_filter(
+                result,
+                validated_attribute_filter,
+            ):
+                continue
+            results.append(result)
 
         # Step 5: Final ranking by score
         results.sort(key=lambda r: r.score, reverse=True)
         return results[:top_k]
+
+    def _validated_attribute_filter(
+        self,
+        attribute_filter: Mapping[str, object] | None,
+    ) -> dict[str, object] | None:
+        if not attribute_filter:
+            return None
+        if self._profile is None:
+            raise AttributeValidationError(
+                "Attribute filters require a MemoryProfile with Entity "
+                "Attribute declarations."
+            )
+        return validate_attribute_filter_values(
+            [entity.attributes for entity in self._profile.entities],
+            attribute_filter,
+        )
 
     def _graph_expand(
         self, space: str, source_id: str, source_kind: str
@@ -580,6 +619,7 @@ class HybridRetrievalService:
             score=score,
             explanation=explanation,
             provenance_summary=prov_summary,
+            attributes=copy_attribute_values(entity.attributes),
         )
 
     def _build_decision_result(
@@ -672,6 +712,7 @@ class HybridRetrievalService:
             score=score,
             explanation=explanation,
             provenance_summary=prov_summary,
+            record_type=decision.record_type,
         )
 
     def _build_task_result(
@@ -734,6 +775,7 @@ class HybridRetrievalService:
             score=score,
             explanation=explanation,
             provenance_summary=prov_summary,
+            record_type=task.record_type,
         )
 
     def _build_observation_result(
@@ -826,6 +868,7 @@ class HybridRetrievalService:
             score=score,
             explanation=explanation,
             provenance_summary=prov_summary,
+            record_type=observation.record_type,
         )
 
     def _build_relation_result(
@@ -923,11 +966,23 @@ class HybridRetrievalService:
         )
 
 
+def _matches_attribute_filter(
+    result: RetrievalResult,
+    attribute_filter: Mapping[str, object],
+) -> bool:
+    if result.source_kind != "Entity":
+        return False
+    return all(
+        result.attributes.get(name) == value for name, value in attribute_filter.items()
+    )
+
+
 def build_retrieval_service(
     context: ApplicationContext,
     embedding_provider: EmbeddingProvider,
     *,
     dimensions: int = 32,
+    profile: MemoryProfile | None = None,
 ) -> HybridRetrievalService:
     """Build a HybridRetrievalService wired to the given context's repos.
 
@@ -944,4 +999,5 @@ def build_retrieval_service(
         relation_repo=context.relation_repo,
         about_repo=context.about_repo,
         retrieval_index=context.retrieval_index,
+        profile=profile,
     )
