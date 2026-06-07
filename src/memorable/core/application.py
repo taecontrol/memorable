@@ -1,10 +1,12 @@
 from __future__ import annotations
 
+from collections.abc import Mapping
 from dataclasses import asdict, dataclass
 from datetime import datetime
 from heapq import heappop, heappush
 from typing import Protocol
 
+from memorable.core.attributes import validate_attribute_values
 from memorable.core.errors import (
     CannotForgetRecordInSupersessionChainError,
     NothingToForgetError,
@@ -151,12 +153,14 @@ class RememberEntityService:
         at: datetime,
         writer: str = "agent:memorable",
         reason: str = "",
+        attributes: Mapping[str, object] | None = None,
     ) -> RememberEntityResult:
         """Validate entity type against MemoryProfile, create provenance, persist.
 
         Raises ValueError if the entity type is not declared in the profile.
         """
-        declared_names = {e.name for e in self._profile.entities}
+        declared_entities = {e.name: e for e in self._profile.entities}
+        declared_names = set(declared_entities)
         if entity_type not in declared_names:
             raise UndeclaredTypeError(
                 f"Entity type '{entity_type}' is not declared in the "
@@ -165,11 +169,25 @@ class RememberEntityService:
                 "Evolve the MemoryProfile before remembering this Entity type."
             )
 
+        declared_attributes = declared_entities[entity_type].attributes
+        if attributes is None:
+            existing = self._repository.get(space, entity_id)
+            validated_attributes = validate_attribute_values(
+                declared_attributes,
+                existing.attributes if existing else None,
+            )
+        else:
+            validated_attributes = validate_attribute_values(
+                declared_attributes,
+                attributes,
+            )
+
         entity = Entity(
             id=entity_id,
             entity_type=entity_type,
             name=name,
             space=space,
+            attributes=validated_attributes,
         )
 
         episode_id = make_episode_id(source_id, at)

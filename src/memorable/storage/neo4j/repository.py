@@ -7,11 +7,12 @@ only domain language from Memorable Core.
 
 from __future__ import annotations
 
-from datetime import UTC, datetime
+from datetime import UTC, date, datetime
 from typing import Any, Protocol, runtime_checkable
 
 from neo4j.exceptions import ConstraintError
 
+from memorable.core.attributes import AttributeValue
 from memorable.core.errors import DuplicateRecordError
 from memorable.core.models import (
     Decision,
@@ -221,6 +222,42 @@ class Neo4jMemorySpaceRepository:
 
 # --- Entity adapter ---
 
+_ENTITY_ATTRIBUTE_STORAGE_PREFIX = "attr__"
+
+
+def _entity_attribute_properties(attributes: Any) -> dict[str, AttributeValue]:
+    return {
+        f"{_ENTITY_ATTRIBUTE_STORAGE_PREFIX}{name}": value
+        for name, value in dict(attributes).items()
+    }
+
+
+def _entity_attributes_from_properties(
+    properties: dict[str, Any] | None,
+) -> dict[str, AttributeValue]:
+    if not properties:
+        return {}
+    return {
+        key.removeprefix(_ENTITY_ATTRIBUTE_STORAGE_PREFIX): (
+            _entity_attribute_from_storage(value)
+        )
+        for key, value in properties.items()
+        if key.startswith(_ENTITY_ATTRIBUTE_STORAGE_PREFIX)
+    }
+
+
+def _entity_attribute_from_storage(value: Any) -> AttributeValue:
+    to_native = getattr(value, "to_native", None)
+    if callable(to_native):
+        native_value = to_native()
+    else:
+        native_value = value
+    if isinstance(native_value, list):
+        return list(native_value)
+    if isinstance(native_value, date | float | int | str):
+        return native_value
+    return native_value
+
 
 class Neo4jEntityRepository:
     """Storage adapter that persists Entities in Neo4j.
@@ -243,6 +280,11 @@ class Neo4jEntityRepository:
                 "MERGE (e:Entity {space: $space, id: $id}) "
                 "SET e.entity_type = $entity_type, e.name = $name "
                 "WITH e "
+                "FOREACH (attribute_key IN "
+                "[key IN keys(e) WHERE key STARTS WITH $attribute_prefix] | "
+                "SET e[attribute_key] = NULL) "
+                "SET e += $attribute_properties "
+                "WITH e "
                 "MERGE (e)<-[:PROVENANCE_OF]-(p:Provenance "
                 "{record_kind: $record_kind}) "
                 "SET p.record_id = $record_id, "
@@ -256,6 +298,8 @@ class Neo4jEntityRepository:
                 id=entity.id,
                 entity_type=entity.entity_type,
                 name=entity.name,
+                attribute_prefix=_ENTITY_ATTRIBUTE_STORAGE_PREFIX,
+                attribute_properties=_entity_attribute_properties(entity.attributes),
                 record_id=provenance.record_id,
                 record_kind=provenance.record_kind,
                 source_id=provenance.source_id,
@@ -272,7 +316,8 @@ class Neo4jEntityRepository:
             result = session.run(
                 "MATCH (e:Entity {space: $space, id: $id}) "
                 "RETURN e.id AS id, e.entity_type AS entity_type, "
-                "       e.name AS name, e.space AS space",
+                "       e.name AS name, e.space AS space, "
+                "       properties(e) AS entity_properties",
                 space=space,
                 id=entity_id,
             )
@@ -284,6 +329,9 @@ class Neo4jEntityRepository:
                 entity_type=record["entity_type"],
                 name=record["name"],
                 space=record["space"],
+                attributes=_entity_attributes_from_properties(
+                    record.get("entity_properties")
+                ),
             )
 
     def get_provenance(self, space: str, entity_id: str) -> Provenance | None:
@@ -320,7 +368,8 @@ class Neo4jEntityRepository:
             result = session.run(
                 "MATCH (e:Entity {space: $space}) "
                 "RETURN e.id AS id, e.entity_type AS entity_type, "
-                "       e.name AS name, e.space AS space",
+                "       e.name AS name, e.space AS space, "
+                "       properties(e) AS entity_properties",
                 space=space,
             )
             return [
@@ -329,6 +378,9 @@ class Neo4jEntityRepository:
                     entity_type=record["entity_type"],
                     name=record["name"],
                     space=record["space"],
+                    attributes=_entity_attributes_from_properties(
+                        record.get("entity_properties")
+                    ),
                 )
                 for record in result
             ]

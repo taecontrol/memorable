@@ -215,7 +215,11 @@ def test_profile_summary_includes_type_descriptions() -> None:
         "record_count": 1,
         "relation_count": 1,
         "entities": [
-            {"name": "Project", "description": "A remembered project"},
+            {
+                "name": "Project",
+                "description": "A remembered project",
+                "attributes": [],
+            },
         ],
         "relations": [
             {"name": "depends_on", "description": "Dependency between entities"},
@@ -252,7 +256,7 @@ def test_profile_summary_defaults_missing_type_descriptions_to_empty_string() ->
     summary = profile_summary(profile)
 
     assert summary["entities"] == [
-        {"name": "Project", "description": ""},
+        {"name": "Project", "description": "", "attributes": []},
     ]
     assert summary["relations"] == [
         {"name": "depends_on", "description": ""},
@@ -665,8 +669,8 @@ class TestMCPInit:
         assert result["entity_count"] == 2
         assert result["record_count"] == 2
         assert result["entities"] == [
-            {"name": "Project", "description": ""},
-            {"name": "Component", "description": ""},
+            {"name": "Project", "description": "", "attributes": []},
+            {"name": "Component", "description": "", "attributes": []},
         ]
         assert result["records"] == [
             {"name": "ArchitectureDecision", "extends": "Decision", "description": ""},

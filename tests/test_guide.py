@@ -78,6 +78,38 @@ def test_writing_guide_documents_decision_and_task_record_types() -> None:
     assert "memorable_remember_task" in rendered
 
 
+def test_guide_documents_attribute_workflow() -> None:
+    profiles = render("profiles")
+    writing = render("writing")
+    retrieval = render("retrieval")
+    reference = render("reference")
+
+    assert "attributes:" in profiles
+    assert "name" in profiles and "type" in profiles
+    for attribute_type in ("string", "number", "date", "list[string]"):
+        assert attribute_type in profiles
+    assert "All Attributes are optional" in profiles
+
+    assert "memorable remember entity" in writing
+    assert "--attr" in writing
+    assert "memorable_remember_entity" in writing
+    assert "attributes" in writing
+
+    assert "memorable search --attr" in retrieval
+    assert "memorable_search_memory" in retrieval
+    assert "Attributes appear in search results" in retrieval
+
+    durable_boundary_text = f"{profiles}\n{writing}"
+    assert "Attributes are stable facts" in durable_boundary_text
+    assert "Lifecycle State" in durable_boundary_text
+    assert "Validity Time" in durable_boundary_text
+    assert "Record Subtype" in durable_boundary_text
+    assert "Relation" in durable_boundary_text
+
+    assert "attributes" in reference
+    assert "Attribute" in reference
+
+
 def test_retrieval_guide_documents_memory_review_record_type_filter() -> None:
     rendered = render("retrieval")
 

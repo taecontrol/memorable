@@ -29,6 +29,10 @@ from memorable.core.application import (
     UndeclaredTypeError,
     build_status_payload,
 )
+from memorable.core.attributes import (
+    AttributeValidationError,
+    serialize_attribute_values,
+)
 from memorable.core.context import ApplicationContext, default_context
 from memorable.core.models import ProvenanceIntegrityError
 from memorable.core.ports import TemporalRecordRepository
@@ -294,6 +298,7 @@ def remember_entity_tool(
     at: str,
     writer: str = "agent:memorable",
     reason: str = "",
+    attributes: dict[str, object] | None = None,
 ) -> dict[str, object]:
     """Remember an Entity with provenance in a MemorySpace.
 
@@ -319,9 +324,10 @@ def remember_entity_tool(
             at=timestamp,
             writer=writer,
             reason=reason,
+            attributes=attributes,
         )
     except ValueError as e:
-        if isinstance(e, UndeclaredTypeError):
+        if isinstance(e, UndeclaredTypeError | AttributeValidationError):
             return _profile_type_error(e)
         return {"error": str(e)}
 
@@ -339,6 +345,7 @@ def remember_entity_tool(
         "entity_type": result.entity.entity_type,
         "name": result.entity.name,
         "space": result.entity.space,
+        "attributes": serialize_attribute_values(result.entity.attributes),
         "record_id": result.provenance.record_id,
         "record_kind": result.provenance.record_kind,
         "source": result.provenance.source_id,
@@ -1027,7 +1034,8 @@ def reindex_space_tool(space: str) -> dict[str, object]:
         "Combines semantic similarity, graph expansion, "
         "temporal filtering, and Provenance-aware explanation. "
         "Supports Current Truth and Point-In-Time Truth modes. "
-        "Pass record_type to filter by Record Subtype."
+        "Pass record_type to filter by Record Subtype and attributes "
+        "to filter Entities by declared Attribute equality."
     ),
 )
 def search_memory_tool(
@@ -1036,6 +1044,7 @@ def search_memory_tool(
     mode: Literal["current", "as-of"] = "current",
     as_of: str | None = None,
     record_type: str | None = None,
+    attributes: dict[str, object] | None = None,
 ) -> dict[str, object]:
     """Search memory using hybrid GraphRAG retrieval.
 
@@ -1048,6 +1057,7 @@ def search_memory_tool(
         mode: "current" for Current Truth, "as-of" for Point-In-Time Truth
         as_of: ISO timestamp, required when mode is "as-of"
         record_type: Optional Record Subtype filter
+        attributes: Optional Attribute equality filter for Entities
     """
     from memorable.retrieval.embeddings import build_embedding_provider
     from memorable.retrieval.service import (
@@ -1062,10 +1072,17 @@ def search_memory_tool(
         )
     except (RuntimeError, ValueError) as e:
         return {"error": str(e)}
+
+    try:
+        profile = _context.load_profile()
+    except ProfileValidationError as e:
+        return {"error": str(e)}
+
     service = build_retrieval_service(
         _context,
         provider,
         dimensions=config.embeddings.dimensions,
+        profile=profile,
     )
 
     as_of_dt = None
@@ -1079,7 +1096,10 @@ def search_memory_tool(
             mode=mode,
             as_of=as_of_dt,
             record_type=record_type,
+            attribute_filter=attributes,
         )
+    except AttributeValidationError as e:
+        return {"error": str(e)}
     except EmbeddingIndexCompatibilityError as e:
         return {
             "error": str(e),
@@ -1099,6 +1119,7 @@ def search_memory_tool(
                 "explanation": r.explanation,
                 "provenance_summary": r.provenance_summary,
                 "record_type": r.record_type,
+                "attributes": serialize_attribute_values(r.attributes),
             }
             for r in results
         ],
