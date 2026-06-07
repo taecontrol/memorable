@@ -32,6 +32,7 @@ from memorable.core.attributes import (
     AttributeValidationError,
     serialize_attribute_values,
 )
+from memorable.core.clock import SystemClock
 from memorable.core.context import ApplicationContext, default_context
 from memorable.core.models import ProvenanceIntegrityError
 from memorable.core.profile import (
@@ -427,7 +428,11 @@ def _cmd_remember_entity(
         print(f"Error: {e}", file=sys.stderr)
         return 1
 
-    service = RememberEntityService(repository=ctx.entity_repo, profile=profile)
+    service = RememberEntityService(
+        repository=ctx.entity_repo,
+        profile=profile,
+        clock=SystemClock(),
+    )
 
     at = parse_iso_timestamp(args.at)
 
@@ -534,6 +539,7 @@ def _cmd_remember_decision(
         repository=ctx.decision_repo,
         profile=profile,
         about_linker=ctx.about_linker(),
+        clock=SystemClock(),
     )
 
     at = parse_iso_timestamp(args.at)
@@ -612,6 +618,7 @@ def _cmd_remember_observation(
         repository=ctx.observation_repo,
         profile=profile,
         about_linker=ctx.about_linker(),
+        clock=SystemClock(),
     )
 
     at = parse_iso_timestamp(args.at)
@@ -690,6 +697,7 @@ def _cmd_remember_relation(
         relation_repo=ctx.relation_repo,
         entity_repo=ctx.entity_repo,
         profile=profile,
+        clock=SystemClock(),
     )
 
     at = parse_iso_timestamp(args.at)
@@ -899,6 +907,7 @@ def _cmd_remember_task(
         repository=ctx.task_repo,
         profile=profile,
         about_linker=ctx.about_linker(),
+        clock=SystemClock(),
     )
 
     at = parse_iso_timestamp(args.at)
@@ -1337,7 +1346,11 @@ def _cmd_correct(
         return 1
 
     about_targets = getattr(args, "about", None)
-    service = CorrectService(repository=repository, about_linker=ctx.about_linker())
+    service = CorrectService(
+        repository=repository,
+        about_linker=ctx.about_linker(),
+        clock=SystemClock(),
+    )
     at = parse_iso_timestamp(args.at)
 
     try:

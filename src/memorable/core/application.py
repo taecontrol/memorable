@@ -7,6 +7,7 @@ from heapq import heappop, heappush
 from typing import Protocol
 
 from memorable.core.attributes import validate_attribute_values
+from memorable.core.clock import Clock, SystemClock
 from memorable.core.errors import (
     CannotForgetRecordInSupersessionChainError,
     NothingToForgetError,
@@ -138,9 +139,15 @@ class RememberEntityService:
     persistence logic.
     """
 
-    def __init__(self, repository: EntityRepository, profile: MemoryProfile) -> None:
+    def __init__(
+        self,
+        repository: EntityRepository,
+        profile: MemoryProfile,
+        clock: Clock | None = None,
+    ) -> None:
         self._repository = repository
         self._profile = profile
+        self._clock = clock or SystemClock()
 
     def remember(
         self,
@@ -199,7 +206,7 @@ class RememberEntityService:
             episode_id=episode_id,
             writer=writer,
             reason=reason,
-            creation_time=at,
+            creation_time=self._clock.now(),
             validity_time=at,
         )
 
@@ -330,10 +337,12 @@ class RememberDecisionService:
         repository: DecisionRepository,
         profile: MemoryProfile,
         about_linker: AboutLinker | None = None,
+        clock: Clock | None = None,
     ) -> None:
         self._repository = repository
         self._profile = profile
         self._about_linker = about_linker
+        self._clock = clock or SystemClock()
 
     def remember(
         self,
@@ -384,7 +393,7 @@ class RememberDecisionService:
             episode_id=episode_id,
             writer=writer,
             reason=reason,
-            creation_time=at,
+            creation_time=self._clock.now(),
             validity_time=at,
         )
 
@@ -435,10 +444,12 @@ class RememberObservationService:
         repository: ObservationRepository,
         profile: MemoryProfile,
         about_linker: AboutLinker | None = None,
+        clock: Clock | None = None,
     ) -> None:
         self._repository = repository
         self._profile = profile
         self._about_linker = about_linker
+        self._clock = clock or SystemClock()
 
     def remember(
         self,
@@ -489,7 +500,7 @@ class RememberObservationService:
             episode_id=episode_id,
             writer=writer,
             reason=reason,
-            creation_time=at,
+            creation_time=self._clock.now(),
             validity_time=at,
         )
 
@@ -535,10 +546,12 @@ class RememberRelationService:
         relation_repo: RelationRepository,
         entity_repo: EntityRepository,
         profile: MemoryProfile,
+        clock: Clock | None = None,
     ) -> None:
         self._relation_repo = relation_repo
         self._entity_repo = entity_repo
         self._profile = profile
+        self._clock = clock or SystemClock()
 
     def remember(
         self,
@@ -618,7 +631,7 @@ class RememberRelationService:
             episode_id=episode_id,
             writer=writer,
             reason=reason,
-            creation_time=at,
+            creation_time=self._clock.now(),
             validity_time=at,
         )
 
@@ -829,9 +842,11 @@ class CorrectService:
         self,
         repository: TemporalRecordRepository,
         about_linker: AboutLinker | None = None,
+        clock: Clock | None = None,
     ) -> None:
         self._repository = repository
         self._about_linker = about_linker
+        self._clock = clock or SystemClock()
 
     def correct(
         self,
@@ -892,7 +907,7 @@ class CorrectService:
             episode_id=episode_id,
             writer=writer,
             reason=provenance_reason,
-            creation_time=at,
+            creation_time=self._clock.now(),
             validity_time=at,
         )
         self._repository.save_provenance(
@@ -917,9 +932,11 @@ class CorrectTaskService:
         *,
         repository: TaskRepository,
         about_linker: AboutLinker,
+        clock: Clock | None = None,
     ) -> None:
         self._repository = repository
         self._about_linker = about_linker
+        self._clock = clock or SystemClock()
 
     def correct(
         self,
@@ -964,7 +981,7 @@ class CorrectTaskService:
                 episode_id=episode_id,
                 writer=writer,
                 reason=provenance_reason,
-                creation_time=at,
+                creation_time=self._clock.now(),
                 validity_time=at,
             ),
         )
@@ -1090,10 +1107,12 @@ class RememberTaskService:
         repository: TaskRepository,
         profile: MemoryProfile,
         about_linker: AboutLinker | None = None,
+        clock: Clock | None = None,
     ) -> None:
         self._repository = repository
         self._profile = profile
         self._about_linker = about_linker
+        self._clock = clock or SystemClock()
 
     def remember(
         self,
@@ -1139,7 +1158,7 @@ class RememberTaskService:
             episode_id=episode_id,
             writer=writer,
             reason=reason,
-            creation_time=at,
+            creation_time=self._clock.now(),
             validity_time=at,
         )
 

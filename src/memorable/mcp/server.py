@@ -32,6 +32,7 @@ from memorable.core.attributes import (
     AttributeValidationError,
     serialize_attribute_values,
 )
+from memorable.core.clock import SystemClock
 from memorable.core.context import ApplicationContext, default_context
 from memorable.core.models import ProvenanceIntegrityError
 from memorable.core.ports import TemporalRecordRepository
@@ -309,7 +310,11 @@ def remember_entity_tool(
     except ProfileValidationError as e:
         return _profile_type_error(e)
 
-    service = RememberEntityService(repository=_context.entity_repo, profile=profile)
+    service = RememberEntityService(
+        repository=_context.entity_repo,
+        profile=profile,
+        clock=SystemClock(),
+    )
 
     timestamp = parse_iso_timestamp(at)
 
@@ -391,6 +396,7 @@ def remember_decision_tool(
         repository=_context.decision_repo,
         profile=profile,
         about_linker=_context.about_linker(),
+        clock=SystemClock(),
     )
 
     timestamp = parse_iso_timestamp(at)
@@ -481,6 +487,7 @@ def remember_observation_tool(
         repository=_context.observation_repo,
         profile=profile,
         about_linker=_context.about_linker(),
+        clock=SystemClock(),
     )
 
     timestamp = parse_iso_timestamp(at)
@@ -569,6 +576,7 @@ def remember_relation_tool(
         relation_repo=_context.relation_repo,
         entity_repo=_context.entity_repo,
         profile=profile,
+        clock=SystemClock(),
     )
 
     timestamp = parse_iso_timestamp(at)
@@ -873,6 +881,7 @@ def remember_task_tool(
         repository=_context.task_repo,
         profile=profile,
         about_linker=_context.about_linker(),
+        clock=SystemClock(),
     )
 
     timestamp = parse_iso_timestamp(at)
@@ -1406,6 +1415,7 @@ def correct_tool(
         task_service = CorrectTaskService(
             repository=_context.task_repo,
             about_linker=about_linker,
+            clock=SystemClock(),
         )
         try:
             result = task_service.correct(
@@ -1431,7 +1441,11 @@ def correct_tool(
     if isinstance(resolved, dict):
         return resolved
 
-    service = CorrectService(repository=resolved, about_linker=about_linker)
+    service = CorrectService(
+        repository=resolved,
+        about_linker=about_linker,
+        clock=SystemClock(),
+    )
 
     corrected_statement = new_statement
     if corrected_statement is None:

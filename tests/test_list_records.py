@@ -13,6 +13,7 @@ returned projections — never on storage internals.
 from __future__ import annotations
 
 from datetime import UTC, datetime
+from unittest.mock import patch
 
 SPACE = "memorable"
 SOURCE_ID = "source:tracer-fixture"
@@ -21,6 +22,19 @@ T1 = datetime(2026, 5, 23, 10, 0, 0, tzinfo=UTC)
 T2 = datetime(2026, 5, 23, 11, 0, 0, tzinfo=UTC)
 T3 = datetime(2026, 5, 23, 12, 0, 0, tzinfo=UTC)
 T4 = datetime(2026, 5, 23, 13, 0, 0, tzinfo=UTC)
+
+
+class _ValidityEchoClock:
+    """Test clock that preserves legacy fixture Creation Times from service at."""
+
+    def now(self) -> datetime:
+        import inspect
+
+        for frame_info in inspect.stack():
+            value = frame_info.frame.f_locals.get("at")
+            if isinstance(value, datetime):
+                return value
+        raise AssertionError("No Validity Time found for test clock.")
 
 
 def _make_context():
@@ -44,12 +58,14 @@ def _remember_decision(
     about: list[str] | None = None,
 ):
     from memorable.core.application import RememberDecisionService
+    from memorable.core.clock import FixedClock
 
     profile = ctx.load_profile()
     service = RememberDecisionService(
         repository=ctx.decision_repo,
         profile=profile,
         about_linker=_about_linker(ctx) if about is not None else None,
+        clock=FixedClock(at),
     )
     service.remember(
         space=SPACE,
@@ -71,12 +87,14 @@ def _remember_observation(
     record_type: str | None = None,
 ):
     from memorable.core.application import RememberObservationService
+    from memorable.core.clock import FixedClock
 
     profile = ctx.load_profile()
     service = RememberObservationService(
         repository=ctx.observation_repo,
         profile=profile,
         about_linker=_about_linker(ctx) if about is not None else None,
+        clock=FixedClock(at),
     )
     service.remember(
         space=SPACE,
@@ -91,9 +109,14 @@ def _remember_observation(
 
 def _remember_entities(ctx, *entity_ids: str, at: datetime):
     from memorable.core.application import RememberEntityService
+    from memorable.core.clock import FixedClock
 
     profile = ctx.load_profile()
-    service = RememberEntityService(repository=ctx.entity_repo, profile=profile)
+    service = RememberEntityService(
+        repository=ctx.entity_repo,
+        profile=profile,
+        clock=FixedClock(at),
+    )
     for entity_id in entity_ids:
         service.remember(
             space=SPACE,
@@ -115,12 +138,14 @@ def _remember_relation(
     at: datetime,
 ):
     from memorable.core.application import RememberRelationService
+    from memorable.core.clock import FixedClock
 
     profile = ctx.load_profile()
     service = RememberRelationService(
         relation_repo=ctx.relation_repo,
         entity_repo=ctx.entity_repo,
         profile=profile,
+        clock=FixedClock(at),
     )
     service.remember(
         space=SPACE,
@@ -144,12 +169,14 @@ def _remember_task(
     record_type: str | None = None,
 ):
     from memorable.core.application import RememberTaskService
+    from memorable.core.clock import FixedClock
 
     profile = ctx.load_profile()
     service = RememberTaskService(
         repository=ctx.task_repo,
         profile=profile,
         about_linker=_about_linker(ctx) if about is not None else None,
+        clock=FixedClock(at),
     )
     service.remember(
         space=SPACE,
@@ -1110,6 +1137,14 @@ class TestMCPListRecords:
         from memorable.core.context import default_context
 
         default_context.reset()
+        self._clock_patcher = patch(
+            "memorable.mcp.server.SystemClock",
+            _ValidityEchoClock,
+        )
+        self._clock_patcher.start()
+
+    def teardown_method(self) -> None:
+        self._clock_patcher.stop()
 
     def test_list_records_tool_contract_shape_and_order_are_stable(self) -> None:
         import asyncio

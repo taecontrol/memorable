@@ -350,13 +350,18 @@ class TestRememberObservationService:
 
     def _make_service(self):
         from memorable.core.application import RememberObservationService
+        from memorable.core.clock import FixedClock
         from memorable.core.profile import load_profile_from_yaml
         from memorable.core.repositories import InMemoryObservationRepository
 
         repo = InMemoryObservationRepository()
         profile = load_profile_from_yaml(VALID_PROFILE_YAML)
         return (
-            RememberObservationService(repository=repo, profile=profile),
+            RememberObservationService(
+                repository=repo,
+                profile=profile,
+                clock=FixedClock(FIXTURE_TIMESTAMP_V1),
+            ),
             repo,
         )
 

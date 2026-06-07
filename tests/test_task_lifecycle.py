@@ -265,13 +265,18 @@ class TestRememberTaskService:
 
     def _make_service(self):
         from memorable.core.application import RememberTaskService
+        from memorable.core.clock import FixedClock
         from memorable.core.profile import load_profile_from_yaml
         from memorable.core.repositories import InMemoryTaskRepository
 
         repo = InMemoryTaskRepository()
         profile = load_profile_from_yaml(VALID_PROFILE_YAML)
         return (
-            RememberTaskService(repository=repo, profile=profile),
+            RememberTaskService(
+                repository=repo,
+                profile=profile,
+                clock=FixedClock(FIXTURE_TIMESTAMP_REMEMBER),
+            ),
             repo,
         )
 
