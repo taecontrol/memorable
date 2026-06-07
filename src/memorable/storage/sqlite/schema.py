@@ -88,6 +88,17 @@ def initialize_schema(connection: sqlite3.Connection) -> None:
                 REFERENCES entities (space, id)
         );
 
+        CREATE TABLE IF NOT EXISTS about_links (
+            space TEXT NOT NULL,
+            record_id TEXT NOT NULL,
+            entity_id TEXT NOT NULL,
+            PRIMARY KEY (space, record_id, entity_id),
+            FOREIGN KEY (space, record_id)
+                REFERENCES memory_records (space, id),
+            FOREIGN KEY (space, entity_id)
+                REFERENCES entities (space, id)
+        );
+
         CREATE TABLE IF NOT EXISTS provenance (
             space TEXT NOT NULL,
             record_id TEXT NOT NULL,

@@ -151,6 +151,72 @@ def test_cli_sqlite_observation_list_and_task_completion(
     assert task["completion_event_id"] == "event:complete-task:sqlite"
 
 
+def test_cli_sqlite_remember_decision_about_and_list_review_filter(
+    tmp_path: Path,
+    monkeypatch,
+    capsys,
+) -> None:
+    _write_sqlite_workspace(tmp_path)
+    monkeypatch.chdir(tmp_path)
+
+    for entity_id, name in [
+        ("entity:frontend", "Frontend"),
+        ("entity:backend", "Backend"),
+    ]:
+        assert (
+            _run_without_neo4j(
+                [
+                    "remember",
+                    "entity",
+                    "--id",
+                    entity_id,
+                    "--type",
+                    "Component",
+                    "--name",
+                    name,
+                    "--source",
+                    "source:test",
+                    "--at",
+                    "2026-06-07T09:00:00Z",
+                ]
+            )
+            == 0
+        )
+        capsys.readouterr()
+
+    assert (
+        _run_without_neo4j(
+            [
+                "remember",
+                "decision",
+                "--id",
+                "decision:about-sqlite",
+                "--statement",
+                "SQLite About links work.",
+                "--source",
+                "source:test",
+                "--at",
+                "2026-06-07T10:00:00Z",
+                "--about",
+                "entity:frontend",
+            ]
+        )
+        == 0
+    )
+    remembered = json.loads(capsys.readouterr().out)
+    assert remembered["decision_id"] == "decision:about-sqlite"
+
+    assert _run_without_neo4j(["list", "--about", "entity:frontend"]) == 0
+    frontend_records = json.loads(capsys.readouterr().out)
+    assert [record["id"] for record in frontend_records["records"]] == [
+        "decision:about-sqlite"
+    ]
+
+    assert _run_without_neo4j(["list", "--about", "entity:backend"]) == 0
+    backend_records = json.loads(capsys.readouterr().out)
+    assert backend_records["records"] == []
+
+
 def test_cli_sqlite_remember_relation_and_list_review(
     tmp_path: Path,
     monkeypatch,

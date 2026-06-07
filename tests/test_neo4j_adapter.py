@@ -71,6 +71,56 @@ class FakeSession:
         if "CREATE CONSTRAINT" in query:
             return FakeResult()
 
+        # --- About link queries ---
+        if "ABOUT" in query:
+            space = str(params.get("space", ""))
+            links = self._store.setdefault("About", set())
+            if "MERGE" in query:
+                record_id = str(params.get("record_id", ""))
+                entities = self._store.get("Entity", {})
+                for entity_id in params.get("entity_ids", []):
+                    entity_id = str(entity_id)
+                    if (
+                        _fake_record_exists(self._store, space, record_id)
+                        and (
+                            space,
+                            entity_id,
+                        )
+                        in entities
+                    ):
+                        links.add((space, record_id, entity_id))
+                return FakeResult()
+            if "DELETE about" in query:
+                record_id = str(params.get("record_id", ""))
+                self._store["About"] = {
+                    link
+                    for link in links
+                    if not (link[0] == space and link[1] == record_id)
+                }
+                return FakeResult()
+            if "RETURN entity.id AS entity_id" in query:
+                record_id = str(params.get("record_id", ""))
+                return FakeResult(
+                    [
+                        {"entity_id": linked_entity_id}
+                        for link_space, linked_record_id, linked_entity_id in sorted(
+                            links
+                        )
+                        if link_space == space and linked_record_id == record_id
+                    ]
+                )
+            if "RETURN record.id AS record_id" in query:
+                entity_id = str(params.get("entity_id", ""))
+                return FakeResult(
+                    [
+                        {"record_id": linked_record_id}
+                        for link_space, linked_record_id, linked_entity_id in sorted(
+                            links
+                        )
+                        if link_space == space and linked_entity_id == entity_id
+                    ]
+                )
+
         # --- Provenance retrieval (must be checked BEFORE record MATCH) ---
         # Exclude SET queries (save_provenance writes) and CREATE queries
         # (record save with embedded provenance creation).
@@ -494,6 +544,13 @@ class FakeSession:
             return FakeResult()
 
         return FakeResult()
+
+
+def _fake_record_exists(store: dict, space: str, record_id: str) -> bool:
+    return any(
+        (space, record_id) in store.get(record_kind, {})
+        for record_kind in ["Decision", "Observation", "Relation", "Task"]
+    )
 
 
 def _fake_storage_attribute_value(value: object) -> object:

@@ -93,6 +93,64 @@ class SQLiteRepositoryPlaceholder:
         return _raise_not_implemented
 
 
+class SQLiteAboutRepository:
+    """Storage adapter that persists About links in SQLite."""
+
+    def __init__(self, handle: SQLiteHandle) -> None:
+        self._connection = handle.connection
+
+    def link(self, space: str, record_id: str, entity_ids: list[str]) -> None:
+        try:
+            with self._connection:
+                self._connection.executemany(
+                    """
+                    INSERT INTO about_links (space, record_id, entity_id)
+                    VALUES (?, ?, ?)
+                    ON CONFLICT (space, record_id, entity_id) DO NOTHING
+                    """,
+                    [(space, record_id, entity_id) for entity_id in entity_ids],
+                )
+        except sqlite3.IntegrityError as exc:
+            raise ValueError(
+                f"About link from MemoryRecord '{record_id}' in MemorySpace "
+                f"'{space}' must reference an existing MemoryRecord and Entity."
+            ) from exc
+
+    def unlink(self, space: str, record_id: str) -> None:
+        with self._connection:
+            self._connection.execute(
+                """
+                DELETE FROM about_links
+                WHERE space = ? AND record_id = ?
+                """,
+                (space, record_id),
+            )
+
+    def entities_for_record(self, space: str, record_id: str) -> list[str]:
+        rows = self._connection.execute(
+            """
+            SELECT entity_id
+            FROM about_links
+            WHERE space = ? AND record_id = ?
+            ORDER BY entity_id ASC
+            """,
+            (space, record_id),
+        ).fetchall()
+        return [row["entity_id"] for row in rows]
+
+    def records_for_entity(self, space: str, entity_id: str) -> list[str]:
+        rows = self._connection.execute(
+            """
+            SELECT record_id
+            FROM about_links
+            WHERE space = ? AND entity_id = ?
+            ORDER BY record_id ASC
+            """,
+            (space, entity_id),
+        ).fetchall()
+        return [row["record_id"] for row in rows]
+
+
 class SQLiteMemorySpaceRepository:
     """Storage adapter that persists MemorySpaces in SQLite."""
 

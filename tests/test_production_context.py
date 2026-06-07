@@ -76,6 +76,7 @@ def test_build_production_context_wires_sqlite_implemented_repos_and_placeholder
     from memorable.storage.production import build_production_context
     from memorable.storage.sqlite.connection import SQLiteHandle
     from memorable.storage.sqlite.repository import (
+        SQLiteAboutRepository,
         SQLiteDecisionRepository,
         SQLiteEntityRepository,
         SQLiteMemorySpaceRepository,
@@ -98,10 +99,11 @@ def test_build_production_context_wires_sqlite_implemented_repos_and_placeholder
         assert isinstance(ctx.observation_repo, SQLiteObservationRepository)
         assert isinstance(ctx.relation_repo, SQLiteRelationRepository)
         assert isinstance(ctx.task_repo, SQLiteTaskRepository)
+        assert isinstance(ctx.about_repo, SQLiteAboutRepository)
         assert isinstance(ctx.memory_space_repo, SQLiteMemorySpaceRepository)
         assert isinstance(ctx.retrieval_index, InMemoryEmbeddingIndex)
-        with pytest.raises(NotImplementedError, match="SQLite backend.*About.*#243"):
-            ctx.about_repo.records_for_entity("test-project", "entity:1")
+        with pytest.raises(NotImplementedError, match="SQLite backend.*Forget.*#244"):
+            ctx.forget_repo.entity_exists(space="test-project", entity_id="entity:1")
     finally:
         resource.close()
 

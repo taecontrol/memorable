@@ -27,6 +27,7 @@ from memorable.storage.neo4j.retrieval_index import Neo4jRetrievalIndex
 from memorable.storage.sqlite.connection import SQLiteHandle
 from memorable.storage.sqlite.connection import connect as connect_sqlite
 from memorable.storage.sqlite.repository import (
+    SQLiteAboutRepository,
     SQLiteDecisionRepository,
     SQLiteEntityRepository,
     SQLiteMemorySpaceRepository,
@@ -84,7 +85,7 @@ def _build_sqlite_context(
         task_repo=SQLiteTaskRepository(handle),
         observation_repo=SQLiteObservationRepository(handle),
         relation_repo=SQLiteRelationRepository(handle),
-        about_repo=SQLiteRepositoryPlaceholder("About", 243),
+        about_repo=SQLiteAboutRepository(handle),
         forget_repo=SQLiteRepositoryPlaceholder("Forget", 244),
         memory_space_repo=SQLiteMemorySpaceRepository(handle),
         # PRD B replaces this documented placeholder with sqlite-vec.

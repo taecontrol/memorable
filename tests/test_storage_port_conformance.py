@@ -36,6 +36,7 @@ class TemporalRecordHarness:
     observation_repo: Any
     relation_repo: Any
     task_repo: Any
+    about_repo: Any
     close: Any
 
 
@@ -63,6 +64,7 @@ def temporal_record_harness(
 ) -> Iterator[TemporalRecordHarness]:
     if request.param == "in-memory":
         from memorable.core.repositories import (
+            InMemoryAboutRepository,
             InMemoryDecisionRepository,
             InMemoryEntityRepository,
             InMemoryObservationRepository,
@@ -78,6 +80,7 @@ def temporal_record_harness(
             observation_repo=InMemoryObservationRepository(record_keys),
             relation_repo=InMemoryRelationRepository(record_keys),
             task_repo=InMemoryTaskRepository(record_keys),
+            about_repo=InMemoryAboutRepository(),
             close=lambda: None,
         )
         return
@@ -86,6 +89,7 @@ def temporal_record_harness(
         from test_neo4j_adapter import FakeDriver
 
         from memorable.storage.neo4j.repository import (
+            Neo4jAboutRepository,
             Neo4jDecisionRepository,
             Neo4jEntityRepository,
             Neo4jObservationRepository,
@@ -101,12 +105,14 @@ def temporal_record_harness(
             observation_repo=Neo4jObservationRepository(driver),
             relation_repo=Neo4jRelationRepository(driver),
             task_repo=Neo4jTaskRepository(driver),
+            about_repo=Neo4jAboutRepository(driver),
             close=lambda: None,
         )
         return
 
     from memorable.storage.sqlite.connection import connect
     from memorable.storage.sqlite.repository import (
+        SQLiteAboutRepository,
         SQLiteDecisionRepository,
         SQLiteEntityRepository,
         SQLiteObservationRepository,
@@ -128,6 +134,7 @@ def temporal_record_harness(
             observation_repo=SQLiteObservationRepository(handle),
             relation_repo=SQLiteRelationRepository(handle),
             task_repo=SQLiteTaskRepository(handle),
+            about_repo=SQLiteAboutRepository(handle),
             close=handle.close,
         )
     finally:
@@ -670,6 +677,54 @@ def test_temporal_record_list_by_space_returns_every_lifecycle_state(
     listed_ids = {record.id for record in repo.list_by_space("test-conformance")}
 
     assert listed_ids == {record.id for record in records}
+
+
+def test_about_link_is_symmetric_and_unlink_removes_both_directions(
+    temporal_record_harness: TemporalRecordHarness,
+) -> None:
+    about_repo = temporal_record_harness.about_repo
+    entity_repo = temporal_record_harness.entity_repo
+    decision_repo = temporal_record_harness.decision_repo
+    harness_name = temporal_record_harness.name
+    frontend_id = f"entity:{harness_name}:frontend"
+    backend_id = f"entity:{harness_name}:backend"
+    for entity_id, name in [
+        (frontend_id, "Frontend"),
+        (backend_id, "Backend"),
+    ]:
+        entity_repo.save(
+            Entity(
+                id=entity_id,
+                entity_type="Component",
+                name=name,
+                space="test-conformance",
+            ),
+            _provenance(entity_id),
+        )
+    linked = _decision("about-linked", harness_name, state="current")
+    sibling = _decision("about-sibling", harness_name, state="current")
+    for decision in [linked, sibling]:
+        decision_repo.save(decision, _record_provenance(decision.id, "decision"))
+
+    about_repo.link("test-conformance", linked.id, [frontend_id, backend_id])
+    about_repo.link("test-conformance", sibling.id, [frontend_id])
+
+    assert about_repo.entities_for_record("test-conformance", linked.id) == [
+        backend_id,
+        frontend_id,
+    ]
+    assert about_repo.records_for_entity("test-conformance", frontend_id) == [
+        linked.id,
+        sibling.id,
+    ]
+
+    about_repo.unlink("test-conformance", linked.id)
+
+    assert about_repo.entities_for_record("test-conformance", linked.id) == []
+    assert about_repo.records_for_entity("test-conformance", backend_id) == []
+    assert about_repo.records_for_entity("test-conformance", frontend_id) == [
+        sibling.id
+    ]
 
 
 def test_relation_list_by_entity_returns_incident_relations(

@@ -281,6 +281,54 @@ def _save_relation_endpoints(entity_repo: object) -> None:
     )
 
 
+def test_sqlite_about_link_is_visible_from_record_and_entity(
+    tmp_path: Path,
+) -> None:
+    from memorable.storage.sqlite.connection import connect
+    from memorable.storage.sqlite.repository import (
+        SQLiteAboutRepository,
+        SQLiteDecisionRepository,
+        SQLiteEntityRepository,
+    )
+
+    handle = connect(_sqlite_config(tmp_path))
+    try:
+        entity_repo = SQLiteEntityRepository(handle)
+        decision_repo = SQLiteDecisionRepository(handle)
+        about_repo = SQLiteAboutRepository(handle)
+        for entity_id, name in [
+            ("entity:frontend", "Frontend"),
+            ("entity:backend", "Backend"),
+        ]:
+            entity_repo.save(
+                Entity(
+                    id=entity_id,
+                    entity_type="Component",
+                    name=name,
+                    space="test-project",
+                ),
+                _provenance(entity_id, "entity"),
+            )
+        decision = _decision("decision:about")
+        decision_repo.save(decision, _provenance(decision.id, "decision"))
+
+        about_repo.link(
+            "test-project",
+            decision.id,
+            ["entity:frontend", "entity:backend"],
+        )
+
+        assert about_repo.entities_for_record("test-project", decision.id) == [
+            "entity:backend",
+            "entity:frontend",
+        ]
+        assert about_repo.records_for_entity("test-project", "entity:frontend") == [
+            decision.id
+        ]
+    finally:
+        handle.close()
+
+
 def test_sqlite_relation_repository_round_trips_record_and_provenance(
     tmp_path: Path,
 ) -> None:
