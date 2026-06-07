@@ -25,12 +25,14 @@ import type {
 	AgentStats,
 	CreateRoomOptions,
 	PrdRunMetadata,
+	PrdSliceMetadata,
 	PrdWorkflow,
 	PullRequestMetadata,
 	ResidentAgent,
 	RoomManifest,
 	RoomMessage,
 	RoomStateEntry,
+	SliceVerification,
 	WorktreeInfo,
 } from "./types.ts";
 import {
@@ -46,7 +48,7 @@ import {
 	writeJson,
 } from "./storage.ts";
 import { fitLine, oneLine, renderTile, truncate } from "./dashboard.ts";
-import { git } from "./github.ts";
+import { execFile, git } from "./github.ts";
 import { formatComments, issueBody, labelSet } from "./issues.ts";
 import {
 	AGENT_PROGRESS_INSTRUCTIONS,
@@ -58,7 +60,7 @@ import {
 import { publishPrdPullRequest } from "./publish.ts";
 import { allRoleNames, DEFAULT_ROLES, roleByName } from "./roles.ts";
 import { loadPrdContext } from "./slices.ts";
-import { currentPrdSlice, currentPrdSliceLabel, prdWorkflow, setWorkflowPhase } from "./workflow.ts";
+import { currentPrdSlice, currentPrdSliceLabel, prdSliceLabel, prdWorkflow, setWorkflowPhase } from "./workflow.ts";
 
 const STATE_TYPE = "agent-room-state";
 const WIDGET_KEY = "agent-room";
@@ -103,6 +105,16 @@ function worktreesRoot(cwd: string): string {
 	return path.join(cwd, ...WORKTREES_DIR);
 }
 
+function prdSlicePromptLabel(slice: PrdSliceMetadata): string {
+	return prdSliceLabel(slice);
+}
+
+function prdSliceSubmitInstruction(slice: PrdSliceMetadata): string {
+	return slice.synthetic === "final-architecture-fix"
+		? "call agent_submit_review with the synthetic slice_number shown for this fix slice"
+		: `call agent_submit_review for #${slice.number}`;
+}
+
 function buildPrdSliceAssignment(room: AgentRoom): string {
 	const prd = room.manifest.prd;
 	const workflow = prdWorkflow(room);
@@ -114,22 +126,28 @@ function buildPrdSliceAssignment(room: AgentRoom): string {
 	return `# Current PRD slice assignment
 
 PRD: #${prd.number} ${prd.title}
-Current slice: #${slice.number} ${slice.title}
-URL: ${slice.url ?? "unknown"}
+Current slice: ${prdSlicePromptLabel(slice)}
+${slice.synthetic ? `Synthetic slice_number: ${slice.number}\n` : ""}URL: ${slice.url ?? "unknown"}
 Blocked by: ${blockers}
-Next slice after approval/commit/compact: ${next ? `#${next.number} ${next.title}` : "none"}
+Next slice after approval/commit/compact: ${next ? prdSlicePromptLabel(next) : "none"}
 
 ## Hard stop rules
 
-- Implement exactly the current slice. Do not start, inspect, test, or plan the next slice.
-- When implementation verification is ready, call agent_submit_review for #${slice.number}, then stop.
+- Implement exactly the current slice. Do not start, inspect, test, or plan the *next* slice.
+- The blinder is about future slices, not existing contracts. Reading the existing code this slice touches — validation paths, public parameter names, invariants, and the read paths that resolve what you write — is required, not scope creep. A slice that adds a code path must satisfy the same invariants its sibling paths already enforce (converge on the same validation gate).
+- When implementation verification is ready, ${prdSliceSubmitInstruction(slice)}, then stop.
 - Do not continue because the reviewer is quiet. Continue only after AgentRoom sends a new slice assignment.
 - Do not commit. AgentRoom commits approved slices after reviewer approval.
 - Follow the required TDD skill for this slice.
 
-## PRD context snapshot
+## Slice test rules
 
-${prd.context ?? `Ordered slices: ${prd.orderedSlices.map((item) => `#${item.number} ${item.title}`).join("; ")}`}
+- The room runs a mutation check on submit: it reverts your declared implFiles and the declared newTests must fail. A test that passes before its implementation exists, or that still passes once the implementation is reverted, is a defect — make it fail first (red), then implement.
+- Assert lifecycle/temporal behavior through the resolved read path (current truth, point-in-time, or history), never by fetching a specific version with a repository get-by-id. A supersession test must assert on what the read path returns after supersession, not on the predecessor record.
+
+${formatArchitectureConstraints(room)}## PRD context snapshot
+
+${prd.context ?? `Ordered slices: ${prd.orderedSlices.map(prdSlicePromptLabel).join("; ")}`}
 
 ## Human-visible progress
 
@@ -141,9 +159,212 @@ function buildPrdFinalArchitectPrompt(room: AgentRoom): string {
 	if (!prd) throw new Error("No PRD is active.");
 	return `All ordered slices for PRD #${prd.number} ${prd.title} are approved and committed.
 
-Run final architecture review of the branch/worktree. Review only; do not edit or commit. When complete, call agent_finish_architecture_review with approved or changes_requested so AgentRoom can publish or block the PR.
+Run final architecture review of the branch/worktree. Review only; do not edit or commit. When complete, call agent_finish_architecture_review with approved or changes_requested so AgentRoom can publish or request a fix slice.
 
-Committed slices: ${prd.orderedSlices.map((slice) => `#${slice.number}`).join(", ")}`;
+Committed slices: ${prd.orderedSlices.map(prdSlicePromptLabel).join(", ")}`;
+}
+
+function buildPrdFinalArchitectureFixPrompt(room: AgentRoom, findings: string, verification?: string): string {
+	return `${buildPrdSliceAssignment(room)}
+
+## Final architecture review changes requested
+
+Fix the architecture blockers below. Do not broaden scope beyond these findings. Use TDD where code behavior changes. Re-run targeted probes plus full verification, then submit this synthetic fix slice for reviewer review.
+
+Any new or corrected code path must satisfy the same invariants its sibling paths enforce: converge every branch on the shared validation gate rather than letting one branch bypass it. Read the existing validation/read paths you touch before changing them.
+
+Findings:
+${findings}
+
+Architect verification:
+${verification ?? "Not provided."}`;
+}
+
+function isFinalArchitectureBlockedReason(reason: string): boolean {
+	return /^Final architecture review requested changes:/i.test(reason);
+}
+
+// --- Architecture constraint carry-over ---------------------------------------
+// The architect broadcasts product/domain/temporal constraints once at kickoff.
+// Those broadcasts are easily lost to per-slice tunnel vision and context
+// compaction, so we persist them on the manifest and re-inject the relevant
+// ones into every slice assignment (see buildPrdSliceAssignment).
+
+function isArchitectureConstraintKind(kind: string): boolean {
+	return /constraint|risk|architect|invariant|decision|guard|boundary|blocker|broadcast/i.test(kind);
+}
+
+function recordArchitectureConstraint(room: AgentRoom, kind: string, body: string): void {
+	const trimmed = body.trim();
+	if (!trimmed) return;
+	const constraints = (room.manifest.architectureConstraints ??= []);
+	if (constraints.some((existing) => existing.body === trimmed)) return;
+	constraints.push({ kind, body: trimmed, at: nowIso() });
+}
+
+function formatArchitectureConstraints(room: AgentRoom): string {
+	const constraints = room.manifest.architectureConstraints ?? [];
+	if (constraints.length === 0) return "";
+	const items = constraints.map((constraint) => `- (${constraint.kind}) ${constraint.body}`).join("\n");
+	return `## Architecture constraints (carry into every slice)
+
+These were broadcast by the architect for the whole PRD; they hold for this slice even if it is not where they were first raised. Honor them, and converge new code paths on the same invariants their siblings enforce.
+
+${items}
+
+`;
+}
+
+// --- Slice mutation check -----------------------------------------------------
+// At submit time the implementer's slice changes are uncommitted in the worktree.
+// We prove the declared behavior tests are not vacuous: they must PASS with the
+// implementation present (green baseline), then FAIL once the declared impl files
+// are reverted (red). The only fail-closed verdict is "vacuous" — green passes
+// AND tests still pass with the implementation gone — which is runner-agnostic and
+// the exact failure mode that slipped past review in PRD #206. Every other
+// anomaly (no green baseline, git/stash/spawn trouble) is inconclusive and
+// fails OPEN so infra hiccups never wedge a legitimate submit; the outcome is
+// always surfaced to the reviewer in the review request.
+
+const MUTATION_CHECK_TIMEOUT_MS = 10 * 60 * 1000;
+const MUTATION_OUTPUT_TAIL = 2000;
+
+type MutationCheckOutcome =
+	| { status: "skipped"; message: string }
+	| { status: "passed"; message: string }
+	| { status: "vacuous"; message: string }
+	| { status: "inconclusive"; message: string };
+
+function errText(error: unknown): string {
+	return error instanceof Error ? error.message : String(error);
+}
+
+function tailOutput(stdout: unknown, stderr: unknown): string {
+	const combined = `${String(stdout ?? "")}${String(stderr ?? "")}`.trim();
+	return combined.length > MUTATION_OUTPUT_TAIL ? `…${combined.slice(-MUTATION_OUTPUT_TAIL)}` : combined;
+}
+
+async function runBehaviorCommand(cwd: string, command: string): Promise<{ code: number; output: string }> {
+	try {
+		const result = await execFile("bash", ["-lc", command], {
+			cwd,
+			maxBuffer: 10 * 1024 * 1024,
+			timeout: MUTATION_CHECK_TIMEOUT_MS,
+		});
+		return { code: 0, output: tailOutput(result.stdout, result.stderr) };
+	} catch (error) {
+		const err = error as { code?: number | string; stdout?: string; stderr?: string; killed?: boolean; message?: string };
+		if (err.killed) throw new Error(`command timed out after ${MUTATION_CHECK_TIMEOUT_MS}ms: ${command}`);
+		if (typeof err.code !== "number") throw new Error(`command could not run: ${err.message ?? String(error)}`);
+		return { code: err.code, output: tailOutput(err.stdout, err.stderr) };
+	}
+}
+
+async function stashRef(cwd: string): Promise<string> {
+	try {
+		return (await git(cwd, ["rev-parse", "--quiet", "--verify", "refs/stash"])).stdout.trim();
+	} catch {
+		return "";
+	}
+}
+
+async function runSliceMutationCheck(room: AgentRoom, verification: SliceVerification): Promise<MutationCheckOutcome> {
+	if (verification.newTests.length === 0) {
+		return { status: "skipped", message: `No behavior test declared; reason: ${verification.noNewTestsReason ?? "none given"}.` };
+	}
+	if (verification.implFiles.length === 0) {
+		return { status: "inconclusive", message: "No implFiles declared, so the implementation cannot be reverted to prove the tests fail (red)." };
+	}
+
+	let green: { code: number; output: string };
+	try {
+		green = await runBehaviorCommand(room.cwd, verification.command);
+	} catch (error) {
+		return { status: "inconclusive", message: `Could not run the verification command: ${errText(error)}` };
+	}
+	if (green.code !== 0) {
+		return { status: "inconclusive", message: `Green baseline did not pass (exit ${green.code}); mutation check skipped.\n${green.output}` };
+	}
+
+	let stashed = false;
+	try {
+		const before = await stashRef(room.cwd);
+		await git(room.cwd, ["stash", "push", "-u", "--", ...verification.implFiles]);
+		stashed = (await stashRef(room.cwd)) !== before;
+		if (!stashed) {
+			return { status: "inconclusive", message: `Declared implFiles had no pending changes to revert: ${verification.implFiles.join(", ")}.` };
+		}
+		const red = await runBehaviorCommand(room.cwd, verification.command);
+		if (red.code === 0) {
+			return {
+				status: "vacuous",
+				message: `Tests still pass with the implementation reverted (${verification.implFiles.join(", ")}); they do not exercise this slice's behavior. Make them fail without the implementation, then resubmit.\n${red.output}`,
+			};
+		}
+		return { status: "passed", message: `Mutation check passed: tests fail (exit ${red.code}) with ${verification.implFiles.join(", ")} reverted and pass once restored.` };
+	} catch (error) {
+		return { status: "inconclusive", message: `Mutation check could not complete: ${errText(error)}` };
+	} finally {
+		if (stashed) {
+			await git(room.cwd, ["stash", "pop"]).catch((error) => {
+				throw new Error(
+					`Mutation check could not restore the implementation via 'git stash pop'; the changes are preserved in 'git stash'. Resolve manually before continuing. ${errText(error)}`,
+				);
+			});
+		}
+	}
+}
+
+function formatSliceVerification(verification: SliceVerification, mutation: MutationCheckOutcome): string {
+	const tests = verification.newTests.length
+		? verification.newTests.map((test) => `- ${test.file} :: ${test.name}`).join("\n")
+		: `- none (${verification.noNewTestsReason ?? "no reason given"})`;
+	const impl = verification.implFiles.length ? verification.implFiles.join(", ") : "none";
+	return `Command: ${verification.command}
+New behavior tests:
+${tests}
+Implementation files: ${impl}
+Mutation check: ${mutation.status} — ${mutation.message}${verification.notes ? `\nNotes: ${verification.notes}` : ""}`;
+}
+
+function appendFinalArchitectureFixSlice(room: AgentRoom): PrdSliceMetadata {
+	const prd = room.manifest.prd;
+	const workflow = prdWorkflow(room);
+	if (!prd || !workflow) throw new Error("No PRD workflow is active.");
+	const ordinal = prd.orderedSlices.filter((slice) => slice.synthetic === "final-architecture-fix").length + 1;
+	const slice: PrdSliceMetadata = {
+		number: -ordinal,
+		title: ordinal === 1 ? "Final architecture blocker fixes" : `Final architecture blocker fixes ${ordinal}`,
+		blockers: [],
+		synthetic: "final-architecture-fix",
+	};
+	prd.orderedSlices.push(slice);
+	workflow.currentSliceIndex = prd.orderedSlices.length - 1;
+	return slice;
+}
+
+async function requestFinalArchitectureFixSlice(
+	room: AgentRoom,
+	pi: ExtensionAPI,
+	findings: string,
+	verification: string | undefined,
+	source: string,
+): Promise<PrdSliceMetadata> {
+	const prd = room.manifest.prd;
+	if (!prd) throw new Error("No PRD workflow is active.");
+	const slice = appendFinalArchitectureFixSlice(room);
+	setWorkflowPhase(room, "implementing");
+	await saveManifest(room);
+	await routeMessage(
+		room,
+		source,
+		HUMAN_NAME,
+		`Final architecture review requested changes for PRD #${prd.number}; assigning ${prdSlicePromptLabel(slice)} to implementer.`,
+		"architecture-changes-requested",
+		pi,
+	);
+	await promptAgent(room, "implementer", buildPrdFinalArchitectureFixPrompt(room, findings, verification), true);
+	return slice;
 }
 
 async function preparePrdBaseRef(cwd: string, options: CreateRoomOptions): Promise<CreateRoomOptions> {
@@ -191,6 +412,8 @@ For implementation work, use the TDD skill at ${skillPath}.
 - Follow vertical RED → GREEN → REFACTOR tracer bullets: one behavior test, confirm it fails, minimal code, confirm it passes, then next behavior.
 - Do not batch all tests before implementation.
 - Test observable behavior through public interfaces using Memorable domain language.
+- A test that passes before its implementation exists is a defect: confirm the RED run fails for the intended reason before writing code. AgentRoom re-checks this on submit by reverting your implementation files.
+- Assert lifecycle/temporal behavior through the resolved read path (current truth, point-in-time, history), never by fetching a specific version by id; a supersession test asserts on the read path's result after supersession, not on the predecessor record.
 - AgentRoom no-commit policy overrides the skill's commit steps: do not commit unless explicitly instructed; report RED/GREEN evidence via agent_update and review requests instead.`;
 }
 
@@ -293,8 +516,27 @@ function buildCommunicationTools(room: AgentRoom, agentName: string, pi: Extensi
 			parameters: Type.Object({
 				slice_number: Type.Optional(Type.Number({ description: "Current slice issue number" })),
 				summary: Type.String({ description: "Implementation summary" }),
-				files: Type.Optional(Type.Array(Type.String(), { description: "Changed files" })),
-				verification: Type.Optional(Type.String({ description: "Verification commands and results" })),
+				files: Type.Optional(Type.Array(Type.String(), { description: "All changed files" })),
+				verification: Type.Object(
+					{
+						command: Type.String({ description: "Command that runs this slice's behavior tests, e.g. 'uv run pytest path/to/test_x.py::test_y'" }),
+						newTests: Type.Array(
+							Type.Object({
+								file: Type.String({ description: "Test file path, relative to repo root" }),
+								name: Type.String({ description: "Test or behavior name" }),
+							}),
+							{ description: "New/changed behavior tests that prove this slice. Leave empty only with noNewTestsReason." },
+						),
+						implFiles: Type.Array(Type.String(), {
+							description: "Non-test implementation files whose reversion must make newTests fail (the room reverts these to verify the tests are not vacuous).",
+						}),
+						noNewTestsReason: Type.Optional(
+							Type.String({ description: "Required when newTests is empty: why no behavior test applies (e.g. pure refactor, docs, config)." }),
+						),
+						notes: Type.Optional(Type.String({ description: "Extra verification results for the reviewer" })),
+					},
+					{ description: "Structured verification; the room runs a mutation check (revert implFiles, newTests must fail) before routing to review." },
+				),
 			}),
 			async execute(_toolCallId, params) {
 				if (agentName !== "implementer") throw new Error("Only implementer may submit PRD slices for review.");
@@ -304,10 +546,21 @@ function buildCommunicationTools(room: AgentRoom, agentName: string, pi: Extensi
 				if (params.slice_number && params.slice_number !== slice.number) {
 					throw new Error(`Current slice is #${slice.number}; refusing #${params.slice_number}.`);
 				}
+				const verification = params.verification as SliceVerification;
+				if (verification.newTests.length === 0 && !verification.noNewTestsReason?.trim()) {
+					throw new Error("Declare newTests for this slice, or set noNewTestsReason explaining why no behavior test applies.");
+				}
+
+				const mutation = await runSliceMutationCheck(room, verification);
+				if (mutation.status === "vacuous") {
+					// Fail closed: stay in implementing so the implementer can fix and resubmit.
+					throw new Error(`Mutation check failed — ${mutation.message}`);
+				}
+
 				setWorkflowPhase(room, "reviewing");
 				await saveManifest(room);
 				const files = params.files?.length ? params.files.map((file: string) => `- ${file}`).join("\n") : "Not provided.";
-				const body = `Review current PRD slice #${slice.number} ${slice.title}.
+				const body = `Review current PRD slice ${prdSliceLabel(slice)}.
 
 Summary:
 ${params.summary}
@@ -316,13 +569,15 @@ Changed files:
 ${files}
 
 Verification:
-${params.verification ?? "Not provided."}
+${formatSliceVerification(verification, mutation)}
 
-Return your final verdict with agent_finish_review. Do not start other work.`;
+Confirm the mutation-check result, the tests assert observable behavior through the resolved read path, and the slice's acceptance criteria. Return your final verdict with agent_finish_review. Do not start other work.`;
 				await routeMessage(room, agentName, "reviewer", body, "review-request", pi);
 				return {
-					content: [{ type: "text", text: `Review requested for #${slice.number}. Stop now and wait for AgentRoom.` }],
-					details: { slice: slice.number, status: "reviewing" },
+					content: [
+						{ type: "text", text: `Review requested for ${prdSliceLabel(slice)} (mutation check: ${mutation.status}). Stop now and wait for AgentRoom.` },
+					],
+					details: { slice: slice.number, status: "reviewing", mutation: mutation.status },
 				};
 			},
 		}),
@@ -350,7 +605,7 @@ Return your final verdict with agent_finish_review. Do not start other work.`;
 				if (status === "changes_requested") {
 					setWorkflowPhase(room, "implementing");
 					await saveManifest(room);
-					const body = `Review changes requested for #${slice.number} ${slice.title}.
+					const body = `Review changes requested for ${prdSliceLabel(slice)}.
 
 Findings:
 ${params.findings}
@@ -358,10 +613,10 @@ ${params.findings}
 Reviewer verification:
 ${params.verification ?? "Not provided."}
 
-Fix blockers for #${slice.number} only, then call agent_submit_review again. Do not start later slices.`;
+Fix blockers for ${prdSliceLabel(slice)} only, then call agent_submit_review again. Do not start later slices.`;
 					await routeMessage(room, agentName, "implementer", body, "review-findings", pi);
 					return {
-						content: [{ type: "text", text: `Changes requested for #${slice.number}; implementer queued after reviewer stops.` }],
+						content: [{ type: "text", text: `Changes requested for ${prdSliceLabel(slice)}; implementer queued after reviewer stops.` }],
 						details: { slice: slice.number, status },
 					};
 				}
@@ -373,12 +628,12 @@ Fix blockers for #${slice.number} only, then call agent_submit_review again. Do 
 					room,
 					agentName,
 					HUMAN_NAME,
-					`Slice #${slice.number} approved. AgentRoom will commit, compact, then assign the next slice.`,
+					`Slice ${prdSliceLabel(slice)} approved. AgentRoom will commit, compact, then assign the next slice.`,
 					"approved",
 					pi,
 				);
 				return {
-					content: [{ type: "text", text: `Approved #${slice.number}. Stop now; AgentRoom will commit and compact after this turn.` }],
+					content: [{ type: "text", text: `Approved ${prdSliceLabel(slice)}. Stop now; AgentRoom will commit and compact after this turn.` }],
 					details: { slice: slice.number, status },
 				};
 			},
@@ -419,13 +674,14 @@ Fix blockers for #${slice.number} only, then call agent_submit_review again. Do 
 				};
 
 				if (status === "changes_requested") {
-					setWorkflowPhase(room, "blocked", {
-						blockedReason: `Final architecture review requested changes: ${oneLine(params.findings)}`,
-					});
-					await saveManifest(room);
-					await routeMessage(room, agentName, HUMAN_NAME, `Final architecture review blocked PRD #${prd.number}: ${params.findings}`, "architecture-blocker", pi);
+					const slice = await requestFinalArchitectureFixSlice(room, pi, params.findings, params.verification, agentName);
 					return {
-						content: [{ type: "text", text: "Final architecture review blocked publication. Stop now and wait for human coordination." }],
+						content: [
+							{
+								type: "text",
+								text: `Final architecture review requested changes. Assigned ${prdSliceLabel(slice)} to implementer. Stop now.`,
+							},
+						],
 						details: { status },
 					};
 				}
@@ -664,6 +920,12 @@ async function routeMessage(
 		await saveManifest(room);
 	}
 
+	// Persist architect constraints so they survive compaction and can be re-injected
+	// into every slice assignment, not just the slice in flight when they were raised.
+	if (workflow && from === "architect" && !isHumanTarget && isArchitectureConstraintKind(kind)) {
+		recordArchitectureConstraint(room, kind, body);
+	}
+
 	const message: RoomMessage = {
 		id: randomUUID(),
 		createdAt: nowIso(),
@@ -783,20 +1045,20 @@ async function runPrdWorkflowAutomation(room: AgentRoom, pi: ExtensionAPI): Prom
 	try {
 		setWorkflowPhase(room, "committing");
 		await saveManifest(room);
-		await routeMessage(room, "agent-room", HUMAN_NAME, `Committing approved slice #${slice.number}.`, "commit", pi);
-		await commitCurrentSlice(room, slice);
+		await routeMessage(room, "agent-room", HUMAN_NAME, `Committing approved slice ${prdSliceLabel(slice)}.`, "commit", pi);
+		await commitCurrentSlice(room, slice, pi);
 		if (!workflow.committedSlices.includes(slice.number)) workflow.committedSlices.push(slice.number);
 
 		setWorkflowPhase(room, "compacting");
 		await saveManifest(room);
-		await routeMessage(room, "agent-room", HUMAN_NAME, `Compacting agents after #${slice.number}.`, "compact", pi);
+		await routeMessage(room, "agent-room", HUMAN_NAME, `Compacting agents after ${prdSliceLabel(slice)}.`, "compact", pi);
 		const { deferred } = await compactResidentAgents(room, slice);
 		if (deferred.length > 0) {
 			await routeMessage(
 				room,
 				"agent-room",
 				HUMAN_NAME,
-				`Compaction deferred for ${deferred.join(", ")} after #${slice.number} (provider overloaded past retry budget); continuing without blocking. Context will compact on the next attempt.`,
+				`Compaction deferred for ${deferred.join(", ")} after ${prdSliceLabel(slice)} (provider overloaded past retry budget); continuing without blocking. Context will compact on the next attempt.`,
 				"compact-deferred",
 				pi,
 			);
@@ -811,7 +1073,7 @@ async function runPrdWorkflowAutomation(room: AgentRoom, pi: ExtensionAPI): Prom
 				room,
 				"agent-room",
 				HUMAN_NAME,
-				`Slice #${slice.number} committed/compacted. Assigning #${next.number}.`,
+				`Slice ${prdSliceLabel(slice)} committed/compacted. Assigning ${prdSliceLabel(next)}.`,
 				"next-slice",
 				pi,
 			);
@@ -835,11 +1097,15 @@ async function runPrdWorkflowAutomation(room: AgentRoom, pi: ExtensionAPI): Prom
 	}
 }
 
-async function commitCurrentSlice(room: AgentRoom, slice: PrdRunMetadata["orderedSlices"][number]): Promise<void> {
+async function commitCurrentSlice(room: AgentRoom, slice: PrdRunMetadata["orderedSlices"][number], pi?: ExtensionAPI): Promise<void> {
 	const prd = room.manifest.prd;
 	if (!prd) throw new Error("No PRD metadata available for commit.");
 	const status = (await git(room.cwd, ["status", "--porcelain"])).stdout.trim();
 	if (!status) return;
+	// Format before staging so every committed slice matches CI's `ruff format --check`.
+	// Best-effort: a missing toolchain must not wedge the workflow, but a real formatting
+	// failure (e.g. a syntax error) should surface loudly.
+	await formatWorktree(room, pi);
 	await git(room.cwd, ["add", "-A"]);
 	await git(room.cwd, [
 		"commit",
@@ -848,6 +1114,32 @@ async function commitCurrentSlice(room: AgentRoom, slice: PrdRunMetadata["ordere
 		"-m",
 		`${slice.title}\n\nAgentRoom run: ${room.id}`,
 	]);
+}
+
+// Run the project's Python formatter so committed slices satisfy CI's
+// `ruff format --check`. The agent-room operates on the memorable repo, where `uv`
+// is the mandated toolchain and formatter lives in the `dev` extra. We tolerate a
+// missing toolchain (warn, continue) so the extension stays usable in environments
+// without `uv`, but we let genuine formatter failures (e.g. invalid Python) propagate
+// and block the commit.
+async function formatWorktree(room: AgentRoom, pi?: ExtensionAPI): Promise<void> {
+	try {
+		await execFile("uv", ["run", "--extra", "dev", "ruff", "format", "."], { cwd: room.cwd, maxBuffer: 10 * 1024 * 1024 });
+	} catch (error) {
+		const code = (error as NodeJS.ErrnoException).code;
+		if (code === "ENOENT") {
+			await routeMessage(
+				room,
+				"agent-room",
+				HUMAN_NAME,
+				"Skipped ruff format before commit: `uv` not found on PATH. CI `ruff format --check` may fail.",
+				"warning",
+				pi,
+			);
+			return;
+		}
+		throw error;
+	}
 }
 
 // Compaction is an optimization (context trimming), not correctness. Normal agent
@@ -860,7 +1152,7 @@ async function compactResidentAgents(
 	room: AgentRoom,
 	slice: PrdRunMetadata["orderedSlices"][number],
 ): Promise<{ deferred: string[] }> {
-	const instructions = `Slice #${slice.number} ${slice.title} was approved and committed. Preserve AgentRoom decisions, review verdicts, files changed, verification evidence, unresolved blockers, and the next assigned slice.`;
+	const instructions = `Slice ${prdSliceLabel(slice)} was approved and committed. Preserve AgentRoom decisions, review verdicts, files changed, verification evidence, unresolved blockers, and the next assigned slice.`;
 	const deferred: string[] = [];
 	for (const agent of room.agents.values()) {
 		if (agent.session.isStreaming) throw new Error(`Cannot compact while ${agent.role.name} is running.`);
@@ -1193,7 +1485,7 @@ function renderTiles(room: AgentRoom, width: number, theme: any): string[] {
 	rows.push(theme.fg("accent", fitLine(`AgentRoom ${room.name} (${room.id})`, safeWidth, "…")));
 	if (room.manifest.prd) {
 		const prd = room.manifest.prd;
-		const slices = prd.orderedSlices.map((slice) => `#${slice.number}`).join(" → ");
+		const slices = prd.orderedSlices.map(prdSlicePromptLabel).join(" → ");
 		rows.push(theme.fg("muted", fitLine(`PRD #${prd.number}: ${prd.title} | slices: ${slices || "none"}`, safeWidth, "…")));
 		const workflow = prdWorkflow(room);
 		if (workflow) {
@@ -1326,13 +1618,27 @@ async function handleAgentRoomCommand(pi: ExtensionAPI, args: string, ctx: Exten
 			return;
 		}
 		const priorReason = workflow.blockedReason ?? "unknown";
+		if (isFinalArchitectureBlockedReason(priorReason)) {
+			const finalReview = room.manifest.finalArchitectureReview;
+			const fallbackFindings = priorReason.replace(/^Final architecture review requested changes:\s*/i, "");
+			await requestFinalArchitectureFixSlice(room, pi, finalReview?.findings ?? fallbackFindings, finalReview?.verification, "agent-room");
+			ctx.ui.notify(`AgentRoom unblocked: ${room.id} (phase: ${workflow.phase}).`, "info");
+			return;
+		}
 		const slice = currentPrdSlice(room);
 		// Re-enter at the last safe checkpoint. A current slice means commit/compact/assign
 		// can be re-driven idempotently via "approved"; otherwise re-request final review.
 		if (slice) {
 			setWorkflowPhase(room, "approved");
 			await saveManifest(room);
-			await routeMessage(room, "agent-room", HUMAN_NAME, `Unblocked PRD workflow; re-driving slice #${slice.number}. Prior reason: ${oneLine(priorReason)}`, "unblock", pi);
+			await routeMessage(
+				room,
+				"agent-room",
+				HUMAN_NAME,
+				`Unblocked PRD workflow; re-driving slice ${prdSliceLabel(slice)}. Prior reason: ${oneLine(priorReason)}`,
+				"unblock",
+				pi,
+			);
 			await runPrdWorkflowAutomation(room, pi);
 		} else {
 			setWorkflowPhase(room, "final-reviewing");
@@ -1494,7 +1800,7 @@ function statusText(room: AgentRoom): string {
 		...(room.manifest.prd
 			? [
 					`prd: #${room.manifest.prd.number} ${room.manifest.prd.title}`,
-					`slices: ${room.manifest.prd.orderedSlices.map((slice) => `#${slice.number}`).join(" -> ")}`,
+					`slices: ${room.manifest.prd.orderedSlices.map(prdSlicePromptLabel).join(" -> ")}`,
 				]
 			: []),
 		`state: ${relativeToCwd(room.controllerCwd, room.runDir)}`,
