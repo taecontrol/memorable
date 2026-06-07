@@ -304,6 +304,9 @@ def clean_memorable_environment(monkeypatch: pytest.MonkeyPatch) -> None:
         "MEMORABLE_NEO4J_URI",
         "MEMORABLE_NEO4J_USER",
         "MEMORABLE_NEO4J_PASSWORD",
+        "MEMORABLE_NEO4J_DATABASE",
+        "MEMORABLE_STORAGE_BACKEND",
+        "MEMORABLE_SQLITE_PATH",
         "MEMORABLE_OPENROUTER_API_KEY",
     ):
         monkeypatch.delenv(key, raising=False)

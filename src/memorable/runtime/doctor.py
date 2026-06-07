@@ -174,7 +174,7 @@ def collect_embedding_coverage(
     provider = build_embedding_provider(
         config.embeddings, api_key=config.embeddings.api_key
     )
-    ctx, driver = build_production_context(config)
+    ctx, resource = build_production_context(config)
     try:
         service = build_retrieval_service(
             ctx,
@@ -183,7 +183,7 @@ def collect_embedding_coverage(
         )
         return service.index_coverage(space)
     finally:
-        driver.close()
+        resource.close()
 
 
 def live_vector_index_dimensions(indexes: list[VectorIndex]) -> int | None:

@@ -12,7 +12,7 @@ from __future__ import annotations
 import os
 from dataclasses import dataclass, field
 from pathlib import Path
-from typing import Any
+from typing import Any, Literal
 
 import yaml
 
@@ -41,11 +41,24 @@ class EmbeddingSettings:
 
 
 @dataclass(frozen=True)
+class StorageSettings:
+    backend: Literal["neo4j", "sqlite"] = "neo4j"
+
+
+@dataclass(frozen=True)
+class SQLiteSettings:
+    path: str = ".memorable/memory.db"
+
+
+@dataclass(frozen=True)
 class RuntimeConfig:
     neo4j: Neo4jSettings = field(default_factory=Neo4jSettings)
     docker: DockerSettings = field(default_factory=DockerSettings)
     embeddings: EmbeddingSettings = field(default_factory=EmbeddingSettings)
+    storage: StorageSettings = field(default_factory=StorageSettings)
+    sqlite: SQLiteSettings = field(default_factory=SQLiteSettings)
     sources: dict[str, str] = field(default_factory=dict)
+    base_path: Path = field(default_factory=Path.cwd)
 
 
 def _deep_merge(base: dict[str, Any], override: dict[str, Any]) -> dict[str, Any]:
@@ -100,6 +113,8 @@ _ENV_MAPPING: dict[str, str] = {
     "MEMORABLE_NEO4J_USER": "neo4j.user",
     "MEMORABLE_NEO4J_PASSWORD": "neo4j.password",
     "MEMORABLE_NEO4J_DATABASE": "neo4j.database",
+    "MEMORABLE_STORAGE_BACKEND": "storage.backend",
+    "MEMORABLE_SQLITE_PATH": "sqlite.path",
     "MEMORABLE_OPENROUTER_API_KEY": "embeddings.api_key",
 }
 
@@ -176,6 +191,8 @@ def load_runtime_config(
     neo4j_raw = merged.get("neo4j", {})
     docker_raw = merged.get("docker", {})
     embeddings_raw = merged.get("embeddings", {})
+    storage_raw = merged.get("storage", {})
+    sqlite_raw = merged.get("sqlite", {})
 
     neo4j = Neo4jSettings(
         uri=neo4j_raw.get("uri", Neo4jSettings.uri),
@@ -194,6 +211,17 @@ def load_runtime_config(
         dimensions=embeddings_raw.get("dimensions", EmbeddingSettings.dimensions),
         api_key=embeddings_raw.get("api_key", EmbeddingSettings.api_key),
     )
+    storage_backend = storage_raw.get("backend", StorageSettings.backend)
+    if storage_backend not in ("neo4j", "sqlite"):
+        raise ValueError(
+            f"storage.backend must be one of: neo4j, sqlite (got {storage_backend!r})"
+        )
+    storage = StorageSettings(
+        backend=storage_backend,
+    )
+    sqlite = SQLiteSettings(
+        path=sqlite_raw.get("path", SQLiteSettings.path),
+    )
 
     # Fill in "built-in" for any field not already tracked
     all_fields = [
@@ -208,6 +236,8 @@ def load_runtime_config(
         "embeddings.model",
         "embeddings.dimensions",
         "embeddings.api_key",
+        "storage.backend",
+        "sqlite.path",
     ]
     for fp in all_fields:
         if fp not in sources:
@@ -217,5 +247,8 @@ def load_runtime_config(
         neo4j=neo4j,
         docker=docker,
         embeddings=embeddings,
+        storage=storage,
+        sqlite=sqlite,
         sources=sources,
+        base_path=base_path,
     )

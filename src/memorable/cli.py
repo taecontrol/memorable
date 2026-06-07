@@ -232,13 +232,17 @@ def _cmd_init(args: argparse.Namespace) -> int:
     )
 
     try:
-        ctx, driver = build_production_context(config)
+        ctx, resource = build_production_context(config)
     except ConnectionError as e:
         print(f"Error: {e}", file=sys.stderr)
         return 1
 
     try:
-        ensure_all_constraints(driver, vector_dimensions=config.embeddings.dimensions)
+        if config.storage.backend == "neo4j":
+            ensure_all_constraints(
+                resource,
+                vector_dimensions=config.embeddings.dimensions,
+            )
 
         service = InitService(repository=ctx.memory_space_repo)
 
@@ -261,7 +265,7 @@ def _cmd_init(args: argparse.Namespace) -> int:
         )
         return 0
     finally:
-        driver.close()
+        resource.close()
 
 
 def _cmd_profile_show(args: argparse.Namespace) -> int:
@@ -1939,7 +1943,7 @@ def main(argv: list[str] | None = None) -> int:
     if _needs_production_context(args):
         config = load_runtime_config(include_environment_overrides=True)
         try:
-            ctx, driver = build_production_context(config)
+            ctx, resource = build_production_context(config)
         except ConnectionError as e:
             print(f"Error: {e}", file=sys.stderr)
             return 1
@@ -1947,7 +1951,7 @@ def main(argv: list[str] | None = None) -> int:
         try:
             return _dispatch_context_command(args, ctx, config)
         finally:
-            driver.close()
+            resource.close()
 
     # All subparsers use required=True, so argparse rejects unknown
     # commands before we reach here. Guard against future additions.
