@@ -50,6 +50,12 @@ from memorable.runtime.doctor import all_checks_passed, run_diagnostics
 from memorable.storage.neo4j.repository import ensure_all_constraints
 from memorable.storage.production import build_production_context
 
+ABOUT_HELP = (
+    "Add an About edge to an existing Entity this MemoryRecord concerns; repeat "
+    "for multiple Entities. About is membership, not a Relation claim; create "
+    "the Entity first."
+)
+
 if TYPE_CHECKING:
     from memorable.retrieval.indexing import EmbeddingIndexer
 
@@ -524,7 +530,11 @@ def _cmd_remember_decision(
         print(f"Error: {e}", file=sys.stderr)
         return 1
 
-    service = RememberDecisionService(repository=ctx.decision_repo, profile=profile)
+    service = RememberDecisionService(
+        repository=ctx.decision_repo,
+        profile=profile,
+        about_linker=ctx.about_linker(),
+    )
 
     at = parse_iso_timestamp(args.at)
     supersedes = getattr(args, "supersedes", None)
@@ -539,6 +549,7 @@ def _cmd_remember_decision(
             writer=getattr(args, "writer", "agent:memorable"),
             reason=getattr(args, "reason", ""),
             supersedes=supersedes,
+            about=getattr(args, "about", None),
             record_type=getattr(args, "record_type", None),
         )
     except ValueError as e:
@@ -598,7 +609,9 @@ def _cmd_remember_observation(
         return 1
 
     service = RememberObservationService(
-        repository=ctx.observation_repo, profile=profile
+        repository=ctx.observation_repo,
+        profile=profile,
+        about_linker=ctx.about_linker(),
     )
 
     at = parse_iso_timestamp(args.at)
@@ -614,6 +627,7 @@ def _cmd_remember_observation(
             writer=getattr(args, "writer", "agent:memorable"),
             reason=getattr(args, "reason", ""),
             supersedes=supersedes,
+            about=getattr(args, "about", None),
             record_type=getattr(args, "record_type", None),
         )
     except ValueError as e:
@@ -881,7 +895,11 @@ def _cmd_remember_task(
         print(f"Error: {e}", file=sys.stderr)
         return 1
 
-    service = RememberTaskService(repository=ctx.task_repo, profile=profile)
+    service = RememberTaskService(
+        repository=ctx.task_repo,
+        profile=profile,
+        about_linker=ctx.about_linker(),
+    )
 
     at = parse_iso_timestamp(args.at)
 
@@ -894,6 +912,7 @@ def _cmd_remember_task(
             at=at,
             writer=getattr(args, "writer", "agent:memorable"),
             reason=getattr(args, "reason", ""),
+            about=getattr(args, "about", None),
             record_type=getattr(args, "record_type", None),
         )
     except ValueError as e:
@@ -1317,7 +1336,8 @@ def _cmd_correct(
         )
         return 1
 
-    service = CorrectService(repository=repository)
+    about_targets = getattr(args, "about", None)
+    service = CorrectService(repository=repository, about_linker=ctx.about_linker())
     at = parse_iso_timestamp(args.at)
 
     try:
@@ -1330,6 +1350,7 @@ def _cmd_correct(
             writer=getattr(args, "writer", "agent:memorable"),
             at=at,
             reason=getattr(args, "reason", "") or "",
+            about=about_targets,
         )
     except ValueError as e:
         print(f"Error: {e}", file=sys.stderr)
@@ -1621,6 +1642,12 @@ def main(argv: list[str] | None = None) -> int:
     task_rem_parser.add_argument("--source", required=True)
     task_rem_parser.add_argument("--at", required=True)
     task_rem_parser.add_argument("--type", dest="record_type", default=None)
+    task_rem_parser.add_argument(
+        "--about",
+        action="append",
+        default=None,
+        help=ABOUT_HELP,
+    )
     task_rem_parser.add_argument("--writer", default="agent:memorable")
     task_rem_parser.add_argument("--reason", default="")
 
@@ -1635,6 +1662,12 @@ def main(argv: list[str] | None = None) -> int:
     decision_parser.add_argument("--at", required=True)
     decision_parser.add_argument("--supersedes", default=None)
     decision_parser.add_argument("--type", dest="record_type", default=None)
+    decision_parser.add_argument(
+        "--about",
+        action="append",
+        default=None,
+        help=ABOUT_HELP,
+    )
     decision_parser.add_argument("--writer", default="agent:memorable")
     decision_parser.add_argument("--reason", default="")
 
@@ -1649,6 +1682,12 @@ def main(argv: list[str] | None = None) -> int:
     obs_parser.add_argument("--at", required=True)
     obs_parser.add_argument("--supersedes", default=None)
     obs_parser.add_argument("--type", dest="record_type", default=None)
+    obs_parser.add_argument(
+        "--about",
+        action="append",
+        default=None,
+        help=ABOUT_HELP,
+    )
     obs_parser.add_argument("--writer", default="agent:memorable")
     obs_parser.add_argument("--reason", default="")
 
@@ -1828,6 +1867,12 @@ def main(argv: list[str] | None = None) -> int:
         help=argparse.SUPPRESS,
     )
     correct_parser.add_argument("--new-statement", required=True)
+    correct_parser.add_argument(
+        "--about",
+        action="append",
+        default=None,
+        help=ABOUT_HELP,
+    )
     correct_parser.add_argument("--source", required=True)
     correct_parser.add_argument("--at", required=True)
     correct_parser.add_argument("--reason", default="")
