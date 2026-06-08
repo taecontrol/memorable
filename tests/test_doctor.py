@@ -195,7 +195,7 @@ def test_doctor_reports_sqlite_backend_and_path_without_neo4j_probes(
     assert "neo4j_connectivity" not in by_check
 
 
-def test_doctor_sqlite_profile_check_does_not_probe_placeholder_index(
+def test_doctor_sqlite_profile_check_does_not_collect_neo4j_index_coverage(
     tmp_path: Path,
 ) -> None:
     from memorable.runtime.doctor import run_diagnostics
@@ -205,7 +205,7 @@ def test_doctor_sqlite_profile_check_does_not_probe_placeholder_index(
     profile_path.write_text("valid profile", encoding="utf-8")
 
     def must_not_collect_coverage(_config: RuntimeConfig, _space: str) -> object:
-        raise AssertionError("SQLite uses a placeholder RetrievalIndex in PRD A")
+        raise AssertionError("SQLite diagnostics must not run Neo4j index coverage")
 
     config = RuntimeConfig(
         storage=StorageSettings(backend="sqlite"),

@@ -65,12 +65,11 @@ def test_build_production_context_wires_all_neo4j_repos() -> None:
     assert isinstance(ctx.memory_space_repo, Neo4jMemorySpaceRepository)
 
 
-def test_build_production_context_wires_sqlite_implemented_repos_and_placeholders(
+def test_build_production_context_wires_sqlite_implemented_repos_and_retrieval_index(
     tmp_path,
 ) -> None:
-    """SQLite selection wires implemented ports and clear placeholders."""
+    """SQLite selection wires implemented ports and persistent retrieval."""
     from memorable.config import SQLiteSettings, StorageSettings
-    from memorable.retrieval.index import InMemoryEmbeddingIndex
     from memorable.storage.production import build_production_context
     from memorable.storage.sqlite.connection import SQLiteHandle
     from memorable.storage.sqlite.repository import (
@@ -83,6 +82,7 @@ def test_build_production_context_wires_sqlite_implemented_repos_and_placeholder
         SQLiteRelationRepository,
         SQLiteTaskRepository,
     )
+    from memorable.storage.sqlite.retrieval_index import SqliteVecRetrievalIndex
 
     config = RuntimeConfig(
         storage=StorageSettings(backend="sqlite"),
@@ -101,7 +101,7 @@ def test_build_production_context_wires_sqlite_implemented_repos_and_placeholder
         assert isinstance(ctx.about_repo, SQLiteAboutRepository)
         assert isinstance(ctx.forget_repo, SQLiteForgetRepository)
         assert isinstance(ctx.memory_space_repo, SQLiteMemorySpaceRepository)
-        assert isinstance(ctx.retrieval_index, InMemoryEmbeddingIndex)
+        assert isinstance(ctx.retrieval_index, SqliteVecRetrievalIndex)
     finally:
         resource.close()
 

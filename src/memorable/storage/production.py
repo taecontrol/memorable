@@ -11,7 +11,6 @@ from typing import Protocol
 
 from memorable.config import RuntimeConfig
 from memorable.core.context import ApplicationContext
-from memorable.retrieval.index import InMemoryEmbeddingIndex
 from memorable.storage.neo4j.connection import Neo4jDriver, connect
 from memorable.storage.neo4j.repository import (
     Neo4jAboutRepository,
@@ -78,6 +77,8 @@ def _build_neo4j_context(
 def _build_sqlite_context(
     config: RuntimeConfig,
 ) -> tuple[ApplicationContext, SQLiteHandle]:
+    from memorable.storage.sqlite.retrieval_index import SqliteVecRetrievalIndex
+
     handle = connect_sqlite(config)
     ctx = ApplicationContext(
         entity_repo=SQLiteEntityRepository(handle),
@@ -88,7 +89,6 @@ def _build_sqlite_context(
         about_repo=SQLiteAboutRepository(handle),
         forget_repo=SQLiteForgetRepository(handle),
         memory_space_repo=SQLiteMemorySpaceRepository(handle),
-        # PRD B replaces this documented placeholder with sqlite-vec.
-        retrieval_index=InMemoryEmbeddingIndex(),
+        retrieval_index=SqliteVecRetrievalIndex(handle),
     )
     return ctx, handle
