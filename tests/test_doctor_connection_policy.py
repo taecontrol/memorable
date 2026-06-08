@@ -12,12 +12,15 @@ from unittest.mock import MagicMock, patch
 
 import pytest
 
-from memorable.config import Neo4jSettings, RuntimeConfig
+from memorable.config import Neo4jSettings, RuntimeConfig, StorageSettings
 from memorable.runtime.doctor import DiagnosticProbes, run_diagnostics
 
 
 def _config(uri: str = "bolt://127.0.0.1:7687") -> RuntimeConfig:
-    return RuntimeConfig(neo4j=Neo4jSettings(uri=uri, user="neo4j", password="secret"))
+    return RuntimeConfig(
+        storage=StorageSettings(backend="neo4j"),
+        neo4j=Neo4jSettings(uri=uri, user="neo4j", password="secret"),
+    )
 
 
 class _Provider:

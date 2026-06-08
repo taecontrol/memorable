@@ -73,7 +73,7 @@ MEMORABLE_OPENROUTER_KEY=sk-or-...
 
 ### When files are needed
 
-- No `runtime.yaml`: use built-in defaults (bolt://127.0.0.1:7687, neo4j, etc.)
+- No `runtime.yaml`: use built-in defaults (`storage.backend: sqlite`, `sqlite.path: .memorable/memory.db`, Neo4j settings available when explicitly selected, etc.)
 - No `runtime.local.yaml`: use `runtime.yaml` as-is
 - No `.env`: read secrets from environment variables directly
 
@@ -173,3 +173,16 @@ provision databases. The shipped local runtime uses Neo4j Community Edition,
 which cannot create additional physical databases, so this selector is not local
 multi-store isolation on the bundled image; use MemorySpace isolation or a
 separate runtime for that need.
+
+## Amendment (2026-06-08): SQLite is the built-in storage default
+
+The runtime config includes `storage.backend`, with built-in default `sqlite`,
+and `sqlite.path`, with built-in default `.memorable/memory.db`. Backend choice
+is runtime configuration, not MemoryProfile language. With no runtime files,
+Memorable uses the embedded SQLite backend and never selects a Neo4j server
+implicitly.
+
+Selecting Neo4j remains explicit through `storage.backend: neo4j` (or the
+mapped live-command environment override `MEMORABLE_STORAGE_BACKEND=neo4j`).
+Neo4j connection settings still resolve and display through the same layers;
+they are dormant until the Neo4j backend is selected.

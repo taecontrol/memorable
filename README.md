@@ -14,7 +14,8 @@ it two ways:
 - **By hand** — the **`memorable` CLI** lets you write, search, and inspect memory
   directly from the terminal.
 
-Under the hood it's a GraphRAG memory system backed by Neo4j.
+Under the hood it's a GraphRAG memory system backed by embedded SQLite by
+default, with Neo4j available when you explicitly select a server backend.
 
 ## Install
 
@@ -46,11 +47,8 @@ mkdir memorable-quickstart
 cd memorable-quickstart
 ```
 
-Start the local Neo4j runtime (requires Docker):
-
-```bash
-memorable db start
-```
+No database server or Docker step is required. By default, Memorable stores
+project memory in embedded SQLite at `.memorable/memory.db`.
 
 Set up memory for this project. This creates a starter config file you can grow
 into later:
@@ -157,6 +155,8 @@ environment.
 
 | Setting | Env var | Default | Notes |
 |---|---|---|---|
+| `storage.backend` | `MEMORABLE_STORAGE_BACKEND` | `sqlite` | Storage backend selector. Use `sqlite` for the embedded local file, or `neo4j` for an explicitly selected server backend. |
+| `sqlite.path` | `MEMORABLE_SQLITE_PATH` | `.memorable/memory.db` | SQLite database path, resolved relative to the project. |
 | `neo4j.uri` | `MEMORABLE_NEO4J_URI` | `bolt://127.0.0.1:7687` | Bolt URI (IPv4 loopback by default to avoid ambiguous `localhost` resolution). Use `neo4j+s://…` for cloud. |
 | `neo4j.user` | `MEMORABLE_NEO4J_USER` | `neo4j` | Database user. |
 | `neo4j.database` | `MEMORABLE_NEO4J_DATABASE` | `neo4j` | Physical Neo4j database to open sessions against. It must already exist. |
@@ -168,6 +168,13 @@ environment.
 | `embeddings.model` | — | `BAAI/bge-small-en-v1.5` | Model name for the provider. |
 | `embeddings.dimensions` | — | `384` | Vector size; must match the model. |
 | `embeddings.api_key` | `MEMORABLE_OPENROUTER_API_KEY` | — | **Secret** — required for `openrouter`. |
+
+### Storage backend
+
+SQLite is the embedded default storage backend. With no runtime config,
+Memorable stores memory in `.memorable/memory.db` and uses no database server.
+To use Neo4j, select Neo4j explicitly with `storage.backend: neo4j` in
+runtime config.
 
 ### MemorySpace vs Neo4j database
 
@@ -240,8 +247,16 @@ local model (~67MB).
 
 ### Local (Docker)
 
-`memorable db start` runs a packaged `docker-compose.yml` (Neo4j with the APOC
-plugin, a persistent `memorable-neo4j-data` volume). Manage it with:
+SQLite is the default and needs no container. To use the bundled local Neo4j,
+first select Neo4j in `.memorable/runtime.yaml`:
+
+```yaml
+storage:
+  backend: neo4j
+```
+
+Then `memorable db start` runs a packaged `docker-compose.yml` (Neo4j with the
+APOC plugin, a persistent `memorable-neo4j-data` volume). Manage it with:
 
 ```bash
 memorable db start    # docker compose up -d
@@ -263,6 +278,8 @@ Point Memorable at an existing instance instead of running Docker. In
 `.memorable/runtime.yaml`:
 
 ```yaml
+storage:
+  backend: neo4j
 neo4j:
   uri: neo4j+s://<your-instance>.databases.neo4j.io
   user: neo4j
@@ -288,7 +305,7 @@ Setup & diagnostics:
 | `memorable init` | Create `.memorable/memory.yaml` scaffold and initialize the MemorySpace. |
 | `memorable doctor [--json]` | Run health checks (connectivity, constraints, vector index, embeddings, profile). |
 | `memorable status` | Print the diagnostic status payload. |
-| `memorable db start\|stop\|status\|eject` | Manage / inspect the local Neo4j runtime. |
+| `memorable db start\|stop\|status\|eject` | Manage / inspect the local Neo4j runtime when `storage.backend: neo4j` is selected. |
 | `memorable profile show` | Show the loaded MemoryProfile. |
 
 Writing memory (`remember`):

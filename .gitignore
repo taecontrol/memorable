@@ -12,6 +12,8 @@ node_modules/
 .memorable/runtime.local.yaml
 .memorable/.env
 .memorable/docker-compose.yml
+.memorable/*.db
+.memorable/*.db-*
 
 # Pi AgentRoom runtime state
 .pi/agent-room/runs/

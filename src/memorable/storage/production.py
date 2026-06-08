@@ -47,7 +47,7 @@ def build_production_context(
     """Create an ApplicationContext from resolved runtime storage config.
 
     The caller owns the returned resource lifecycle and must close it on exit.
-    Neo4j remains the default path for this PRD slice; SQLite is selectable.
+    SQLite is the embedded default; Neo4j remains explicitly selectable.
     """
     if config.storage.backend == "neo4j":
         return _build_neo4j_context(config)

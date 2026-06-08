@@ -31,6 +31,14 @@ class TestDbStatusOutput:
         assert "neo4j" in output
         assert "docker" in output
         assert "embeddings" in output
+        assert output["storage"]["backend"] == {
+            "value": "sqlite",
+            "source": "built-in",
+        }
+        assert output["sqlite"]["path"] == {
+            "value": ".memorable/memory.db",
+            "source": "built-in",
+        }
 
     def test_password_is_masked(self, tmp_path: Path, capsys) -> None:
         main(["db", "status", "--path", str(tmp_path)])
