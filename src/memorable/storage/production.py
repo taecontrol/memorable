@@ -80,17 +80,21 @@ def _build_sqlite_context(
     from memorable.storage.sqlite.retrieval_index import SqliteVecRetrievalIndex
 
     handle = connect_sqlite(config)
-    ctx = ApplicationContext(
-        entity_repo=SQLiteEntityRepository(handle),
-        decision_repo=SQLiteDecisionRepository(handle),
-        task_repo=SQLiteTaskRepository(handle),
-        observation_repo=SQLiteObservationRepository(handle),
-        relation_repo=SQLiteRelationRepository(handle),
-        about_repo=SQLiteAboutRepository(handle),
-        forget_repo=SQLiteForgetRepository(handle),
-        memory_space_repo=SQLiteMemorySpaceRepository(handle),
-        retrieval_index=SqliteVecRetrievalIndex(handle),
-        atomic_write=handle.atomic_write,
-        atomic_write_rolls_back_on_failure=True,
-    )
+    try:
+        ctx = ApplicationContext(
+            entity_repo=SQLiteEntityRepository(handle),
+            decision_repo=SQLiteDecisionRepository(handle),
+            task_repo=SQLiteTaskRepository(handle),
+            observation_repo=SQLiteObservationRepository(handle),
+            relation_repo=SQLiteRelationRepository(handle),
+            about_repo=SQLiteAboutRepository(handle),
+            forget_repo=SQLiteForgetRepository(handle),
+            memory_space_repo=SQLiteMemorySpaceRepository(handle),
+            retrieval_index=SqliteVecRetrievalIndex(handle),
+            atomic_write=handle.atomic_write,
+            atomic_write_rolls_back_on_failure=True,
+        )
+    except Exception:
+        handle.close()
+        raise
     return ctx, handle

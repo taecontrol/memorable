@@ -16,6 +16,15 @@ _META_TABLE = "memorable_embedding_vector_index"
 _META_ROW = "active"
 
 
+def _sqlite_vec_capability_error(cause: Exception) -> RuntimeError:
+    return RuntimeError(
+        "sqlite-vec cannot load for the SQLite backend on this interpreter. "
+        "Use a uv-managed, Homebrew, conda-forge, or Windows >= 3.11 Python "
+        "interpreter, or select the Neo4j backend. No numpy/brute-force "
+        f"production fallback is used. Original error: {cause}"
+    )
+
+
 def _to_iso(value: datetime) -> str:
     if value.tzinfo is None or value.utcoffset() is None:
         raise ValueError("stored datetimes must be timezone-aware")
@@ -26,23 +35,23 @@ def _from_iso(value: str) -> datetime:
     return datetime.fromisoformat(value)
 
 
-def _load_sqlite_vec(connection: sqlite3.Connection) -> Any:
+def probe_sqlite_vec_loadability(connection: sqlite3.Connection) -> Any:
+    """Load sqlite-vec or raise an actionable SQLite-backend capability error."""
     try:
         import sqlite_vec
     except Exception as exc:  # pragma: no cover - exercised when dependency absent
-        raise RuntimeError(
-            "sqlite-vec is required for the SQLite RetrievalIndex"
-        ) from exc
+        raise _sqlite_vec_capability_error(exc) from exc
 
     enable = getattr(connection, "enable_load_extension", None)
     if enable is None:
-        raise RuntimeError(
-            "sqlite-vec requires a SQLite connection with loadable extensions"
-        )
+        cause = RuntimeError("enable_load_extension is unavailable")
+        raise _sqlite_vec_capability_error(cause) from cause
 
     try:
         enable(True)
         sqlite_vec.load(connection)
+    except Exception as exc:
+        raise _sqlite_vec_capability_error(exc) from exc
     finally:
         try:
             enable(False)
@@ -64,7 +73,7 @@ class SqliteVecRetrievalIndex:
     def __init__(self, handle: SQLiteHandle) -> None:
         self._handle = handle
         self._connection = handle.connection
-        self._sqlite_vec = _load_sqlite_vec(self._connection)
+        self._sqlite_vec = probe_sqlite_vec_loadability(self._connection)
         self._initialize_record_store()
 
     def _initialize_record_store(self) -> None:

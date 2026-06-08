@@ -106,6 +106,88 @@ def test_build_production_context_wires_sqlite_implemented_repos_and_retrieval_i
         resource.close()
 
 
+def test_neo4j_backend_construction_skips_sqlite_vec_capability_probe() -> None:
+    """Selecting Neo4j does not invoke the SQLite vector capability probe."""
+    from memorable.storage.production import build_production_context
+
+    config = RuntimeConfig()
+
+    with (
+        patch("memorable.storage.neo4j.connection.GraphDatabase") as mock_gdb,
+        patch(
+            "memorable.storage.sqlite.retrieval_index.probe_sqlite_vec_loadability",
+            side_effect=AssertionError("sqlite-vec probe should not run"),
+        ) as probe,
+    ):
+        mock_driver = _make_mock_driver()
+        mock_gdb.driver.return_value = mock_driver
+
+        _, driver = build_production_context(config)
+
+    driver.close()
+    probe.assert_not_called()
+    mock_driver.close.assert_called_once()
+
+
+def test_sqlite_backend_construction_fails_loudly_when_sqlite_vec_load_fails(
+    tmp_path,
+) -> None:
+    """SQLite construction reports interpreter remedies when sqlite-vec fails."""
+    import pytest
+
+    from memorable.config import SQLiteSettings, StorageSettings
+    from memorable.storage.production import build_production_context
+
+    config = RuntimeConfig(
+        storage=StorageSettings(backend="sqlite"),
+        sqlite=SQLiteSettings(path=str(tmp_path / "memory.db")),
+        base_path=tmp_path,
+    )
+
+    with patch("sqlite_vec.load", side_effect=RuntimeError("extensions disabled")):
+        with pytest.raises(RuntimeError) as exc_info:
+            build_production_context(config)
+
+    message = str(exc_info.value)
+    assert "sqlite-vec cannot load" in message
+    assert "uv-managed" in message
+    assert "Homebrew" in message
+    assert "conda-forge" in message
+    assert "Windows >= 3.11" in message
+    assert "select the Neo4j backend" in message
+    assert "extensions disabled" in message
+
+
+def test_sqlite_backend_construction_closes_handle_when_probe_fails(
+    tmp_path,
+) -> None:
+    """A failed SQLite construction does not leak an unreturned handle."""
+    import pytest
+
+    from memorable.config import SQLiteSettings, StorageSettings
+    from memorable.storage.production import build_production_context
+
+    config = RuntimeConfig(
+        storage=StorageSettings(backend="sqlite"),
+        sqlite=SQLiteSettings(path=str(tmp_path / "memory.db")),
+        base_path=tmp_path,
+    )
+    handle = MagicMock()
+    handle.connection = MagicMock()
+
+    with (
+        patch("memorable.storage.production.connect_sqlite", return_value=handle),
+        patch(
+            "memorable.storage.sqlite.retrieval_index.probe_sqlite_vec_loadability",
+            side_effect=RuntimeError("probe failed"),
+        ),
+    ):
+        with pytest.raises(RuntimeError, match="probe failed"):
+            build_production_context(config)
+
+    handle.close.assert_called_once()
+
+
 def test_build_production_context_fails_fast_when_neo4j_unreachable() -> None:
     """When Neo4j is unreachable, raises ConnectionError with actionable message."""
     import pytest
