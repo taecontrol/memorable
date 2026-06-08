@@ -62,12 +62,13 @@ class SqliteVecRetrievalIndex:
     """Persistent derived Embedding index for the SQLite backend."""
 
     def __init__(self, handle: SQLiteHandle) -> None:
+        self._handle = handle
         self._connection = handle.connection
         self._sqlite_vec = _load_sqlite_vec(self._connection)
         self._initialize_record_store()
 
     def _initialize_record_store(self) -> None:
-        with self._connection:
+        with self._handle.write():
             self._connection.execute(
                 f"""
                 CREATE TABLE IF NOT EXISTS {_RECORD_TABLE} (
@@ -106,7 +107,7 @@ class SqliteVecRetrievalIndex:
     def recreate_index(self, dimensions: int) -> None:
         """Recreate the sqlite-vec table and reload compatible Embeddings."""
         self._validate_dimensions(dimensions)
-        with self._connection:
+        with self._handle.write():
             self._create_vector_table(dimensions)
             self._copy_records_to_vector_table(dimensions)
 
@@ -115,7 +116,7 @@ class SqliteVecRetrievalIndex:
         self._validate_record(record)
         self._ensure_vector_table(record.dimensions)
         vector_blob = self._sqlite_vec.serialize_float32(record.vector)
-        with self._connection:
+        with self._handle.write():
             self._delete_one_from_vector_table(
                 space=record.space,
                 source_id=record.source_id,
@@ -160,7 +161,7 @@ class SqliteVecRetrievalIndex:
 
     def clear_space(self, space: str) -> None:
         """Remove all derived Embeddings for a MemorySpace."""
-        with self._connection:
+        with self._handle.write():
             self._connection.execute(
                 f"DELETE FROM {_RECORD_TABLE} WHERE space = ?",
                 (space,),
@@ -173,7 +174,7 @@ class SqliteVecRetrievalIndex:
 
     def delete(self, *, space: str, source_id: str, source_kind: str) -> None:
         """Remove derived Embeddings for one source item."""
-        with self._connection:
+        with self._handle.write():
             self._connection.execute(
                 f"""
                 DELETE FROM {_RECORD_TABLE}
@@ -290,7 +291,7 @@ class SqliteVecRetrievalIndex:
     def _ensure_vector_table(self, dimensions: int) -> None:
         current_dimensions = self._current_dimensions()
         if current_dimensions is None or not self._vector_table_exists():
-            with self._connection:
+            with self._handle.write():
                 self._create_vector_table(dimensions)
             return
         if current_dimensions != dimensions:

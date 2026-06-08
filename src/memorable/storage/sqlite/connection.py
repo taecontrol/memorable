@@ -3,7 +3,10 @@
 from __future__ import annotations
 
 import sqlite3
-from dataclasses import dataclass
+import threading
+from collections.abc import Iterator
+from contextlib import contextmanager
+from dataclasses import dataclass, field
 from pathlib import Path
 
 from memorable.config import RuntimeConfig
@@ -12,12 +15,52 @@ from memorable.storage.sqlite.schema import initialize_schema
 BUSY_TIMEOUT_MS = 5000
 
 
-@dataclass(frozen=True)
+@dataclass
 class SQLiteHandle:
     """Closeable SQLite resource returned to live entry points."""
 
     path: Path
     connection: sqlite3.Connection
+    _write_lock: threading.RLock = field(default_factory=threading.RLock)
+    _transaction_owner: int | None = None
+    _transaction_depth: int = 0
+
+    @contextmanager
+    def atomic_write(self) -> Iterator[None]:
+        """Commit one write scope, or roll back all enlisted writes on failure."""
+        thread_id = threading.get_ident()
+        if self._transaction_owner == thread_id:
+            self._transaction_depth += 1
+            try:
+                yield
+            finally:
+                self._transaction_depth -= 1
+            return
+
+        with self._write_lock:
+            self._transaction_owner = thread_id
+            self._transaction_depth = 1
+            try:
+                self.connection.execute("BEGIN IMMEDIATE")
+                yield
+            except Exception:
+                self.connection.rollback()
+                raise
+            else:
+                self.connection.commit()
+            finally:
+                self._transaction_depth = 0
+                self._transaction_owner = None
+
+    @contextmanager
+    def write(self) -> Iterator[None]:
+        """Write with self-commit unless already enlisted in atomic_write."""
+        if self._transaction_owner == threading.get_ident():
+            yield
+            return
+        with self._write_lock:
+            with self.connection:
+                yield
 
     def close(self) -> None:
         self.connection.close()

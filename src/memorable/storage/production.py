@@ -90,5 +90,7 @@ def _build_sqlite_context(
         forget_repo=SQLiteForgetRepository(handle),
         memory_space_repo=SQLiteMemorySpaceRepository(handle),
         retrieval_index=SqliteVecRetrievalIndex(handle),
+        atomic_write=handle.atomic_write,
+        atomic_write_rolls_back_on_failure=True,
     )
     return ctx, handle
