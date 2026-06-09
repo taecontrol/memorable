@@ -45,6 +45,7 @@ def _sqlite_application_context(tmp_path: Path):
         SQLiteEntityRepository,
         SQLiteMemorySpaceRepository,
         SQLiteObservationRepository,
+        SQLiteTaskRepository,
     )
 
     handle = connect_sqlite(
@@ -54,6 +55,7 @@ def _sqlite_application_context(tmp_path: Path):
         entity_repo=SQLiteEntityRepository(handle),
         decision_repo=SQLiteDecisionRepository(handle),
         observation_repo=SQLiteObservationRepository(handle),
+        task_repo=SQLiteTaskRepository(handle),
         memory_space_repo=SQLiteMemorySpaceRepository(handle),
         atomic_write=handle.atomic_write,
     )
@@ -187,6 +189,103 @@ def _seed_observations_in_every_lifecycle_state(ctx) -> None:
     )
 
 
+def _remember_task(
+    ctx,
+    *,
+    task_id: str,
+    title: str,
+    at: str,
+    record_type: str | None = "FollowUp",
+) -> None:
+    from memorable.core.application import RememberTaskService
+    from memorable.core.clock import FixedClock
+
+    RememberTaskService(
+        repository=ctx.task_repo,
+        profile=ctx.load_profile(),
+        clock=FixedClock(_at(at)),
+    ).remember(
+        space=SPACE,
+        task_id=task_id,
+        title=title,
+        source_id="conversation:task",
+        at=_at(at),
+        writer="agent:test",
+        reason=f"seed {task_id}",
+        record_type=record_type,
+    )
+
+
+def _seed_tasks_in_every_lifecycle_state(ctx) -> None:
+    _remember_task(
+        ctx,
+        task_id="task:open",
+        title="Verify the migrated MemorySpace.",
+        at="2026-06-01T12:00:00Z",
+    )
+    _remember_task(
+        ctx,
+        task_id="task:completed",
+        title="Capture the migration requirements.",
+        at="2026-06-02T12:00:00Z",
+    )
+    ctx.task_repo.complete(
+        space=SPACE,
+        task_id="task:completed",
+        completion_time=_at("2026-06-03T12:00:00Z"),
+        completion_event_id="event:task-completed:source",
+    )
+
+
+def _append_first_application_context():
+    from dataclasses import replace
+
+    from memorable.core.context import ApplicationContext
+    from memorable.core.repositories import InMemoryTaskRepository
+
+    class AppendFirstTaskRepository(InMemoryTaskRepository):
+        def save(self, task, provenance) -> None:
+            if task.lifecycle_state == "completed":
+                task = replace(
+                    task,
+                    lifecycle_state="open",
+                    completion_time=None,
+                    completion_event_id=None,
+                )
+            super().save(task, provenance)
+
+    return ApplicationContext(task_repo=AppendFirstTaskRepository())
+
+
+def _task_read_snapshot(ctx):
+    from memorable.core.application import InspectTaskService
+
+    service = InspectTaskService(ctx.task_repo)
+    tasks = sorted(ctx.task_repo.list_by_space(SPACE), key=lambda task: task.id)
+    provenance = [
+        ctx.task_repo.get_provenance(space=SPACE, task_id=task.id) for task in tasks
+    ]
+    return {
+        "task_ids": [task.id for task in tasks],
+        "open_current": service.inspect(space=SPACE, task_id="task:open"),
+        "completed_current": service.inspect(
+            space=SPACE,
+            task_id="task:completed",
+        ),
+        "completed_before_completion": service.inspect(
+            space=SPACE,
+            task_id="task:completed",
+            as_of=_at("2026-06-03T11:00:00Z"),
+        ),
+        "completed_after_completion": service.inspect(
+            space=SPACE,
+            task_id="task:completed",
+            as_of=_at("2026-06-03T13:00:00Z"),
+        ),
+        "provenance": provenance,
+    }
+
+
 def _temporal_read_snapshot(
     ctx,
     *,
@@ -285,6 +384,7 @@ def test_migrator_copies_space_entities_provenance_without_changing_source() -> 
         "entities": 1,
         "decisions": 0,
         "observations": 0,
+        "tasks": 0,
     }
     assert target.memory_space_repo.get_space("project-alpha") == (
         source.memory_space_repo.get_space("project-alpha")
@@ -338,12 +438,14 @@ def test_round_trip_memory_to_sqlite_to_memory_preserves_spaces_entities_and_pro
         "entities": 2,
         "decisions": 0,
         "observations": 0,
+        "tasks": 0,
     }
     assert second_summary.as_dict() == {
         "memory_spaces": 1,
         "entities": 2,
         "decisions": 0,
         "observations": 0,
+        "tasks": 0,
     }
     assert intermediate_snapshot == source_snapshot
     assert target_snapshot == source_snapshot
@@ -426,6 +528,43 @@ def test_round_trip_preserves_observations_in_every_lifecycle_state(
     assert _observation_read_snapshot(source) == source_snapshot
 
 
+def test_round_trip_preserves_tasks_with_completion_replayed_as_append_first_event(
+    tmp_path: Path,
+) -> None:
+    """Open and completed Tasks survive via the Task read path."""
+    from memorable.core.context import ApplicationContext
+    from memorable.storage.migrate import migrate_memory_space
+
+    source = ApplicationContext()
+    source.memory_space_repo.create_space(SPACE)
+    _seed_tasks_in_every_lifecycle_state(source)
+    source_snapshot = _task_read_snapshot(source)
+
+    sqlite_ctx, sqlite_handle = _sqlite_application_context(tmp_path)
+    try:
+        migrate_memory_space(source=source, target=sqlite_ctx, space=SPACE)
+        target = _append_first_application_context()
+        migrate_memory_space(source=sqlite_ctx, target=target, space=SPACE)
+    finally:
+        sqlite_handle.close()
+
+    assert source_snapshot["open_current"].lifecycle_state == "open"
+    assert source_snapshot["completed_current"].lifecycle_state == "completed"
+    assert source_snapshot["completed_current"].completion_time == _at(
+        "2026-06-03T12:00:00Z"
+    )
+    assert source_snapshot["completed_current"].completion_event_id == (
+        "event:task-completed:source"
+    )
+    assert source_snapshot["completed_before_completion"].lifecycle_state == "open"
+    assert source_snapshot["completed_before_completion"].completion_time is None
+    assert source_snapshot["completed_after_completion"].lifecycle_state == (
+        "completed"
+    )
+    assert _task_read_snapshot(target) == source_snapshot
+    assert _task_read_snapshot(source) == source_snapshot
+
+
 def test_cli_migrate_rejects_existing_target_space_without_changing_either_side(
     capsys,
 ) -> None:
@@ -488,6 +627,7 @@ def test_cli_migrate_prints_summary_and_copies_between_selected_backends(
     _seed_entity(source, space=SPACE)
     _seed_decisions_in_every_lifecycle_state(source)
     _seed_observations_in_every_lifecycle_state(source)
+    _seed_tasks_in_every_lifecycle_state(source)
     source_resource = MagicMock()
     target_resource = MagicMock()
 
@@ -519,6 +659,7 @@ def test_cli_migrate_prints_summary_and_copies_between_selected_backends(
         "entities": 1,
         "decisions": 3,
         "observations": 3,
+        "tasks": 2,
     }
     assert [call.args[0].storage.backend for call in build_context.call_args_list] == [
         "sqlite",
@@ -529,5 +670,6 @@ def test_cli_migrate_prints_summary_and_copies_between_selected_backends(
     )
     assert _decision_read_snapshot(target) == _decision_read_snapshot(source)
     assert _observation_read_snapshot(target) == _observation_read_snapshot(source)
+    assert _task_read_snapshot(target) == _task_read_snapshot(source)
     source_resource.close.assert_called_once_with()
     target_resource.close.assert_called_once_with()

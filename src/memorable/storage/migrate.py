@@ -2,11 +2,11 @@
 
 from __future__ import annotations
 
-from dataclasses import dataclass
+from dataclasses import dataclass, replace
 from typing import Protocol
 
 from memorable.core.context import ApplicationContext
-from memorable.core.models import Provenance, ProvenanceIntegrityError
+from memorable.core.models import Provenance, ProvenanceIntegrityError, Task
 
 
 @dataclass(frozen=True)
@@ -17,6 +17,7 @@ class MigrationSummary:
     entities: int = 0
     decisions: int = 0
     observations: int = 0
+    tasks: int = 0
 
     def as_dict(self) -> dict[str, int]:
         return {
@@ -24,6 +25,7 @@ class MigrationSummary:
             "entities": self.entities,
             "decisions": self.decisions,
             "observations": self.observations,
+            "tasks": self.tasks,
         }
 
 
@@ -60,6 +62,60 @@ def _copy_records_with_provenance[T: _MigratableRecord](
         target_repo.save(record, provenance)
         copied += 1
     return copied
+
+
+def _copy_tasks_with_completion_replay(
+    *,
+    source: ApplicationContext,
+    target: ApplicationContext,
+    space: str,
+) -> int:
+    copied = 0
+    source_tasks = sorted(
+        source.task_repo.list_by_space(space),
+        key=lambda task: task.id,
+    )
+    for task in source_tasks:
+        provenance = source.task_repo.get_provenance(space=space, task_id=task.id)
+        if provenance is None:
+            raise ProvenanceIntegrityError(
+                f"Provenance missing for task '{task.id}' in MemorySpace '{space}'."
+            )
+        if task.lifecycle_state == "completed":
+            _save_task_for_completion_replay(
+                target=target,
+                task=task,
+                provenance=provenance,
+            )
+        else:
+            target.task_repo.save(task, provenance)
+        copied += 1
+    return copied
+
+
+def _save_task_for_completion_replay(
+    *,
+    target: ApplicationContext,
+    task: Task,
+    provenance: Provenance,
+) -> None:
+    if task.completion_time is None or task.completion_event_id is None:
+        raise ValueError(f"Completed Task '{task.id}' is missing completion metadata.")
+    target.task_repo.save(
+        replace(
+            task,
+            lifecycle_state="open",
+            completion_time=None,
+            completion_event_id=None,
+        ),
+        provenance,
+    )
+    target.task_repo.complete(
+        space=task.space,
+        task_id=task.id,
+        completion_time=task.completion_time,
+        completion_event_id=task.completion_event_id,
+    )
 
 
 def migrate_memory_space(
@@ -100,10 +156,16 @@ def migrate_memory_space(
             space=space,
             kind="observation",
         )
+        tasks = _copy_tasks_with_completion_replay(
+            source=source,
+            target=target,
+            space=space,
+        )
 
     return MigrationSummary(
         memory_spaces=1,
         entities=entities,
         decisions=decisions,
         observations=observations,
+        tasks=tasks,
     )
