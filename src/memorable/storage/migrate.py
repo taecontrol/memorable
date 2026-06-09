@@ -3,9 +3,10 @@
 from __future__ import annotations
 
 from dataclasses import dataclass
+from typing import Protocol
 
 from memorable.core.context import ApplicationContext
-from memorable.core.models import ProvenanceIntegrityError
+from memorable.core.models import Provenance, ProvenanceIntegrityError
 
 
 @dataclass(frozen=True)
@@ -14,12 +15,51 @@ class MigrationSummary:
 
     memory_spaces: int = 0
     entities: int = 0
+    decisions: int = 0
+    observations: int = 0
 
     def as_dict(self) -> dict[str, int]:
         return {
             "memory_spaces": self.memory_spaces,
             "entities": self.entities,
+            "decisions": self.decisions,
+            "observations": self.observations,
         }
+
+
+class _MigratableRecord(Protocol):
+    id: str
+
+
+class _MigratableRepository[T: _MigratableRecord](Protocol):
+    def list_by_space(self, space: str) -> list[T]: ...
+
+    def get_provenance(self, space: str, record_id: str) -> Provenance | None: ...
+
+    def save(self, record: T, provenance: Provenance) -> None: ...
+
+
+def _copy_records_with_provenance[T: _MigratableRecord](
+    *,
+    source_repo: _MigratableRepository[T],
+    target_repo: _MigratableRepository[T],
+    space: str,
+    kind: str,
+) -> int:
+    copied = 0
+    source_records = sorted(
+        source_repo.list_by_space(space),
+        key=lambda record: record.id,
+    )
+    for record in source_records:
+        provenance = source_repo.get_provenance(space, record.id)
+        if provenance is None:
+            raise ProvenanceIntegrityError(
+                f"Provenance missing for {kind} '{record.id}' in MemorySpace '{space}'."
+            )
+        target_repo.save(record, provenance)
+        copied += 1
+    return copied
 
 
 def migrate_memory_space(
@@ -28,7 +68,7 @@ def migrate_memory_space(
     target: ApplicationContext,
     space: str,
 ) -> MigrationSummary:
-    """Copy one MemorySpace and its Entities from source ports to target ports."""
+    """Copy one MemorySpace from source ports to target ports."""
     source_space = source.memory_space_repo.get_space(space)
     if source_space is None:
         raise ValueError(f"MemorySpace '{space}' not found in source.")
@@ -39,22 +79,31 @@ def migrate_memory_space(
             "migration requires an empty target space."
         )
 
-    entities = 0
     with target.atomic_write():
         target.memory_space_repo.create_space(source_space.name)
 
-        source_entities = sorted(
-            source.entity_repo.list_by_space(space),
-            key=lambda e: e.id,
+        entities = _copy_records_with_provenance(
+            source_repo=source.entity_repo,
+            target_repo=target.entity_repo,
+            space=space,
+            kind="entity",
         )
-        for entity in source_entities:
-            provenance = source.entity_repo.get_provenance(space, entity.id)
-            if provenance is None:
-                raise ProvenanceIntegrityError(
-                    f"Provenance missing for entity '{entity.id}' "
-                    f"in MemorySpace '{space}'."
-                )
-            target.entity_repo.save(entity, provenance)
-            entities += 1
+        decisions = _copy_records_with_provenance(
+            source_repo=source.decision_repo,
+            target_repo=target.decision_repo,
+            space=space,
+            kind="decision",
+        )
+        observations = _copy_records_with_provenance(
+            source_repo=source.observation_repo,
+            target_repo=target.observation_repo,
+            space=space,
+            kind="observation",
+        )
 
-    return MigrationSummary(memory_spaces=1, entities=entities)
+    return MigrationSummary(
+        memory_spaces=1,
+        entities=entities,
+        decisions=decisions,
+        observations=observations,
+    )
