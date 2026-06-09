@@ -18,7 +18,10 @@ from memorable.core.application import (
 from memorable.core.profile import load_profile_from_yaml
 from memorable.retrieval.index import InMemoryEmbeddingIndex, RetrievalIndex
 from memorable.retrieval.models import EmbeddingRecord
-from memorable.retrieval.service import build_retrieval_service
+from memorable.retrieval.service import (
+    EmbeddingIndexCompatibilityError,
+    build_retrieval_service,
+)
 from memorable.storage.production import build_production_context
 from memorable.storage.sqlite.connection import connect
 from memorable.storage.sqlite.retrieval_index import SqliteVecRetrievalIndex
@@ -53,6 +56,23 @@ class LifecycleMarkerEmbeddingProvider:
         if "invalidated retrieval marker" in lowered:
             return [0.0, 0.0, 1.0]
         return [0.5, 0.5, 0.0]
+
+
+class DimensionedEmbeddingProvider:
+    def __init__(self, dimensions: int) -> None:
+        self._dimensions = dimensions
+
+    @property
+    def provider_name(self) -> str:
+        return "dimensioned-test"
+
+    @property
+    def model_name(self) -> str:
+        return "deterministic-test"
+
+    def embed(self, text: str) -> list[float]:
+        vector = [1.0] + [0.0] * (self._dimensions - 1)
+        return vector
 
 
 def _sqlite_config(tmp_path: Path) -> RuntimeConfig:
@@ -200,7 +220,7 @@ def test_retrieval_index_contract_delete_and_clear_space_remove_embeddings(
     assert retrieval_index.records(space="other-space") == []
 
 
-def test_sqlite_vec_recreate_index_keeps_stored_embeddings_and_rebuilds_dimension(
+def test_sqlite_vec_recreate_index_keeps_records_and_fails_loud_for_old_dimension(
     tmp_path: Path,
 ) -> None:
     handle = connect(_sqlite_config(tmp_path))
@@ -212,14 +232,15 @@ def test_sqlite_vec_recreate_index_keeps_stored_embeddings_and_rebuilds_dimensio
         index.store(_embedding(source_id="decision:new-dim", vector=[1.0, 0.0, 0.0]))
 
         records = index.records(space="test-space")
-        old_dimension_results = index.search(
-            space="test-space",
-            query_vector=[1.0, 0.0],
-            top_k=1,
-            provider_name="provider-a",
-            model_name="model-a",
-            dimensions=2,
-        )
+        with pytest.raises(ValueError) as error:
+            index.search(
+                space="test-space",
+                query_vector=[1.0, 0.0],
+                top_k=1,
+                provider_name="provider-a",
+                model_name="model-a",
+                dimensions=2,
+            )
         new_dimension_results = index.search(
             space="test-space",
             query_vector=[1.0, 0.0, 0.0],
@@ -235,10 +256,68 @@ def test_sqlite_vec_recreate_index_keeps_stored_embeddings_and_rebuilds_dimensio
         "decision:old-dim",
         "decision:new-dim",
     }
-    assert old_dimension_results == []
+    message = str(error.value)
+    assert "SQLite Embedding index was created for 3 dimensions" in message
+    assert "active search needs 2 dimensions" in message
+    assert "memorable reindex --space test-space" in message
     assert [result.source_id for result in new_dimension_results] == [
         "decision:new-dim"
     ]
+
+
+def test_sqlite_search_reports_reindex_when_vector_table_dimension_drifts(
+    tmp_path: Path,
+) -> None:
+    profile = load_profile_from_yaml(PROFILE_YAML)
+    at = datetime(2026, 6, 8, 12, 0, tzinfo=UTC)
+    ctx, resource = build_production_context(_sqlite_config(tmp_path))
+    try:
+        remember_decision = RememberDecisionService(ctx.decision_repo, profile)
+        remember_decision.remember(
+            space="space-b",
+            decision_id="decision:space-b",
+            statement=(
+                "Space B decision should stay searchable after other spaces reindex"
+            ),
+            source_id="source:test",
+            at=at,
+        )
+        remember_decision.remember(
+            space="space-a",
+            decision_id="decision:space-a",
+            statement="Space A reindex changes the physical vector table dimensions",
+            source_id="source:test",
+            at=at,
+        )
+
+        two_dimensional_service = build_retrieval_service(
+            ctx,
+            DimensionedEmbeddingProvider(2),
+            dimensions=2,
+            profile=profile,
+        )
+        three_dimensional_service = build_retrieval_service(
+            ctx,
+            DimensionedEmbeddingProvider(3),
+            dimensions=3,
+            profile=profile,
+        )
+        two_dimensional_service.reindex("space-b")
+        three_dimensional_service.reindex("space-a")
+
+        with pytest.raises(EmbeddingIndexCompatibilityError) as error:
+            two_dimensional_service.search(
+                space="space-b",
+                query="Space B decision should stay searchable",
+            )
+    finally:
+        resource.close()
+
+    message = str(error.value)
+    assert "Embedding index search failed for MemorySpace 'space-b'" in message
+    assert "dimensions 2" in message
+    assert "memorable reindex --space space-b" in message
+    assert "SQLite Embedding index was created for 3 dimensions" in message
 
 
 def test_sqlite_reindex_indexes_superseded_invalidated_and_completed_records(

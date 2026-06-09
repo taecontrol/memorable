@@ -242,9 +242,27 @@ class SqliteVecRetrievalIndex:
         )
         if len(query_vector) != effective_dimensions:
             return []
-        if not self._vector_table_exists():
+        vector_table_exists = self._vector_table_exists()
+        current_dimensions = self._current_dimensions()
+        if not vector_table_exists:
+            self._raise_if_compatible_records_need_physical_index(
+                space=space,
+                provider_name=provider_name,
+                model_name=model_name,
+                dimensions=effective_dimensions,
+                current_dimensions=None,
+                reason="the sqlite-vec table is missing",
+            )
             return []
-        if self._current_dimensions() != effective_dimensions:
+        if current_dimensions != effective_dimensions:
+            self._raise_if_compatible_records_need_physical_index(
+                space=space,
+                provider_name=provider_name,
+                model_name=model_name,
+                dimensions=effective_dimensions,
+                current_dimensions=current_dimensions,
+                reason=None,
+            )
             return []
 
         query_blob = self._sqlite_vec.serialize_float32(query_vector)
@@ -280,6 +298,63 @@ class SqliteVecRetrievalIndex:
             )
             for row in rows
         ]
+
+    def _raise_if_compatible_records_need_physical_index(
+        self,
+        *,
+        space: str,
+        provider_name: str | None,
+        model_name: str | None,
+        dimensions: int,
+        current_dimensions: int | None,
+        reason: str | None,
+    ) -> None:
+        if not self._compatible_record_exists(
+            space=space,
+            provider_name=provider_name,
+            model_name=model_name,
+            dimensions=dimensions,
+        ):
+            return
+        if reason is None and current_dimensions is not None:
+            detail = (
+                "SQLite Embedding index was created for "
+                f"{current_dimensions} dimensions, but active search needs "
+                f"{dimensions} dimensions"
+            )
+        elif reason is None:
+            detail = "SQLite Embedding index dimensions are unknown"
+        else:
+            detail = f"SQLite Embedding index cannot serve active search: {reason}"
+        raise ValueError(
+            f"{detail}. Compatible Embedding records exist for MemorySpace "
+            f"'{space}' using dimensions {dimensions}. Run `memorable reindex "
+            f"--space {space}` to rebuild derived Embeddings for the active "
+            "settings."
+        )
+
+    def _compatible_record_exists(
+        self,
+        *,
+        space: str,
+        provider_name: str | None,
+        model_name: str | None,
+        dimensions: int,
+    ) -> bool:
+        filters = ["space = ?", "dimensions = ?"]
+        values: list[object] = [space, dimensions]
+        if provider_name is not None:
+            filters.append("provider_name = ?")
+            values.append(provider_name)
+        if model_name is not None:
+            filters.append("model_name = ?")
+            values.append(model_name)
+        where = " AND ".join(filters)
+        row = self._connection.execute(
+            f"SELECT 1 FROM {_RECORD_TABLE} WHERE {where} LIMIT 1",
+            tuple(values),
+        ).fetchone()
+        return row is not None
 
     def _record_from_row(self, row: sqlite3.Row) -> EmbeddingRecord:
         return EmbeddingRecord(
