@@ -43,10 +43,12 @@ def _sqlite_application_context(tmp_path: Path):
     from memorable.core.context import ApplicationContext
     from memorable.storage.sqlite.connection import connect as connect_sqlite
     from memorable.storage.sqlite.repository import (
+        SQLiteAboutRepository,
         SQLiteDecisionRepository,
         SQLiteEntityRepository,
         SQLiteMemorySpaceRepository,
         SQLiteObservationRepository,
+        SQLiteRelationRepository,
         SQLiteTaskRepository,
     )
     from memorable.storage.sqlite.retrieval_index import SqliteVecRetrievalIndex
@@ -59,6 +61,8 @@ def _sqlite_application_context(tmp_path: Path):
         decision_repo=SQLiteDecisionRepository(handle),
         observation_repo=SQLiteObservationRepository(handle),
         task_repo=SQLiteTaskRepository(handle),
+        relation_repo=SQLiteRelationRepository(handle),
+        about_repo=SQLiteAboutRepository(handle),
         memory_space_repo=SQLiteMemorySpaceRepository(handle),
         retrieval_index=SqliteVecRetrievalIndex(handle),
         atomic_write=handle.atomic_write,
@@ -86,6 +90,7 @@ def _remember_decision(
     statement: str,
     at: str,
     supersedes: str | None = None,
+    about: list[str] | None = None,
 ) -> None:
     from memorable.core.application import RememberDecisionService
     from memorable.core.clock import FixedClock
@@ -93,6 +98,7 @@ def _remember_decision(
     RememberDecisionService(
         repository=ctx.decision_repo,
         profile=ctx.load_profile(),
+        about_linker=ctx.about_linker(),
         clock=FixedClock(_at(at)),
     ).remember(
         space=SPACE,
@@ -103,6 +109,7 @@ def _remember_decision(
         writer="agent:test",
         reason=f"seed {decision_id}",
         supersedes=supersedes,
+        about=about,
         record_type="ArchitectureDecision",
     )
 
@@ -143,6 +150,7 @@ def _remember_observation(
     statement: str,
     at: str,
     supersedes: str | None = None,
+    about: list[str] | None = None,
 ) -> None:
     from memorable.core.application import RememberObservationService
     from memorable.core.clock import FixedClock
@@ -150,6 +158,7 @@ def _remember_observation(
     RememberObservationService(
         repository=ctx.observation_repo,
         profile=ctx.load_profile(),
+        about_linker=ctx.about_linker(),
         clock=FixedClock(_at(at)),
     ).remember(
         space=SPACE,
@@ -160,6 +169,7 @@ def _remember_observation(
         writer="agent:test",
         reason=f"seed {observation_id}",
         supersedes=supersedes,
+        about=about,
         record_type="GeneralObservation",
     )
 
@@ -193,6 +203,79 @@ def _seed_observations_in_every_lifecycle_state(ctx) -> None:
     )
 
 
+def _remember_relation(
+    ctx,
+    *,
+    relation_id: str,
+    source_entity_id: str,
+    target_entity_id: str,
+    statement: str,
+    at: str,
+    supersedes: str | None = None,
+) -> None:
+    from memorable.core.application import RememberRelationService
+    from memorable.core.clock import FixedClock
+
+    RememberRelationService(
+        relation_repo=ctx.relation_repo,
+        entity_repo=ctx.entity_repo,
+        profile=ctx.load_profile(),
+        clock=FixedClock(_at(at)),
+    ).remember(
+        space=SPACE,
+        relation_id=relation_id,
+        source_entity_id=source_entity_id,
+        target_entity_id=target_entity_id,
+        relation_type="depends-on",
+        statement=statement,
+        source_id="conversation:relation",
+        at=_at(at),
+        writer="agent:test",
+        reason=f"seed {relation_id}",
+        supersedes=supersedes,
+    )
+
+
+def _seed_relation_entities(ctx) -> None:
+    for entity_id in ("entity:memorable", "entity:neo4j", "entity:sqlite"):
+        _seed_entity(ctx, space=SPACE, entity_id=entity_id)
+
+
+def _seed_relations_in_every_lifecycle_state(ctx) -> None:
+    from memorable.core.application import InvalidateService
+
+    _remember_relation(
+        ctx,
+        relation_id="relation:legacy",
+        source_entity_id="entity:memorable",
+        target_entity_id="entity:neo4j",
+        statement="Memorable depends on Neo4j as its only durable backend.",
+        at="2026-06-01T09:00:00Z",
+    )
+    _remember_relation(
+        ctx,
+        relation_id="relation:current",
+        source_entity_id="entity:memorable",
+        target_entity_id="entity:sqlite",
+        statement="Memorable depends on SQLite for embedded storage.",
+        at="2026-06-02T09:00:00Z",
+        supersedes="relation:legacy",
+    )
+    _remember_relation(
+        ctx,
+        relation_id="relation:invalidated",
+        source_entity_id="entity:sqlite",
+        target_entity_id="entity:neo4j",
+        statement="SQLite depends on Neo4j for migration.",
+        at="2026-06-03T09:00:00Z",
+    )
+    InvalidateService(ctx.relation_repo).invalidate(
+        space=SPACE,
+        record_id="relation:invalidated",
+        at=_at("2026-06-04T09:00:00Z"),
+    )
+
+
 def _remember_task(
     ctx,
     *,
@@ -200,6 +283,7 @@ def _remember_task(
     title: str,
     at: str,
     record_type: str | None = "FollowUp",
+    about: list[str] | None = None,
 ) -> None:
     from memorable.core.application import RememberTaskService
     from memorable.core.clock import FixedClock
@@ -207,6 +291,7 @@ def _remember_task(
     RememberTaskService(
         repository=ctx.task_repo,
         profile=ctx.load_profile(),
+        about_linker=ctx.about_linker(),
         clock=FixedClock(_at(at)),
     ).remember(
         space=SPACE,
@@ -216,6 +301,7 @@ def _remember_task(
         at=_at(at),
         writer="agent:test",
         reason=f"seed {task_id}",
+        about=about,
         record_type=record_type,
     )
 
@@ -378,6 +464,7 @@ def _temporal_read_snapshot(
     repo = {
         "decision": ctx.decision_repo,
         "observation": ctx.observation_repo,
+        "relation": ctx.relation_repo,
     }[kind]
     provenance = [
         repo.get_provenance(SPACE, record.id)
@@ -458,6 +545,8 @@ def test_migrator_copies_space_entities_provenance_without_changing_source() -> 
         "decisions": 0,
         "observations": 0,
         "tasks": 0,
+        "relations": 0,
+        "about_links": 0,
         "embeddings": 0,
     }
     assert target.memory_space_repo.get_space("project-alpha") == (
@@ -513,6 +602,8 @@ def test_round_trip_memory_to_sqlite_to_memory_preserves_spaces_entities_and_pro
         "decisions": 0,
         "observations": 0,
         "tasks": 0,
+        "relations": 0,
+        "about_links": 0,
         "embeddings": 0,
     }
     assert second_summary.as_dict() == {
@@ -521,6 +612,8 @@ def test_round_trip_memory_to_sqlite_to_memory_preserves_spaces_entities_and_pro
         "decisions": 0,
         "observations": 0,
         "tasks": 0,
+        "relations": 0,
+        "about_links": 0,
         "embeddings": 0,
     }
     assert intermediate_snapshot == source_snapshot
@@ -604,6 +697,86 @@ def test_round_trip_preserves_observations_in_every_lifecycle_state(
     assert _observation_read_snapshot(source) == source_snapshot
 
 
+def _relation_read_snapshot(ctx):
+    snapshot = _temporal_read_snapshot(
+        ctx,
+        kind="relation",
+        root_id="relation:legacy",
+        invalidated_id="relation:invalidated",
+        before_supersession="2026-06-01T12:00:00Z",
+        after_supersession="2026-06-02T12:00:00Z",
+        after_invalidation="2026-06-05T12:00:00Z",
+    )
+    snapshot["relations_by_entity"] = sorted(
+        ctx.relation_repo.list_by_entity(SPACE, "entity:memorable"),
+        key=lambda relation: relation.id,
+    )
+    return snapshot
+
+
+def _seed_about_records(ctx) -> None:
+    _remember_decision(
+        ctx,
+        decision_id="decision:about-migration",
+        statement="Migration preserves About membership.",
+        at="2026-06-01T13:00:00Z",
+        about=["entity:memorable", "entity:sqlite"],
+    )
+    _remember_observation(
+        ctx,
+        observation_id="observation:about-migration",
+        statement="About links remain symmetric after migration.",
+        at="2026-06-01T14:00:00Z",
+        about=["entity:neo4j"],
+    )
+    _remember_task(
+        ctx,
+        task_id="task:about-migration",
+        title="Verify migrated About links.",
+        at="2026-06-01T15:00:00Z",
+        about=["entity:memorable"],
+    )
+
+
+def _record_ids_that_may_have_about(ctx) -> list[str]:
+    return sorted(
+        record.id
+        for records in (
+            ctx.decision_repo.list_by_space(SPACE),
+            ctx.observation_repo.list_by_space(SPACE),
+            ctx.task_repo.list_by_space(SPACE),
+            ctx.relation_repo.list_by_space(SPACE),
+        )
+        for record in records
+    )
+
+
+def _about_snapshot(ctx):
+    record_to_entities = {
+        record_id: ctx.about_repo.entities_for_record(SPACE, record_id)
+        for record_id in _record_ids_that_may_have_about(ctx)
+    }
+    entity_to_records = {
+        entity.id: ctx.about_repo.records_for_entity(SPACE, entity.id)
+        for entity in sorted(
+            ctx.entity_repo.list_by_space(SPACE),
+            key=lambda entity: entity.id,
+        )
+    }
+    return {
+        "entities_for_record": {
+            record_id: entity_ids
+            for record_id, entity_ids in record_to_entities.items()
+            if entity_ids
+        },
+        "records_for_entity": {
+            entity_id: record_ids
+            for entity_id, record_ids in entity_to_records.items()
+            if record_ids
+        },
+    }
+
+
 def test_round_trip_preserves_tasks_with_completion_replayed_as_append_first_event(
     tmp_path: Path,
 ) -> None:
@@ -639,6 +812,92 @@ def test_round_trip_preserves_tasks_with_completion_replayed_as_append_first_eve
     )
     assert _task_read_snapshot(target) == source_snapshot
     assert _task_read_snapshot(source) == source_snapshot
+
+
+def test_round_trip_preserves_relations_in_every_lifecycle_state(
+    tmp_path: Path,
+) -> None:
+    """Relation truth, endpoints, supersession, and provenance survive."""
+    from memorable.core.context import ApplicationContext
+    from memorable.storage.migrate import migrate_memory_space
+
+    source = ApplicationContext()
+    source.memory_space_repo.create_space(SPACE)
+    _seed_relation_entities(source)
+    _seed_relations_in_every_lifecycle_state(source)
+    source_snapshot = _relation_read_snapshot(source)
+
+    sqlite_ctx, sqlite_handle = _sqlite_application_context(tmp_path)
+    try:
+        migrate_memory_space(source=source, target=sqlite_ctx, space=SPACE)
+        target = ApplicationContext()
+        migrate_memory_space(source=sqlite_ctx, target=target, space=SPACE)
+    finally:
+        sqlite_handle.close()
+
+    assert [record.lifecycle_state for record in source_snapshot["history"]] == [
+        "superseded",
+        "current",
+    ]
+    assert source_snapshot["current"].id == "relation:current"
+    assert source_snapshot["point_in_time_before_supersession"].target_entity_id == (
+        "entity:neo4j"
+    )
+    assert source_snapshot["point_in_time_after_supersession"].target_entity_id == (
+        "entity:sqlite"
+    )
+    assert source_snapshot["invalidated_point_in_time"].lifecycle_state == (
+        "invalidated"
+    )
+    assert _relation_read_snapshot(target) == source_snapshot
+    assert _relation_read_snapshot(source) == source_snapshot
+
+
+def test_round_trip_preserves_about_links_symmetrically_after_records_exist(
+    tmp_path: Path,
+) -> None:
+    """About membership survives after its target records and Entities exist."""
+    from memorable.core.context import ApplicationContext
+    from memorable.storage.migrate import migrate_memory_space
+
+    source = ApplicationContext()
+    source.memory_space_repo.create_space(SPACE)
+    _seed_relation_entities(source)
+    _seed_about_records(source)
+    source_snapshot = _about_snapshot(source)
+
+    sqlite_ctx, sqlite_handle = _sqlite_application_context(tmp_path)
+    try:
+        first_summary = migrate_memory_space(
+            source=source,
+            target=sqlite_ctx,
+            space=SPACE,
+        )
+        target = ApplicationContext()
+        second_summary = migrate_memory_space(
+            source=sqlite_ctx,
+            target=target,
+            space=SPACE,
+        )
+    finally:
+        sqlite_handle.close()
+
+    assert source_snapshot == {
+        "entities_for_record": {
+            "decision:about-migration": ["entity:memorable", "entity:sqlite"],
+            "observation:about-migration": ["entity:neo4j"],
+            "task:about-migration": ["entity:memorable"],
+        },
+        "records_for_entity": {
+            "entity:memorable": ["decision:about-migration", "task:about-migration"],
+            "entity:neo4j": ["observation:about-migration"],
+            "entity:sqlite": ["decision:about-migration"],
+        },
+    }
+    assert _about_snapshot(target) == source_snapshot
+    assert _about_snapshot(source) == source_snapshot
+    assert first_summary.as_dict()["about_links"] == 4
+    assert second_summary.as_dict()["about_links"] == 4
 
 
 def test_round_trip_preserves_embeddings_verbatim_and_searchable(
@@ -739,10 +998,12 @@ def test_cli_migrate_prints_summary_and_copies_between_selected_backends(
     source = ApplicationContext()
     target = ApplicationContext()
     source.memory_space_repo.create_space(SPACE)
-    _seed_entity(source, space=SPACE)
+    _seed_relation_entities(source)
     _seed_decisions_in_every_lifecycle_state(source)
     _seed_observations_in_every_lifecycle_state(source)
     _seed_tasks_in_every_lifecycle_state(source)
+    _seed_relations_in_every_lifecycle_state(source)
+    _seed_about_records(source)
     _seed_embeddings(source)
     source_resource = MagicMock()
     target_resource = MagicMock()
@@ -772,10 +1033,12 @@ def test_cli_migrate_prints_summary_and_copies_between_selected_backends(
         "to": "neo4j",
         "space": SPACE,
         "memory_spaces": 1,
-        "entities": 1,
-        "decisions": 3,
-        "observations": 3,
-        "tasks": 2,
+        "entities": 3,
+        "decisions": 4,
+        "observations": 4,
+        "tasks": 3,
+        "relations": 3,
+        "about_links": 4,
         "embeddings": 2,
     }
     assert [call.args[0].storage.backend for call in build_context.call_args_list] == [
@@ -788,6 +1051,8 @@ def test_cli_migrate_prints_summary_and_copies_between_selected_backends(
     assert _decision_read_snapshot(target) == _decision_read_snapshot(source)
     assert _observation_read_snapshot(target) == _observation_read_snapshot(source)
     assert _task_read_snapshot(target) == _task_read_snapshot(source)
+    assert _relation_read_snapshot(target) == _relation_read_snapshot(source)
+    assert _about_snapshot(target) == _about_snapshot(source)
     assert _embedding_snapshot(target) == _embedding_snapshot(source)
     source_resource.close.assert_called_once_with()
     target_resource.close.assert_called_once_with()

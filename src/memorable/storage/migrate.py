@@ -18,6 +18,8 @@ class MigrationSummary:
     decisions: int = 0
     observations: int = 0
     tasks: int = 0
+    relations: int = 0
+    about_links: int = 0
     embeddings: int = 0
 
     def as_dict(self) -> dict[str, int]:
@@ -27,6 +29,8 @@ class MigrationSummary:
             "decisions": self.decisions,
             "observations": self.observations,
             "tasks": self.tasks,
+            "relations": self.relations,
+            "about_links": self.about_links,
             "embeddings": self.embeddings,
         }
 
@@ -120,6 +124,33 @@ def _save_task_for_completion_replay(
     )
 
 
+def _copy_about_links(
+    *,
+    source: ApplicationContext,
+    target: ApplicationContext,
+    space: str,
+) -> int:
+    copied = 0
+    record_ids = sorted(
+        record.id
+        for records in (
+            source.decision_repo.list_by_space(space),
+            source.observation_repo.list_by_space(space),
+            source.task_repo.list_by_space(space),
+            source.relation_repo.list_by_space(space),
+        )
+        for record in records
+    )
+    about_linker = target.about_linker()
+    for record_id in record_ids:
+        entity_ids = source.about_repo.entities_for_record(space, record_id)
+        if not entity_ids:
+            continue
+        about_linker.link(space=space, record_id=record_id, entity_ids=entity_ids)
+        copied += len(entity_ids)
+    return copied
+
+
 def _copy_embeddings(
     *,
     source: ApplicationContext,
@@ -186,6 +217,17 @@ def migrate_memory_space(
             target=target,
             space=space,
         )
+        relations = _copy_records_with_provenance(
+            source_repo=source.relation_repo,
+            target_repo=target.relation_repo,
+            space=space,
+            kind="relation",
+        )
+        about_links = _copy_about_links(
+            source=source,
+            target=target,
+            space=space,
+        )
         embeddings = _copy_embeddings(
             source=source,
             target=target,
@@ -198,5 +240,7 @@ def migrate_memory_space(
         decisions=decisions,
         observations=observations,
         tasks=tasks,
+        relations=relations,
+        about_links=about_links,
         embeddings=embeddings,
     )
