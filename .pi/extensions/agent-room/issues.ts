@@ -57,11 +57,12 @@ export function issueRefs(text: string): number[] {
 }
 
 export function isChildOfPrd(issue: Issue, prdNumber: number): boolean {
-	const text = issueText(issue);
-	if (new RegExp(`\\bParent:\\s*#${prdNumber}\\b`, "i").test(text)) return true;
+	// Only an explicit parent declaration in the issue body counts. A bare
+	// mention of #<prd> is not parentage — PRDs and slices of other PRDs
+	// cross-reference each other all the time.
+	const body = issueBody(issue);
+	if (new RegExp(`\\bParent:\\s*#${prdNumber}\\b`, "i").test(body)) return true;
 
-	const parentSection = extractMarkdownSection(text, "Parent");
-	if (parentSection && issueRefs(parentSection).includes(prdNumber)) return true;
-
-	return issueRefs(text).includes(prdNumber);
+	const parentSection = extractMarkdownSection(body, "Parent");
+	return parentSection !== undefined && issueRefs(parentSection).includes(prdNumber);
 }
