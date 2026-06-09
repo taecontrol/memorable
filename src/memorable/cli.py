@@ -4,10 +4,11 @@ import argparse
 import json
 import sys
 from collections.abc import Callable, Sequence
+from dataclasses import replace
 from pathlib import Path
 from typing import TYPE_CHECKING, Literal, cast
 
-from memorable.config import RuntimeConfig, load_runtime_config
+from memorable.config import RuntimeConfig, StorageSettings, load_runtime_config
 from memorable.core.application import (
     CompleteTaskService,
     CorrectService,
@@ -48,6 +49,7 @@ from memorable.runtime.docker import is_remote_uri
 from memorable.runtime.docker import start as docker_start
 from memorable.runtime.docker import stop as docker_stop
 from memorable.runtime.doctor import all_checks_passed, run_diagnostics
+from memorable.storage.migrate import migrate_memory_space
 from memorable.storage.neo4j.repository import ensure_all_constraints
 from memorable.storage.production import build_production_context
 
@@ -1564,6 +1566,80 @@ def _cmd_forget(
     return 0
 
 
+MigrationBackend = Literal["neo4j", "sqlite", "memory"]
+RuntimeStorageBackend = Literal["neo4j", "sqlite"]
+
+
+class _NoopMigrationResource:
+    def close(self) -> None:
+        return None
+
+
+def _build_migration_context(
+    config: RuntimeConfig,
+    backend: MigrationBackend,
+) -> tuple[ApplicationContext, object]:
+    if backend == "memory":
+        return ApplicationContext(), _NoopMigrationResource()
+    backend_config = replace(
+        config,
+        storage=StorageSettings(
+            backend=cast(RuntimeStorageBackend, backend),
+        ),
+    )
+    return build_production_context(backend_config)
+
+
+def _cmd_migrate(args: argparse.Namespace) -> int:
+    """Copy one MemorySpace between selected storage backends."""
+    space = resolve_space(getattr(args, "space", None))
+    config = load_runtime_config(include_environment_overrides=True)
+    source_resource: object | None = None
+    target_resource: object | None = None
+
+    try:
+        source_ctx, source_resource = _build_migration_context(
+            config,
+            args.from_backend,
+        )
+        target_ctx, target_resource = _build_migration_context(
+            config,
+            args.to_backend,
+        )
+    except ConnectionError as e:
+        print(f"Error: {e}", file=sys.stderr)
+        return 1
+    finally:
+        if target_resource is None and source_resource is not None:
+            source_resource.close()
+
+    try:
+        summary = migrate_memory_space(
+            source=source_ctx,
+            target=target_ctx,
+            space=space,
+        )
+    except (ProvenanceIntegrityError, ValueError) as e:
+        print(f"Error: {e}", file=sys.stderr)
+        return 1
+    finally:
+        target_resource.close()
+        source_resource.close()
+
+    print(
+        json.dumps(
+            {
+                "from": args.from_backend,
+                "to": args.to_backend,
+                "space": space,
+                **summary.as_dict(),
+            },
+            sort_keys=True,
+        )
+    )
+    return 0
+
+
 # =====================================================================
 # Dispatch helpers
 # =====================================================================
@@ -1708,6 +1784,26 @@ def main(argv: list[str] | None = None) -> int:
         default=None,
         help="Base directory containing .memorable/memory.yaml (default: cwd).",
     )
+
+    migrate_parser = subparsers.add_parser(
+        "migrate",
+        help="Copy a MemorySpace between storage backends.",
+    )
+    migrate_parser.add_argument(
+        "--from",
+        dest="from_backend",
+        required=True,
+        choices=["neo4j", "sqlite", "memory"],
+        help="Source backend to read from.",
+    )
+    migrate_parser.add_argument(
+        "--to",
+        dest="to_backend",
+        required=True,
+        choices=["neo4j", "sqlite", "memory"],
+        help="Target backend to write to.",
+    )
+    migrate_parser.add_argument("--space", default=None)
 
     # remember entity subcommand
     remember_parser = subparsers.add_parser(
@@ -2020,6 +2116,8 @@ def main(argv: list[str] | None = None) -> int:
         if args.profile_type == "show":
             return _cmd_profile_show(args)
         raise AssertionError(f"unhandled profile command: {args.profile_type}")
+    elif args.command == "migrate":
+        return _cmd_migrate(args)
     elif args.command == "tracer":
         if args.tracer_type == "run":
             return _cmd_tracer_run(args)
