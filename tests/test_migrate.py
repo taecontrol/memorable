@@ -5,6 +5,8 @@ from datetime import UTC, datetime
 from pathlib import Path
 from unittest.mock import MagicMock, patch
 
+from memorable.retrieval.models import EmbeddingRecord
+
 SPACE = "project-alpha"
 
 
@@ -47,6 +49,7 @@ def _sqlite_application_context(tmp_path: Path):
         SQLiteObservationRepository,
         SQLiteTaskRepository,
     )
+    from memorable.storage.sqlite.retrieval_index import SqliteVecRetrievalIndex
 
     handle = connect_sqlite(
         RuntimeConfig(base_path=tmp_path, sqlite=SQLiteSettings(path="roundtrip.db"))
@@ -57,6 +60,7 @@ def _sqlite_application_context(tmp_path: Path):
         observation_repo=SQLiteObservationRepository(handle),
         task_repo=SQLiteTaskRepository(handle),
         memory_space_repo=SQLiteMemorySpaceRepository(handle),
+        retrieval_index=SqliteVecRetrievalIndex(handle),
         atomic_write=handle.atomic_write,
     )
     return ctx, handle
@@ -286,6 +290,75 @@ def _task_read_snapshot(ctx):
     }
 
 
+def _embedding(
+    *,
+    source_id: str,
+    source_kind: str,
+    vector: list[float],
+    text: str,
+) -> EmbeddingRecord:
+    return EmbeddingRecord(
+        source_id=source_id,
+        source_kind=source_kind,
+        space=SPACE,
+        indexable_text=text,
+        vector=vector,
+        provider_name="verbatim-provider",
+        model_name="verbatim-model",
+        dimensions=3,
+        indexable_text_hash=f"hash:{source_id}",
+        indexable_text_version="2026-06-09",
+        created_at=_at("2026-06-04T12:00:00.123456Z"),
+        updated_at=_at("2026-06-05T12:00:00.654321Z"),
+    )
+
+
+def _seed_embeddings(ctx) -> None:
+    ctx.retrieval_index.store(
+        _embedding(
+            source_id="entity:memorable",
+            source_kind="Entity",
+            vector=[1.0, 0.0, 0.0],
+            text="Entity: Memorable project-scoped memory.",
+        )
+    )
+    ctx.retrieval_index.store(
+        _embedding(
+            source_id="decision:current",
+            source_kind="Decision",
+            vector=[0.0, 1.0, 0.0],
+            text="Decision: copy Embeddings verbatim during migration.",
+        )
+    )
+
+
+def _embedding_snapshot(ctx):
+    return sorted(
+        ctx.retrieval_index.records(space=SPACE),
+        key=lambda record: (
+            record.source_kind,
+            record.source_id,
+            record.provider_name,
+            record.model_name,
+            record.dimensions,
+        ),
+    )
+
+
+def _embedding_search_ids(ctx, query_vector: list[float]) -> list[str]:
+    return [
+        candidate.source_id
+        for candidate in ctx.retrieval_index.search(
+            space=SPACE,
+            query_vector=query_vector,
+            top_k=1,
+            provider_name="verbatim-provider",
+            model_name="verbatim-model",
+            dimensions=3,
+        )
+    ]
+
+
 def _temporal_read_snapshot(
     ctx,
     *,
@@ -385,6 +458,7 @@ def test_migrator_copies_space_entities_provenance_without_changing_source() -> 
         "decisions": 0,
         "observations": 0,
         "tasks": 0,
+        "embeddings": 0,
     }
     assert target.memory_space_repo.get_space("project-alpha") == (
         source.memory_space_repo.get_space("project-alpha")
@@ -439,6 +513,7 @@ def test_round_trip_memory_to_sqlite_to_memory_preserves_spaces_entities_and_pro
         "decisions": 0,
         "observations": 0,
         "tasks": 0,
+        "embeddings": 0,
     }
     assert second_summary.as_dict() == {
         "memory_spaces": 1,
@@ -446,6 +521,7 @@ def test_round_trip_memory_to_sqlite_to_memory_preserves_spaces_entities_and_pro
         "decisions": 0,
         "observations": 0,
         "tasks": 0,
+        "embeddings": 0,
     }
     assert intermediate_snapshot == source_snapshot
     assert target_snapshot == source_snapshot
@@ -565,6 +641,45 @@ def test_round_trip_preserves_tasks_with_completion_replayed_as_append_first_eve
     assert _task_read_snapshot(source) == source_snapshot
 
 
+def test_round_trip_preserves_embeddings_verbatim_and_searchable(
+    tmp_path: Path,
+) -> None:
+    """Stored Embeddings survive migration without vector or metadata drift."""
+    from memorable.core.context import ApplicationContext
+    from memorable.storage.migrate import migrate_memory_space
+
+    source = ApplicationContext()
+    source.memory_space_repo.create_space(SPACE)
+    _seed_entity(source, space=SPACE)
+    _remember_decision(
+        source,
+        decision_id="decision:current",
+        statement="Copy stored Embeddings verbatim during migration.",
+        at="2026-06-02T10:00:00Z",
+    )
+    _seed_embeddings(source)
+    source_snapshot = _embedding_snapshot(source)
+
+    sqlite_ctx, sqlite_handle = _sqlite_application_context(tmp_path)
+    try:
+        migrate_memory_space(source=source, target=sqlite_ctx, space=SPACE)
+        intermediate_snapshot = _embedding_snapshot(sqlite_ctx)
+        intermediate_search_ids = _embedding_search_ids(sqlite_ctx, [1.0, 0.0, 0.0])
+
+        target = ApplicationContext()
+        migrate_memory_space(source=sqlite_ctx, target=target, space=SPACE)
+        target_snapshot = _embedding_snapshot(target)
+        target_search_ids = _embedding_search_ids(target, [0.0, 1.0, 0.0])
+    finally:
+        sqlite_handle.close()
+
+    assert intermediate_snapshot == source_snapshot
+    assert target_snapshot == source_snapshot
+    assert intermediate_search_ids == ["entity:memorable"]
+    assert target_search_ids == ["decision:current"]
+    assert _embedding_snapshot(source) == source_snapshot
+
+
 def test_cli_migrate_rejects_existing_target_space_without_changing_either_side(
     capsys,
 ) -> None:
@@ -628,6 +743,7 @@ def test_cli_migrate_prints_summary_and_copies_between_selected_backends(
     _seed_decisions_in_every_lifecycle_state(source)
     _seed_observations_in_every_lifecycle_state(source)
     _seed_tasks_in_every_lifecycle_state(source)
+    _seed_embeddings(source)
     source_resource = MagicMock()
     target_resource = MagicMock()
 
@@ -660,6 +776,7 @@ def test_cli_migrate_prints_summary_and_copies_between_selected_backends(
         "decisions": 3,
         "observations": 3,
         "tasks": 2,
+        "embeddings": 2,
     }
     assert [call.args[0].storage.backend for call in build_context.call_args_list] == [
         "sqlite",
@@ -671,5 +788,6 @@ def test_cli_migrate_prints_summary_and_copies_between_selected_backends(
     assert _decision_read_snapshot(target) == _decision_read_snapshot(source)
     assert _observation_read_snapshot(target) == _observation_read_snapshot(source)
     assert _task_read_snapshot(target) == _task_read_snapshot(source)
+    assert _embedding_snapshot(target) == _embedding_snapshot(source)
     source_resource.close.assert_called_once_with()
     target_resource.close.assert_called_once_with()

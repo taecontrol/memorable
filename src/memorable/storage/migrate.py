@@ -18,6 +18,7 @@ class MigrationSummary:
     decisions: int = 0
     observations: int = 0
     tasks: int = 0
+    embeddings: int = 0
 
     def as_dict(self) -> dict[str, int]:
         return {
@@ -26,6 +27,7 @@ class MigrationSummary:
             "decisions": self.decisions,
             "observations": self.observations,
             "tasks": self.tasks,
+            "embeddings": self.embeddings,
         }
 
 
@@ -118,6 +120,29 @@ def _save_task_for_completion_replay(
     )
 
 
+def _copy_embeddings(
+    *,
+    source: ApplicationContext,
+    target: ApplicationContext,
+    space: str,
+) -> int:
+    copied = 0
+    source_embeddings = sorted(
+        source.retrieval_index.records(space=space),
+        key=lambda record: (
+            record.source_kind,
+            record.source_id,
+            record.provider_name,
+            record.model_name,
+            record.dimensions,
+        ),
+    )
+    for record in source_embeddings:
+        target.retrieval_index.store(record)
+        copied += 1
+    return copied
+
+
 def migrate_memory_space(
     *,
     source: ApplicationContext,
@@ -161,6 +186,11 @@ def migrate_memory_space(
             target=target,
             space=space,
         )
+        embeddings = _copy_embeddings(
+            source=source,
+            target=target,
+            space=space,
+        )
 
     return MigrationSummary(
         memory_spaces=1,
@@ -168,4 +198,5 @@ def migrate_memory_space(
         decisions=decisions,
         observations=observations,
         tasks=tasks,
+        embeddings=embeddings,
     )
