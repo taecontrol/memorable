@@ -13,6 +13,44 @@ def _squash(text: str) -> str:
     return " ".join(text.split())
 
 
+def test_readme_install_docs_explain_supported_sqlite_vec_interpreters() -> None:
+    readme = _read("README.md")
+    install = readme.split("## Install", 1)[1].split("## Quickstart", 1)[0]
+    install_words = _squash(install)
+
+    assert "uvx --from memorable-kg memorable --help" in install
+    assert "uv tool install memorable-kg" in install
+    assert "recommended install path" in install_words
+    assert "uv-managed CPython" in install_words
+    assert "python-build-standalone" in install_words
+    assert "loadable SQLite extensions" in install_words
+    assert "python.org-macOS" in install_words
+    assert "macOS-system" in install_words
+    assert "default-pyenv" in install_words
+    assert (
+        "sqlite-vec cannot load for the SQLite backend on this interpreter" in install
+    )
+    assert (
+        "Use a uv-managed, Homebrew, conda-forge, or Windows >= 3.11 Python "
+        "interpreter, or select the Neo4j backend" in install_words
+    )
+    assert "No numpy/brute-force production fallback is used" in install
+    assert "switch interpreter" in install_words
+    assert "select the Neo4j backend" in install_words
+    assert "sqlite-vec is replaceable, not load-bearing" in install_words
+    assert "Embeddings are derived" in install_words
+    assert "memorable reindex" in install_words
+    assert "no canonical memory is at risk" in install_words
+    assert (
+        "documented replacement design is a numpy/BLOB brute-force adapter"
+        in install_words
+    )
+    assert "future adapter / swap path" in install_words
+    assert "same `RetrievalIndex` port" in install_words
+    assert "not a current shipped implementation" in install_words
+    assert "backs the in-memory test index" not in install_words
+
+
 def test_readme_documents_neo4j_database_selector_for_owners() -> None:
     readme = _read("README.md")
     readme_words = _squash(readme)

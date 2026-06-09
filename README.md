@@ -19,6 +19,11 @@ default, with Neo4j available when you explicitly select a server backend.
 
 ## Install
 
+The recommended install path is `uvx` for one-shot use or `uv tool install` for
+a persistent CLI. Both use uv-managed CPython (python-build-standalone), whose
+SQLite build enables loadable SQLite extensions, so the embedded SQLite default
+and its `sqlite-vec` vector index load out of the box.
+
 Run it as a one-shot tool with `uvx`:
 
 ```bash
@@ -37,6 +42,35 @@ install — if you prefer `uvx`, prefix each command with `uvx --from memorable-
 
 Requirements: Python 3.14+, and Docker (only if you use the bundled local Neo4j;
 not needed when you point Memorable at a remote/cloud Neo4j).
+
+### SQLite vector extension compatibility
+
+For extension loading, the `sqlite-vec` probe treats uv-managed, Homebrew,
+conda-forge, and Windows >= 3.11 Python as known-good; Memorable itself still
+requires Python 3.14+. Known-bad interpreters include python.org-macOS,
+macOS-system, and default-pyenv builds, which usually link a SQLite library with
+extension loading disabled.
+
+On a known-bad interpreter, Memorable fails at SQLite-backend construction with
+this actionable probe error:
+
+```text
+sqlite-vec cannot load for the SQLite backend on this interpreter. Use a uv-managed, Homebrew, conda-forge, or Windows >= 3.11 Python interpreter, or select the Neo4j backend. No numpy/brute-force production fallback is used. Original error: <cause>
+```
+
+To fix it, switch interpreter via `uvx` / `uv tool install`, Homebrew,
+conda-forge, or Windows >= 3.11 Python; or select the Neo4j backend explicitly.
+
+### sqlite-vec risk posture
+
+sqlite-vec is replaceable, not load-bearing. Embeddings are derived retrieval
+infrastructure: if the sqlite-vec format breaks or the dependency stalls, run
+`memorable reindex` to rebuild Embeddings into a different adapter; no canonical
+memory is at risk.
+
+The documented replacement design is a numpy/BLOB brute-force adapter behind
+the same `RetrievalIndex` port. Treat it as a future adapter / swap path, not a
+current shipped implementation and not a silent production fallback.
 
 ## Quickstart
 
