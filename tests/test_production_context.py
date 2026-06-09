@@ -1,15 +1,20 @@
 """Tests for the production context factory.
 
-Verifies that build_production_context creates a Neo4j driver,
-wires all four Neo4j repositories into ApplicationContext,
-and fails fast when Neo4j is unreachable.
+Verifies that build_production_context defaults to embedded SQLite, keeps
+explicit Neo4j wiring selectable, and closes returned resources.
 """
 
 from __future__ import annotations
 
 from unittest.mock import MagicMock, patch
 
-from memorable.config import RuntimeConfig
+from memorable.config import Neo4jSettings, RuntimeConfig, StorageSettings
+
+
+def _neo4j_runtime_config(*, neo4j: Neo4jSettings | None = None) -> RuntimeConfig:
+    if neo4j is None:
+        return RuntimeConfig(storage=StorageSettings(backend="neo4j"))
+    return RuntimeConfig(storage=StorageSettings(backend="neo4j"), neo4j=neo4j)
 
 
 def _make_mock_driver() -> MagicMock:
@@ -19,26 +24,31 @@ def _make_mock_driver() -> MagicMock:
     return driver
 
 
-def test_build_production_context_returns_context_and_driver() -> None:
-    """build_production_context returns a tuple of (ApplicationContext, driver)."""
+def test_build_production_context_defaults_to_sqlite_backend(tmp_path) -> None:
+    """Default production construction uses the embedded SQLite backend."""
+    from memorable.config import load_runtime_config
     from memorable.core.context import ApplicationContext
     from memorable.storage.production import build_production_context
+    from memorable.storage.sqlite.connection import SQLiteHandle
+    from memorable.storage.sqlite.retrieval_index import SqliteVecRetrievalIndex
 
-    config = RuntimeConfig()
+    config = load_runtime_config(base_path=tmp_path)
 
     with patch("memorable.storage.neo4j.connection.GraphDatabase") as mock_gdb:
-        mock_driver = _make_mock_driver()
-        mock_gdb.driver.return_value = mock_driver
+        ctx, resource = build_production_context(config)
 
-        ctx, driver = build_production_context(config)
-
-    assert isinstance(ctx, ApplicationContext)
-    driver.close()
-    mock_driver.close.assert_called_once()
+    try:
+        assert isinstance(ctx, ApplicationContext)
+        assert isinstance(resource, SQLiteHandle)
+        assert isinstance(ctx.retrieval_index, SqliteVecRetrievalIndex)
+        assert resource.path == tmp_path / ".memorable" / "memory.db"
+        mock_gdb.driver.assert_not_called()
+    finally:
+        resource.close()
 
 
 def test_build_production_context_wires_all_neo4j_repos() -> None:
-    """All five repository slots use Neo4j adapters, not in-memory."""
+    """Explicit Neo4j selection wires Neo4j adapters, not in-memory."""
     from memorable.storage.neo4j.repository import (
         Neo4jAboutRepository,
         Neo4jDecisionRepository,
@@ -49,7 +59,7 @@ def test_build_production_context_wires_all_neo4j_repos() -> None:
     )
     from memorable.storage.production import build_production_context
 
-    config = RuntimeConfig()
+    config = _neo4j_runtime_config()
 
     with patch("memorable.storage.neo4j.connection.GraphDatabase") as mock_gdb:
         mock_driver = _make_mock_driver()
@@ -65,12 +75,91 @@ def test_build_production_context_wires_all_neo4j_repos() -> None:
     assert isinstance(ctx.memory_space_repo, Neo4jMemorySpaceRepository)
 
 
-def test_build_production_context_wires_sqlite_implemented_repos_and_placeholders(
+def test_no_config_construction_supports_sqlite_store_search_and_reindex(
     tmp_path,
 ) -> None:
-    """SQLite selection wires implemented ports and clear placeholders."""
+    """No runtime storage config yields working embedded retrieval, no server."""
+    from datetime import UTC, datetime
+
+    from memorable.config import load_runtime_config
+    from memorable.core.application import RememberEntityService
+    from memorable.core.profile import load_profile_from_yaml
+    from memorable.retrieval.service import build_retrieval_service
+    from memorable.storage.production import build_production_context
+
+    class KeywordEmbeddingProvider:
+        @property
+        def provider_name(self) -> str:
+            return "default-sqlite-test"
+
+        @property
+        def model_name(self) -> str:
+            return "keyword"
+
+        def embed(self, text: str) -> list[float]:
+            if "needle" in text.lower():
+                return [1.0, 0.0]
+            return [0.0, 1.0]
+
+    profile = load_profile_from_yaml(
+        """
+version: 1
+space:
+  name: default-space
+  description: Default SQLite production construction
+entities:
+  - name: Component
+"""
+    )
+    config = load_runtime_config(base_path=tmp_path)
+    provider = KeywordEmbeddingProvider()
+    at = datetime(2026, 6, 8, 12, 0, tzinfo=UTC)
+
+    with patch(
+        "memorable.storage.neo4j.connection.GraphDatabase",
+        side_effect=AssertionError("default construction must not open Neo4j"),
+    ):
+        ctx, resource = build_production_context(config)
+
+    try:
+        remember = RememberEntityService(ctx.entity_repo, profile)
+        remember.remember(
+            space="default-space",
+            entity_id="entity:needle",
+            entity_type="Component",
+            name="Needle Service",
+            source_id="source:test",
+            at=at,
+        )
+        remember.remember(
+            space="default-space",
+            entity_id="entity:haystack",
+            entity_type="Component",
+            name="Haystack Service",
+            source_id="source:test",
+            at=at,
+        )
+
+        service = build_retrieval_service(ctx, provider, dimensions=2, profile=profile)
+        reindex_result = service.reindex("default-space")
+        search_results = service.search(
+            space="default-space",
+            query="needle",
+            top_k=1,
+        )
+    finally:
+        resource.close()
+
+    assert config.storage.backend == "sqlite"
+    assert reindex_result.indexed_by_kind["Entity"] == 2
+    assert [result.source_id for result in search_results] == ["entity:needle"]
+
+
+def test_build_production_context_wires_sqlite_implemented_repos_and_retrieval_index(
+    tmp_path,
+) -> None:
+    """SQLite selection wires implemented ports and persistent retrieval."""
     from memorable.config import SQLiteSettings, StorageSettings
-    from memorable.retrieval.index import InMemoryEmbeddingIndex
     from memorable.storage.production import build_production_context
     from memorable.storage.sqlite.connection import SQLiteHandle
     from memorable.storage.sqlite.repository import (
@@ -83,6 +172,7 @@ def test_build_production_context_wires_sqlite_implemented_repos_and_placeholder
         SQLiteRelationRepository,
         SQLiteTaskRepository,
     )
+    from memorable.storage.sqlite.retrieval_index import SqliteVecRetrievalIndex
 
     config = RuntimeConfig(
         storage=StorageSettings(backend="sqlite"),
@@ -101,9 +191,91 @@ def test_build_production_context_wires_sqlite_implemented_repos_and_placeholder
         assert isinstance(ctx.about_repo, SQLiteAboutRepository)
         assert isinstance(ctx.forget_repo, SQLiteForgetRepository)
         assert isinstance(ctx.memory_space_repo, SQLiteMemorySpaceRepository)
-        assert isinstance(ctx.retrieval_index, InMemoryEmbeddingIndex)
+        assert isinstance(ctx.retrieval_index, SqliteVecRetrievalIndex)
     finally:
         resource.close()
+
+
+def test_neo4j_backend_construction_skips_sqlite_vec_capability_probe() -> None:
+    """Selecting Neo4j does not invoke the SQLite vector capability probe."""
+    from memorable.storage.production import build_production_context
+
+    config = _neo4j_runtime_config()
+
+    with (
+        patch("memorable.storage.neo4j.connection.GraphDatabase") as mock_gdb,
+        patch(
+            "memorable.storage.sqlite.retrieval_index.probe_sqlite_vec_loadability",
+            side_effect=AssertionError("sqlite-vec probe should not run"),
+        ) as probe,
+    ):
+        mock_driver = _make_mock_driver()
+        mock_gdb.driver.return_value = mock_driver
+
+        _, driver = build_production_context(config)
+
+    driver.close()
+    probe.assert_not_called()
+    mock_driver.close.assert_called_once()
+
+
+def test_sqlite_backend_construction_fails_loudly_when_sqlite_vec_load_fails(
+    tmp_path,
+) -> None:
+    """SQLite construction reports interpreter remedies when sqlite-vec fails."""
+    import pytest
+
+    from memorable.config import SQLiteSettings, StorageSettings
+    from memorable.storage.production import build_production_context
+
+    config = RuntimeConfig(
+        storage=StorageSettings(backend="sqlite"),
+        sqlite=SQLiteSettings(path=str(tmp_path / "memory.db")),
+        base_path=tmp_path,
+    )
+
+    with patch("sqlite_vec.load", side_effect=RuntimeError("extensions disabled")):
+        with pytest.raises(RuntimeError) as exc_info:
+            build_production_context(config)
+
+    message = str(exc_info.value)
+    assert "sqlite-vec cannot load" in message
+    assert "uv-managed" in message
+    assert "Homebrew" in message
+    assert "conda-forge" in message
+    assert "Windows >= 3.11" in message
+    assert "select the Neo4j backend" in message
+    assert "extensions disabled" in message
+
+
+def test_sqlite_backend_construction_closes_handle_when_probe_fails(
+    tmp_path,
+) -> None:
+    """A failed SQLite construction does not leak an unreturned handle."""
+    import pytest
+
+    from memorable.config import SQLiteSettings, StorageSettings
+    from memorable.storage.production import build_production_context
+
+    config = RuntimeConfig(
+        storage=StorageSettings(backend="sqlite"),
+        sqlite=SQLiteSettings(path=str(tmp_path / "memory.db")),
+        base_path=tmp_path,
+    )
+    handle = MagicMock()
+    handle.connection = MagicMock()
+
+    with (
+        patch("memorable.storage.production.connect_sqlite", return_value=handle),
+        patch(
+            "memorable.storage.sqlite.retrieval_index.probe_sqlite_vec_loadability",
+            side_effect=RuntimeError("probe failed"),
+        ),
+    ):
+        with pytest.raises(RuntimeError, match="probe failed"):
+            build_production_context(config)
+
+    handle.close.assert_called_once()
 
 
 def test_build_production_context_fails_fast_when_neo4j_unreachable() -> None:
@@ -112,7 +284,7 @@ def test_build_production_context_fails_fast_when_neo4j_unreachable() -> None:
 
     from memorable.storage.production import build_production_context
 
-    config = RuntimeConfig()
+    config = _neo4j_runtime_config()
 
     with patch("memorable.storage.neo4j.connection.GraphDatabase") as mock_gdb:
         mock_driver = MagicMock()
@@ -132,7 +304,7 @@ def test_fail_fast_error_includes_configured_uri() -> None:
 
     from memorable.storage.production import build_production_context
 
-    config = RuntimeConfig()
+    config = _neo4j_runtime_config()
 
     with patch("memorable.storage.neo4j.connection.GraphDatabase") as mock_gdb:
         mock_driver = MagicMock()
@@ -145,10 +317,9 @@ def test_fail_fast_error_includes_configured_uri() -> None:
 
 def test_build_production_context_routes_through_connection_policy() -> None:
     """Localhost config connects to the IPv4-resolved endpoint via the policy."""
-    from memorable.config import Neo4jSettings
     from memorable.storage.production import build_production_context
 
-    config = RuntimeConfig(neo4j=Neo4jSettings(uri="bolt://localhost:7687"))
+    config = _neo4j_runtime_config(neo4j=Neo4jSettings(uri="bolt://localhost:7687"))
 
     with patch("memorable.storage.neo4j.connection.GraphDatabase") as mock_gdb:
         mock_driver = _make_mock_driver()
@@ -185,7 +356,6 @@ def test_application_context_default_still_uses_in_memory() -> None:
 
 def test_build_production_context_passes_config_to_driver() -> None:
     """The factory passes URI and auth from RuntimeConfig to the driver."""
-    from memorable.config import Neo4jSettings
     from memorable.storage.production import build_production_context
 
     custom_neo4j = Neo4jSettings(
@@ -193,7 +363,7 @@ def test_build_production_context_passes_config_to_driver() -> None:
         user="custom-user",
         password="custom-pass",
     )
-    config = RuntimeConfig(neo4j=custom_neo4j)
+    config = _neo4j_runtime_config(neo4j=custom_neo4j)
 
     with patch("memorable.storage.neo4j.connection.GraphDatabase") as mock_gdb:
         mock_driver = _make_mock_driver()
@@ -213,7 +383,7 @@ def test_build_production_context_suppresses_sparse_graph_notifications() -> Non
     """Production driver suppresses only sparse-graph UNRECOGNIZED notices."""
     from memorable.storage.production import build_production_context
 
-    config = RuntimeConfig()
+    config = _neo4j_runtime_config()
 
     with patch("memorable.storage.neo4j.connection.GraphDatabase") as mock_gdb:
         mock_driver = _make_mock_driver()
@@ -265,7 +435,7 @@ def test_cli_init_bootstraps_constraints_with_production_context(
 
         ctx = ApplicationContext()
         mock_build.return_value = (ctx, mock_driver)
-        mock_config.return_value = RuntimeConfig()
+        mock_config.return_value = _neo4j_runtime_config()
 
         old_stdout = sys.stdout
         sys.stdout = captured = StringIO()
@@ -281,7 +451,8 @@ def test_cli_init_bootstraps_constraints_with_production_context(
 
         # Constraints should have been bootstrapped
         mock_constraints.assert_called_once_with(
-            mock_driver, vector_dimensions=RuntimeConfig().embeddings.dimensions
+            mock_driver,
+            vector_dimensions=_neo4j_runtime_config().embeddings.dimensions,
         )
 
         # Driver should be closed after init completes
@@ -354,7 +525,10 @@ def test_cli_init_prints_connection_error_when_neo4j_unreachable(
                 "Cannot connect to Neo4j at bolt://localhost:7687"
             ),
         ),
-        patch("memorable.cli.load_runtime_config", return_value=RuntimeConfig()),
+        patch(
+            "memorable.cli.load_runtime_config",
+            return_value=_neo4j_runtime_config(),
+        ),
     ):
         rc = main(["init", "--path", str(tmp)])
 

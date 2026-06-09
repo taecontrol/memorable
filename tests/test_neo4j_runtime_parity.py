@@ -26,7 +26,7 @@ from unittest.mock import MagicMock, patch
 
 import pytest
 
-from memorable.config import Neo4jSettings, RuntimeConfig
+from memorable.config import Neo4jSettings, RuntimeConfig, StorageSettings
 from memorable.storage.neo4j.connection import resolve_bolt_uri
 from memorable.storage.production import build_production_context
 
@@ -52,7 +52,10 @@ ALL_CASES = [(uri, eff) for uri, eff in LOCAL_CASES] + [
 
 
 def _config(uri: str) -> RuntimeConfig:
-    return RuntimeConfig(neo4j=Neo4jSettings(uri=uri, user="neo4j", password="secret"))
+    return RuntimeConfig(
+        storage=StorageSettings(backend="neo4j"),
+        neo4j=Neo4jSettings(uri=uri, user="neo4j", password="secret"),
+    )
 
 
 def _patched_driver():

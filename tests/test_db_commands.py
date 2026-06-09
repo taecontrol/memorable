@@ -1,10 +1,10 @@
 """Tests for memorable db start/stop/eject CLI subcommands.
 
 Covers:
-- memorable db start works with zero config files (built-in defaults)
-- memorable db stop delegates to stop()
-- memorable db start/stop detect remote URIs and report
-- memorable db eject creates .memorable/docker-compose.yml
+- zero-config SQLite reports no Neo4j container to manage
+- memorable db start/stop delegate to Docker when Neo4j is explicit
+- memorable db start/stop detect remote Neo4j URIs and report
+- memorable db eject creates .memorable/docker-compose.yml when Neo4j is explicit
 """
 
 from __future__ import annotations
@@ -19,19 +19,33 @@ from memorable.cli import main
 pytestmark = pytest.mark.usefixtures("clean_memorable_environment")
 
 
+def _write_neo4j_config(tmp_path: Path, *, uri: str = "bolt://127.0.0.1:7687") -> None:
+    config_dir = tmp_path / ".memorable"
+    config_dir.mkdir(exist_ok=True)
+    (config_dir / "runtime.yaml").write_text(
+        f"storage:\n  backend: neo4j\nneo4j:\n  uri: {uri}\n",
+        encoding="utf-8",
+    )
+
+
 class TestDbStart:
     """memorable db start delegates to docker runtime start()."""
 
-    def test_start_with_zero_config(self, tmp_path: Path, capsys) -> None:
+    def test_start_with_zero_config_reports_sqlite_default_no_container(
+        self, tmp_path: Path, capsys
+    ) -> None:
         with patch("memorable.runtime.docker.subprocess.run") as mock_run:
-            mock_run.return_value.returncode = 0
             result = main(["db", "start", "--path", str(tmp_path)])
 
-        assert result == 0
+        assert result == 1
         captured = capsys.readouterr()
-        assert "Neo4j container started" in captured.out
+        assert "active backend is SQLite" in captured.err
+        assert "no Neo4j container to manage" in captured.err
+        mock_run.assert_not_called()
 
     def test_start_reports_failure(self, tmp_path: Path, capsys) -> None:
+        _write_neo4j_config(tmp_path)
+
         with patch("memorable.runtime.docker.subprocess.run") as mock_run:
             mock_run.return_value.returncode = 1
             mock_run.return_value.stderr = "Cannot connect to Docker daemon"
@@ -96,7 +110,9 @@ class TestDbSQLiteBackendGuard:
 class TestDbStop:
     """memorable db stop delegates to docker runtime stop()."""
 
-    def test_stop_with_default_config(self, tmp_path: Path, capsys) -> None:
+    def test_stop_with_explicit_neo4j_config(self, tmp_path: Path, capsys) -> None:
+        _write_neo4j_config(tmp_path)
+
         with patch("memorable.runtime.docker.subprocess.run") as mock_run:
             mock_run.return_value.returncode = 0
             result = main(["db", "stop", "--path", str(tmp_path)])
@@ -106,6 +122,8 @@ class TestDbStop:
         assert "Neo4j container stopped" in captured.out
 
     def test_stop_reports_failure(self, tmp_path: Path, capsys) -> None:
+        _write_neo4j_config(tmp_path)
+
         with patch("memorable.runtime.docker.subprocess.run") as mock_run:
             mock_run.return_value.returncode = 1
             mock_run.return_value.stderr = "no such container"
@@ -120,9 +138,7 @@ class TestDbRemoteUriDetection:
     """memorable db start/stop detect remote URIs and report."""
 
     def _write_remote_config(self, tmp_path: Path, uri: str) -> None:
-        config_dir = tmp_path / ".memorable"
-        config_dir.mkdir()
-        (config_dir / "runtime.yaml").write_text(f"neo4j:\n  uri: {uri}\n")
+        _write_neo4j_config(tmp_path, uri=uri)
 
     def test_start_detects_neo4j_plus_s(self, tmp_path: Path, capsys) -> None:
         self._write_remote_config(tmp_path, "neo4j+s://cloud.neo4j.io:7687")
@@ -165,6 +181,8 @@ class TestDbEject:
     """memorable db eject copies compose template to .memorable/."""
 
     def test_eject_creates_compose_file(self, tmp_path: Path, capsys) -> None:
+        _write_neo4j_config(tmp_path)
+
         result = main(["db", "eject", "--path", str(tmp_path)])
 
         assert result == 0
@@ -174,8 +192,8 @@ class TestDbEject:
         assert "Compose template copied" in captured.out
 
     def test_eject_refuses_overwrite(self, tmp_path: Path, capsys) -> None:
+        _write_neo4j_config(tmp_path)
         config_dir = tmp_path / ".memorable"
-        config_dir.mkdir()
         (config_dir / "docker-compose.yml").write_text("custom")
 
         result = main(["db", "eject", "--path", str(tmp_path)])
@@ -187,6 +205,7 @@ class TestDbEject:
     def test_eject_uses_cwd_when_no_path(
         self, tmp_path: Path, capsys, monkeypatch
     ) -> None:
+        _write_neo4j_config(tmp_path)
         monkeypatch.chdir(tmp_path)
 
         result = main(["db", "eject"])

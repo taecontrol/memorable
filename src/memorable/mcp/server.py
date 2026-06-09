@@ -97,28 +97,66 @@ def _build_embedding_indexer() -> EmbeddingIndexer:
     )
 
 
-def _index_after_canonical_write(
+class _EmbeddingMaintenanceFailure(RuntimeError):
+    def __init__(
+        self,
+        *,
+        space: str,
+        source_id: str,
+        source_kind: str,
+        cause: Exception,
+    ) -> None:
+        super().__init__(str(cause))
+        self.space = space
+        self.source_id = source_id
+        self.source_kind = source_kind
+        self.cause = cause
+
+
+def _upsert_after_canonical_write(
     *,
     space: str,
     source_id: str,
     source_kind: str,
     upsert: Callable[[EmbeddingIndexer], None],
-) -> dict[str, object] | None:
-    """Upsert a derived Embedding after canonical memory was written."""
+) -> None:
+    """Upsert a derived Embedding or raise with write-path context."""
     try:
         upsert(_build_embedding_indexer())
     except Exception as exc:
+        raise _EmbeddingMaintenanceFailure(
+            space=space,
+            source_id=source_id,
+            source_kind=source_kind,
+            cause=exc,
+        ) from exc
+
+
+def _embedding_maintenance_failure_result(
+    failure: _EmbeddingMaintenanceFailure,
+) -> dict[str, object]:
+    if _context.atomic_write_rolls_back_on_failure:
         return {
             "error": (
-                "Canonical memory was written, but derived Embedding index "
-                f"maintenance failed for {source_kind} '{source_id}' in "
-                f"MemorySpace '{space}'. Run `memorable reindex --space "
-                f"{space}` to repair search. Original error: {exc}"
+                "Canonical memory was rolled back because derived Embedding "
+                f"index maintenance failed for {failure.source_kind} "
+                f"'{failure.source_id}' in MemorySpace '{failure.space}'. Fix "
+                "Embedding settings or index compatibility, then retry the "
+                f"write. Original error: {failure.cause}"
             ),
-            "canonical_memory_written": True,
-            "reindex_command": f"memorable reindex --space {space}",
+            "canonical_memory_written": False,
+            "canonical_memory_rolled_back": True,
         }
-    return None
+    return {
+        "error": (
+            "Canonical memory was written, but derived Embedding index "
+            f"maintenance failed for {failure.source_kind} '{failure.source_id}' "
+            f"in MemorySpace '{failure.space}'. Run `memorable reindex --space "
+            f"{failure.space}` to repair search. Original error: {failure.cause}"
+        ),
+        "canonical_memory_written": True,
+        "reindex_command": f"memorable reindex --space {failure.space}",
+    }
 
 
 def _delete_after_canonical_forget(
@@ -319,30 +357,30 @@ def remember_entity_tool(
     timestamp = parse_iso_timestamp(at)
 
     try:
-        result = service.remember(
-            space=space,
-            entity_id=entity_id,
-            entity_type=entity_type,
-            name=name,
-            source_id=source,
-            at=timestamp,
-            writer=writer,
-            reason=reason,
-            attributes=attributes,
-        )
+        with _context.atomic_write():
+            result = service.remember(
+                space=space,
+                entity_id=entity_id,
+                entity_type=entity_type,
+                name=name,
+                source_id=source,
+                at=timestamp,
+                writer=writer,
+                reason=reason,
+                attributes=attributes,
+            )
+            _upsert_after_canonical_write(
+                space=space,
+                source_id=result.entity.id,
+                source_kind="Entity",
+                upsert=lambda indexer: indexer.upsert_entity(result.entity),
+            )
+    except _EmbeddingMaintenanceFailure as failure:
+        return _embedding_maintenance_failure_result(failure)
     except ValueError as e:
         if isinstance(e, UndeclaredTypeError | AttributeValidationError):
             return _profile_type_error(e)
         return {"error": str(e)}
-
-    index_error = _index_after_canonical_write(
-        space=space,
-        source_id=result.entity.id,
-        source_kind="Entity",
-        upsert=lambda indexer: indexer.upsert_entity(result.entity),
-    )
-    if index_error is not None:
-        return index_error
 
     return {
         "entity_id": result.entity.id,
@@ -402,38 +440,39 @@ def remember_decision_tool(
     timestamp = parse_iso_timestamp(at)
 
     try:
-        result = service.remember(
-            space=space,
-            decision_id=decision_id,
-            statement=statement,
-            source_id=source,
-            at=timestamp,
-            writer=writer,
-            reason=reason,
-            supersedes=supersedes,
-            about=about,
-            record_type=record_type,
-        )
+        with _context.atomic_write():
+            result = service.remember(
+                space=space,
+                decision_id=decision_id,
+                statement=statement,
+                source_id=source,
+                at=timestamp,
+                writer=writer,
+                reason=reason,
+                supersedes=supersedes,
+                about=about,
+                record_type=record_type,
+            )
+
+            def upsert_decision_embeddings(indexer: EmbeddingIndexer) -> None:
+                indexer.upsert_decision(result.decision)
+                if supersedes is not None:
+                    superseded_decision = _context.decision_repo.get(space, supersedes)
+                    if superseded_decision is not None:
+                        indexer.upsert_decision(superseded_decision)
+
+            _upsert_after_canonical_write(
+                space=space,
+                source_id=result.decision.id,
+                source_kind="Decision",
+                upsert=upsert_decision_embeddings,
+            )
+    except _EmbeddingMaintenanceFailure as failure:
+        return _embedding_maintenance_failure_result(failure)
     except ValueError as e:
         if isinstance(e, UndeclaredTypeError):
             return _profile_type_error(e)
         return {"error": str(e)}
-
-    def upsert_decision_embeddings(indexer: EmbeddingIndexer) -> None:
-        indexer.upsert_decision(result.decision)
-        if supersedes is not None:
-            superseded_decision = _context.decision_repo.get(space, supersedes)
-            if superseded_decision is not None:
-                indexer.upsert_decision(superseded_decision)
-
-    index_error = _index_after_canonical_write(
-        space=space,
-        source_id=result.decision.id,
-        source_kind="Decision",
-        upsert=upsert_decision_embeddings,
-    )
-    if index_error is not None:
-        return index_error
 
     return {
         "decision_id": result.decision.id,
@@ -493,38 +532,41 @@ def remember_observation_tool(
     timestamp = parse_iso_timestamp(at)
 
     try:
-        result = service.remember(
-            space=space,
-            observation_id=observation_id,
-            statement=statement,
-            source_id=source,
-            at=timestamp,
-            writer=writer,
-            reason=reason,
-            supersedes=supersedes,
-            about=about,
-            record_type=record_type,
-        )
+        with _context.atomic_write():
+            result = service.remember(
+                space=space,
+                observation_id=observation_id,
+                statement=statement,
+                source_id=source,
+                at=timestamp,
+                writer=writer,
+                reason=reason,
+                supersedes=supersedes,
+                about=about,
+                record_type=record_type,
+            )
+
+            def upsert_observation_embeddings(indexer: EmbeddingIndexer) -> None:
+                indexer.upsert_observation(result.observation)
+                if supersedes is not None:
+                    superseded_observation = _context.observation_repo.get(
+                        space, supersedes
+                    )
+                    if superseded_observation is not None:
+                        indexer.upsert_observation(superseded_observation)
+
+            _upsert_after_canonical_write(
+                space=space,
+                source_id=result.observation.id,
+                source_kind="Observation",
+                upsert=upsert_observation_embeddings,
+            )
+    except _EmbeddingMaintenanceFailure as failure:
+        return _embedding_maintenance_failure_result(failure)
     except ValueError as e:
         if isinstance(e, UndeclaredTypeError):
             return _profile_type_error(e)
         return {"error": str(e)}
-
-    def upsert_observation_embeddings(indexer: EmbeddingIndexer) -> None:
-        indexer.upsert_observation(result.observation)
-        if supersedes is not None:
-            superseded_observation = _context.observation_repo.get(space, supersedes)
-            if superseded_observation is not None:
-                indexer.upsert_observation(superseded_observation)
-
-    index_error = _index_after_canonical_write(
-        space=space,
-        source_id=result.observation.id,
-        source_kind="Observation",
-        upsert=upsert_observation_embeddings,
-    )
-    if index_error is not None:
-        return index_error
 
     return {
         "observation_id": result.observation.id,
@@ -582,39 +624,40 @@ def remember_relation_tool(
     timestamp = parse_iso_timestamp(at)
 
     try:
-        result = service.remember(
-            space=space,
-            relation_id=relation_id,
-            source_entity_id=source_entity_id,
-            target_entity_id=target_entity_id,
-            relation_type=relation_type,
-            statement=statement,
-            source_id=source,
-            at=timestamp,
-            writer=writer,
-            reason=reason,
-            supersedes=supersedes,
-        )
+        with _context.atomic_write():
+            result = service.remember(
+                space=space,
+                relation_id=relation_id,
+                source_entity_id=source_entity_id,
+                target_entity_id=target_entity_id,
+                relation_type=relation_type,
+                statement=statement,
+                source_id=source,
+                at=timestamp,
+                writer=writer,
+                reason=reason,
+                supersedes=supersedes,
+            )
+
+            def upsert_relation_embeddings(indexer: EmbeddingIndexer) -> None:
+                indexer.upsert_relation(result.relation)
+                if supersedes is not None:
+                    superseded_relation = _context.relation_repo.get(space, supersedes)
+                    if superseded_relation is not None:
+                        indexer.upsert_relation(superseded_relation)
+
+            _upsert_after_canonical_write(
+                space=space,
+                source_id=result.relation.id,
+                source_kind="Relation",
+                upsert=upsert_relation_embeddings,
+            )
+    except _EmbeddingMaintenanceFailure as failure:
+        return _embedding_maintenance_failure_result(failure)
     except ValueError as e:
         if isinstance(e, UndeclaredTypeError):
             return _profile_type_error(e)
         return {"error": str(e)}
-
-    def upsert_relation_embeddings(indexer: EmbeddingIndexer) -> None:
-        indexer.upsert_relation(result.relation)
-        if supersedes is not None:
-            superseded_relation = _context.relation_repo.get(space, supersedes)
-            if superseded_relation is not None:
-                indexer.upsert_relation(superseded_relation)
-
-    index_error = _index_after_canonical_write(
-        space=space,
-        source_id=result.relation.id,
-        source_kind="Relation",
-        upsert=upsert_relation_embeddings,
-    )
-    if index_error is not None:
-        return index_error
 
     return {
         "relation_id": result.relation.id,
@@ -887,30 +930,30 @@ def remember_task_tool(
     timestamp = parse_iso_timestamp(at)
 
     try:
-        result = service.remember(
-            space=space,
-            task_id=task_id,
-            title=title,
-            source_id=source,
-            at=timestamp,
-            writer=writer,
-            reason=reason,
-            about=about,
-            record_type=record_type,
-        )
+        with _context.atomic_write():
+            result = service.remember(
+                space=space,
+                task_id=task_id,
+                title=title,
+                source_id=source,
+                at=timestamp,
+                writer=writer,
+                reason=reason,
+                about=about,
+                record_type=record_type,
+            )
+            _upsert_after_canonical_write(
+                space=space,
+                source_id=result.task.id,
+                source_kind="Task",
+                upsert=lambda indexer: indexer.upsert_task(result.task),
+            )
+    except _EmbeddingMaintenanceFailure as failure:
+        return _embedding_maintenance_failure_result(failure)
     except ValueError as e:
         if isinstance(e, UndeclaredTypeError):
             return _profile_type_error(e)
         return {"error": str(e)}
-
-    index_error = _index_after_canonical_write(
-        space=space,
-        source_id=result.task.id,
-        source_kind="Task",
-        upsert=lambda indexer: indexer.upsert_task(result.task),
-    )
-    if index_error is not None:
-        return index_error
 
     return {
         "task_id": result.task.id,
@@ -952,22 +995,22 @@ def complete_task_tool(
     timestamp = parse_iso_timestamp(at)
 
     try:
-        result = service.complete(
-            space=space,
-            task_id=task_id,
-            at=timestamp,
-        )
+        with _context.atomic_write():
+            result = service.complete(
+                space=space,
+                task_id=task_id,
+                at=timestamp,
+            )
+            _upsert_after_canonical_write(
+                space=space,
+                source_id=result.task.id,
+                source_kind="Task",
+                upsert=lambda indexer: indexer.upsert_task(result.task),
+            )
+    except _EmbeddingMaintenanceFailure as failure:
+        return _embedding_maintenance_failure_result(failure)
     except ValueError as e:
         return {"error": str(e)}
-
-    index_error = _index_after_canonical_write(
-        space=space,
-        source_id=result.task.id,
-        source_kind="Task",
-        upsert=lambda indexer: indexer.upsert_task(result.task),
-    )
-    if index_error is not None:
-        return index_error
 
     return {
         "task_id": result.task.id,
@@ -1291,65 +1334,68 @@ def invalidate_tool(
     timestamp = parse_iso_timestamp(at)
 
     try:
-        result = service.invalidate(
-            space=space,
-            record_id=record_id,
-            at=timestamp,
-        )
+        with _context.atomic_write():
+            result = service.invalidate(
+                space=space,
+                record_id=record_id,
+                at=timestamp,
+            )
+
+            if record_kind == "decision":
+                invalidated_decision = _context.decision_repo.get(
+                    space, result.record_id
+                )
+                if invalidated_decision is None:
+                    raise ValueError(
+                        f"Invalidated Decision '{result.record_id}' not found "
+                        f"in MemorySpace '{space}'."
+                    )
+                _upsert_after_canonical_write(
+                    space=space,
+                    source_id=result.record_id,
+                    source_kind="Decision",
+                    upsert=lambda indexer: indexer.upsert_decision(
+                        invalidated_decision
+                    ),
+                )
+            elif record_kind == "observation":
+                invalidated_observation = _context.observation_repo.get(
+                    space, result.record_id
+                )
+                if invalidated_observation is None:
+                    raise ValueError(
+                        f"Invalidated Observation '{result.record_id}' not found "
+                        f"in MemorySpace '{space}'."
+                    )
+                _upsert_after_canonical_write(
+                    space=space,
+                    source_id=result.record_id,
+                    source_kind="Observation",
+                    upsert=lambda indexer: indexer.upsert_observation(
+                        invalidated_observation
+                    ),
+                )
+            elif record_kind == "relation":
+                invalidated_relation = _context.relation_repo.get(
+                    space, result.record_id
+                )
+                if invalidated_relation is None:
+                    raise ValueError(
+                        f"Invalidated Relation '{result.record_id}' not found "
+                        f"in MemorySpace '{space}'."
+                    )
+                _upsert_after_canonical_write(
+                    space=space,
+                    source_id=result.record_id,
+                    source_kind="Relation",
+                    upsert=lambda indexer: indexer.upsert_relation(
+                        invalidated_relation
+                    ),
+                )
+    except _EmbeddingMaintenanceFailure as failure:
+        return _embedding_maintenance_failure_result(failure)
     except ValueError as e:
         return {"error": str(e)}
-
-    if record_kind == "decision":
-        invalidated_decision = _context.decision_repo.get(space, result.record_id)
-        if invalidated_decision is None:
-            return {
-                "error": (
-                    f"Invalidated Decision '{result.record_id}' not found "
-                    f"in MemorySpace '{space}'."
-                )
-            }
-        index_error = _index_after_canonical_write(
-            space=space,
-            source_id=result.record_id,
-            source_kind="Decision",
-            upsert=lambda indexer: indexer.upsert_decision(invalidated_decision),
-        )
-        if index_error is not None:
-            return index_error
-    elif record_kind == "observation":
-        invalidated_observation = _context.observation_repo.get(space, result.record_id)
-        if invalidated_observation is None:
-            return {
-                "error": (
-                    f"Invalidated Observation '{result.record_id}' not found "
-                    f"in MemorySpace '{space}'."
-                )
-            }
-        index_error = _index_after_canonical_write(
-            space=space,
-            source_id=result.record_id,
-            source_kind="Observation",
-            upsert=lambda indexer: indexer.upsert_observation(invalidated_observation),
-        )
-        if index_error is not None:
-            return index_error
-    elif record_kind == "relation":
-        invalidated_relation = _context.relation_repo.get(space, result.record_id)
-        if invalidated_relation is None:
-            return {
-                "error": (
-                    f"Invalidated Relation '{result.record_id}' not found "
-                    f"in MemorySpace '{space}'."
-                )
-            }
-        index_error = _index_after_canonical_write(
-            space=space,
-            source_id=result.record_id,
-            source_kind="Relation",
-            upsert=lambda indexer: indexer.upsert_relation(invalidated_relation),
-        )
-        if index_error is not None:
-            return index_error
 
     return {
         "record_id": result.record_id,
@@ -1418,16 +1464,17 @@ def correct_tool(
             clock=SystemClock(),
         )
         try:
-            result = task_service.correct(
-                space=space,
-                task_id=record_id,
-                new_statement=task_statement,
-                source=source,
-                writer=writer,
-                at=timestamp,
-                reason=reason,
-                about=about,
-            )
+            with _context.atomic_write():
+                result = task_service.correct(
+                    space=space,
+                    task_id=record_id,
+                    new_statement=task_statement,
+                    source=source,
+                    writer=writer,
+                    at=timestamp,
+                    reason=reason,
+                    about=about,
+                )
         except ValueError as e:
             return {"error": str(e)}
         return {
@@ -1453,71 +1500,66 @@ def correct_tool(
         corrected_statement = record.statement if record is not None else ""
 
     try:
-        result = service.correct(
-            space=space,
-            record_id=record_id,
-            new_statement=corrected_statement,
-            record_kind=record_kind,
-            source=source,
-            writer=writer,
-            at=timestamp,
-            reason=reason,
-            about=about,
-        )
+        with _context.atomic_write():
+            result = service.correct(
+                space=space,
+                record_id=record_id,
+                new_statement=corrected_statement,
+                record_kind=record_kind,
+                source=source,
+                writer=writer,
+                at=timestamp,
+                reason=reason,
+                about=about,
+            )
+
+            if record_kind == "decision":
+                corrected_decision = _context.decision_repo.get(space, result.record_id)
+                if corrected_decision is None:
+                    raise ValueError(
+                        f"Corrected Decision '{result.record_id}' not found "
+                        f"in MemorySpace '{space}'."
+                    )
+                _upsert_after_canonical_write(
+                    space=space,
+                    source_id=result.record_id,
+                    source_kind="Decision",
+                    upsert=lambda indexer: indexer.upsert_decision(corrected_decision),
+                )
+            elif record_kind == "observation":
+                corrected_observation = _context.observation_repo.get(
+                    space, result.record_id
+                )
+                if corrected_observation is None:
+                    raise ValueError(
+                        f"Corrected Observation '{result.record_id}' not found "
+                        f"in MemorySpace '{space}'."
+                    )
+                _upsert_after_canonical_write(
+                    space=space,
+                    source_id=result.record_id,
+                    source_kind="Observation",
+                    upsert=lambda indexer: indexer.upsert_observation(
+                        corrected_observation
+                    ),
+                )
+            elif record_kind == "relation":
+                corrected_relation = _context.relation_repo.get(space, result.record_id)
+                if corrected_relation is None:
+                    raise ValueError(
+                        f"Corrected Relation '{result.record_id}' not found "
+                        f"in MemorySpace '{space}'."
+                    )
+                _upsert_after_canonical_write(
+                    space=space,
+                    source_id=result.record_id,
+                    source_kind="Relation",
+                    upsert=lambda indexer: indexer.upsert_relation(corrected_relation),
+                )
+    except _EmbeddingMaintenanceFailure as failure:
+        return _embedding_maintenance_failure_result(failure)
     except ValueError as e:
         return {"error": str(e)}
-
-    if record_kind == "decision":
-        corrected_decision = _context.decision_repo.get(space, result.record_id)
-        if corrected_decision is None:
-            return {
-                "error": (
-                    f"Corrected Decision '{result.record_id}' not found "
-                    f"in MemorySpace '{space}'."
-                )
-            }
-        index_error = _index_after_canonical_write(
-            space=space,
-            source_id=result.record_id,
-            source_kind="Decision",
-            upsert=lambda indexer: indexer.upsert_decision(corrected_decision),
-        )
-        if index_error is not None:
-            return index_error
-    elif record_kind == "observation":
-        corrected_observation = _context.observation_repo.get(space, result.record_id)
-        if corrected_observation is None:
-            return {
-                "error": (
-                    f"Corrected Observation '{result.record_id}' not found "
-                    f"in MemorySpace '{space}'."
-                )
-            }
-        index_error = _index_after_canonical_write(
-            space=space,
-            source_id=result.record_id,
-            source_kind="Observation",
-            upsert=lambda indexer: indexer.upsert_observation(corrected_observation),
-        )
-        if index_error is not None:
-            return index_error
-    elif record_kind == "relation":
-        corrected_relation = _context.relation_repo.get(space, result.record_id)
-        if corrected_relation is None:
-            return {
-                "error": (
-                    f"Corrected Relation '{result.record_id}' not found "
-                    f"in MemorySpace '{space}'."
-                )
-            }
-        index_error = _index_after_canonical_write(
-            space=space,
-            source_id=result.record_id,
-            source_kind="Relation",
-            upsert=lambda indexer: indexer.upsert_relation(corrected_relation),
-        )
-        if index_error is not None:
-            return index_error
 
     return {
         "record_id": result.record_id,

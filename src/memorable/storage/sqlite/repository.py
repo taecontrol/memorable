@@ -98,11 +98,12 @@ class SQLiteAboutRepository:
     """Storage adapter that persists About links in SQLite."""
 
     def __init__(self, handle: SQLiteHandle) -> None:
+        self._handle = handle
         self._connection = handle.connection
 
     def link(self, space: str, record_id: str, entity_ids: list[str]) -> None:
         try:
-            with self._connection:
+            with self._handle.write():
                 self._connection.executemany(
                     """
                     INSERT INTO about_links (space, record_id, entity_id)
@@ -118,7 +119,7 @@ class SQLiteAboutRepository:
             ) from exc
 
     def unlink(self, space: str, record_id: str) -> None:
-        with self._connection:
+        with self._handle.write():
             self._connection.execute(
                 """
                 DELETE FROM about_links
@@ -162,6 +163,7 @@ class SQLiteForgetRepository:
     }
 
     def __init__(self, handle: SQLiteHandle) -> None:
+        self._handle = handle
         self._connection = handle.connection
 
     def get_forget_target(
@@ -209,7 +211,7 @@ class SQLiteForgetRepository:
         if record_table is None:
             return
         table_name, _has_supersession = record_table
-        with self._connection:
+        with self._handle.write():
             self._connection.execute(
                 f"""
                 DELETE FROM {table_name}
@@ -244,7 +246,7 @@ class SQLiteForgetRepository:
         return row is not None
 
     def forget_entity(self, *, space: str, entity_id: str) -> None:
-        with self._connection:
+        with self._handle.write():
             relation_rows = self._connection.execute(
                 """
                 SELECT id
@@ -299,12 +301,13 @@ class SQLiteMemorySpaceRepository:
     """Storage adapter that persists MemorySpaces in SQLite."""
 
     def __init__(self, handle: SQLiteHandle) -> None:
+        self._handle = handle
         self._connection = handle.connection
 
     def create_space(self, name: str) -> MemorySpace:
         space = MemorySpace(name=name)
         try:
-            with self._connection:
+            with self._handle.write():
                 self._connection.execute(
                     "INSERT INTO memory_spaces (name) VALUES (?)",
                     (space.name,),
@@ -511,10 +514,11 @@ class SQLiteEntityRepository:
     """Storage adapter that persists Entities in SQLite."""
 
     def __init__(self, handle: SQLiteHandle) -> None:
+        self._handle = handle
         self._connection = handle.connection
 
     def save(self, entity: Entity, provenance: Provenance) -> None:
-        with self._connection:
+        with self._handle.write():
             self._connection.execute(
                 """
                 INSERT INTO entities (space, id, entity_type, name, attributes_json)
@@ -586,10 +590,11 @@ class SQLiteDecisionRepository:
     """Storage adapter that persists Decisions in SQLite."""
 
     def __init__(self, handle: SQLiteHandle) -> None:
+        self._handle = handle
         self._connection = handle.connection
 
     def save(self, decision: Decision, provenance: Provenance) -> None:
-        with self._connection:
+        with self._handle.write():
             _claim_memory_record_id(
                 self._connection,
                 space=decision.space,
@@ -690,7 +695,7 @@ class SQLiteDecisionRepository:
         superseded_by: str,
         invalidation_time: datetime,
     ) -> None:
-        with self._connection:
+        with self._handle.write():
             self._connection.execute(
                 """
                 UPDATE decisions
@@ -713,7 +718,7 @@ class SQLiteDecisionRepository:
         record_id: str,
         invalidation_time: datetime,
     ) -> None:
-        with self._connection:
+        with self._handle.write():
             self._connection.execute(
                 """
                 UPDATE decisions
@@ -725,7 +730,7 @@ class SQLiteDecisionRepository:
             )
 
     def correct(self, space: str, record_id: str, new_statement: str) -> None:
-        with self._connection:
+        with self._handle.write():
             self._connection.execute(
                 """
                 UPDATE decisions
@@ -741,7 +746,7 @@ class SQLiteDecisionRepository:
         record_id: str,
         provenance: Provenance,
     ) -> None:
-        with self._connection:
+        with self._handle.write():
             _save_provenance(self._connection, space=space, provenance=provenance)
 
     def list_by_space(self, space: str) -> list[Decision]:
@@ -783,10 +788,11 @@ class SQLiteObservationRepository:
     """Storage adapter that persists Observations in SQLite."""
 
     def __init__(self, handle: SQLiteHandle) -> None:
+        self._handle = handle
         self._connection = handle.connection
 
     def save(self, observation: Observation, provenance: Provenance) -> None:
-        with self._connection:
+        with self._handle.write():
             _claim_memory_record_id(
                 self._connection,
                 space=observation.space,
@@ -887,7 +893,7 @@ class SQLiteObservationRepository:
         superseded_by: str,
         invalidation_time: datetime,
     ) -> None:
-        with self._connection:
+        with self._handle.write():
             self._connection.execute(
                 """
                 UPDATE observations
@@ -910,7 +916,7 @@ class SQLiteObservationRepository:
         record_id: str,
         invalidation_time: datetime,
     ) -> None:
-        with self._connection:
+        with self._handle.write():
             self._connection.execute(
                 """
                 UPDATE observations
@@ -922,7 +928,7 @@ class SQLiteObservationRepository:
             )
 
     def correct(self, space: str, record_id: str, new_statement: str) -> None:
-        with self._connection:
+        with self._handle.write():
             self._connection.execute(
                 """
                 UPDATE observations
@@ -938,7 +944,7 @@ class SQLiteObservationRepository:
         record_id: str,
         provenance: Provenance,
     ) -> None:
-        with self._connection:
+        with self._handle.write():
             _save_provenance(self._connection, space=space, provenance=provenance)
 
     def list_by_space(self, space: str) -> list[Observation]:
@@ -980,11 +986,12 @@ class SQLiteRelationRepository:
     """Storage adapter that persists Relations in SQLite."""
 
     def __init__(self, handle: SQLiteHandle) -> None:
+        self._handle = handle
         self._connection = handle.connection
 
     def save(self, relation: Relation, provenance: Provenance) -> None:
         try:
-            with self._connection:
+            with self._handle.write():
                 _claim_memory_record_id(
                     self._connection,
                     space=relation.space,
@@ -1091,7 +1098,7 @@ class SQLiteRelationRepository:
         )
 
     def correct(self, space: str, record_id: str, new_statement: str) -> None:
-        with self._connection:
+        with self._handle.write():
             self._connection.execute(
                 """
                 UPDATE relations
@@ -1107,7 +1114,7 @@ class SQLiteRelationRepository:
         record_id: str,
         provenance: Provenance,
     ) -> None:
-        with self._connection:
+        with self._handle.write():
             _save_provenance(self._connection, space=space, provenance=provenance)
 
     def invalidate(
@@ -1116,7 +1123,7 @@ class SQLiteRelationRepository:
         record_id: str,
         invalidation_time: datetime,
     ) -> None:
-        with self._connection:
+        with self._handle.write():
             self._connection.execute(
                 """
                 UPDATE relations
@@ -1134,7 +1141,7 @@ class SQLiteRelationRepository:
         superseded_by: str,
         invalidation_time: datetime,
     ) -> None:
-        with self._connection:
+        with self._handle.write():
             self._connection.execute(
                 """
                 UPDATE relations
@@ -1217,10 +1224,11 @@ class SQLiteTaskRepository:
     """Storage adapter that persists Tasks in SQLite."""
 
     def __init__(self, handle: SQLiteHandle) -> None:
+        self._handle = handle
         self._connection = handle.connection
 
     def save(self, task: Task, provenance: Provenance) -> None:
-        with self._connection:
+        with self._handle.write():
             _claim_memory_record_id(
                 self._connection,
                 space=task.space,
@@ -1293,7 +1301,7 @@ class SQLiteTaskRepository:
         task_id: str,
         provenance: Provenance,
     ) -> None:
-        with self._connection:
+        with self._handle.write():
             _save_provenance(self._connection, space=space, provenance=provenance)
 
     def list_projections_by_space(
@@ -1348,7 +1356,7 @@ class SQLiteTaskRepository:
         completion_time: datetime,
         completion_event_id: str,
     ) -> None:
-        with self._connection:
+        with self._handle.write():
             self._connection.execute(
                 """
                 UPDATE tasks

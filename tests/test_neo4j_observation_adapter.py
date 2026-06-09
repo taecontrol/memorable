@@ -119,11 +119,11 @@ class TestProductionWiringIncludesObservation:
     """build_production_context wires Neo4jObservationRepository."""
 
     def test_production_context_has_neo4j_observation_repo(self) -> None:
-        from memorable.config import RuntimeConfig
+        from memorable.config import RuntimeConfig, StorageSettings
         from memorable.storage.neo4j.repository import Neo4jObservationRepository
         from memorable.storage.production import build_production_context
 
-        config = RuntimeConfig()
+        config = RuntimeConfig(storage=StorageSettings(backend="neo4j"))
         mock_driver = MagicMock()
         mock_driver.verify_connectivity.return_value = None
 

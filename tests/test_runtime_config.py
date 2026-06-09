@@ -52,12 +52,13 @@ class TestDefaultsOnly:
         assert config.embeddings.dimensions == 384
         assert config.embeddings.api_key is None
 
-    def test_returns_default_storage_settings(self, tmp_path: Path) -> None:
+    def test_default_storage_backend_is_embedded_sqlite(self, tmp_path: Path) -> None:
         from memorable.config import load_runtime_config
 
         config = load_runtime_config(base_path=tmp_path)
 
-        assert config.storage.backend == "neo4j"
+        assert config.storage.backend == "sqlite"
+        assert config.sources["storage.backend"] == "built-in"
         assert config.sqlite.path == ".memorable/memory.db"
 
     def test_all_sources_are_builtin(self, tmp_path: Path) -> None:
@@ -500,18 +501,18 @@ class TestEnvironmentFallback:
     ) -> None:
         from memorable.config import load_runtime_config
 
-        monkeypatch.setenv("MEMORABLE_STORAGE_BACKEND", "sqlite")
+        monkeypatch.setenv("MEMORABLE_STORAGE_BACKEND", "neo4j")
         monkeypatch.setenv("MEMORABLE_SQLITE_PATH", ".memorable/env.db")
 
         file_only_config = load_runtime_config(base_path=tmp_path)
-        assert file_only_config.storage.backend == "neo4j"
+        assert file_only_config.storage.backend == "sqlite"
         assert file_only_config.sqlite.path == ".memorable/memory.db"
 
         env_config = load_runtime_config(
             base_path=tmp_path,
             include_environment_overrides=True,
         )
-        assert env_config.storage.backend == "sqlite"
+        assert env_config.storage.backend == "neo4j"
         assert env_config.sqlite.path == ".memorable/env.db"
         assert env_config.sources["storage.backend"] == "environment"
         assert env_config.sources["sqlite.path"] == "environment"

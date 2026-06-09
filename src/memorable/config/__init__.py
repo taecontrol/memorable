@@ -42,7 +42,7 @@ class EmbeddingSettings:
 
 @dataclass(frozen=True)
 class StorageSettings:
-    backend: Literal["neo4j", "sqlite"] = "neo4j"
+    backend: Literal["neo4j", "sqlite"] = "sqlite"
 
 
 @dataclass(frozen=True)
