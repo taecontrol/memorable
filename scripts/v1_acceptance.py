@@ -107,6 +107,7 @@ class _workspace:
 def _run_flow(args: argparse.Namespace, workspace: Path) -> None:
     space = f"v1-acceptance-{uuid.uuid4().hex[:10]}"
     env = os.environ.copy()
+    env["MEMORABLE_STORAGE_BACKEND"] = "neo4j"
 
     print("progress: initializing clean MemorySpace")
     init_payload = _run_cli_json(
