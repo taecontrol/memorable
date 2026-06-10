@@ -503,7 +503,7 @@ def _append_memory_profile_results(
 
     results.append({"check": "memory_profile_parses", "ok": True, "hint": ""})
     space_name = getattr(getattr(profile, "space", None), "name", None)
-    # SQLite uses an explicit placeholder RetrievalIndex until PRD B.
+    # Coverage diagnostics are currently scoped to Neo4j's vector-index checks.
     if config.storage.backend == "neo4j" and isinstance(space_name, str) and space_name:
         results.append(_embedding_index_coverage_result(config, probes, space_name))
 

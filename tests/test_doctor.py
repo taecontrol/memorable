@@ -115,11 +115,15 @@ def _by_check(results: list) -> dict:
     return {result["check"]: result for result in results}
 
 
+def _neo4j_config(**overrides: object) -> RuntimeConfig:
+    return RuntimeConfig(storage=StorageSettings(backend="neo4j"), **overrides)
+
+
 def test_doctor_reports_neo4j_connectivity_pass() -> None:
     from memorable.runtime.doctor import run_diagnostics
 
     results = run_diagnostics(
-        RuntimeConfig(),
+        _neo4j_config(),
         probes=_probes(list_schema_constraints=lambda _config: []),
     )
 
@@ -133,7 +137,7 @@ def test_doctor_reports_neo4j_connectivity_pass() -> None:
 def test_doctor_reports_active_neo4j_database_and_source() -> None:
     from memorable.runtime.doctor import run_diagnostics
 
-    config = RuntimeConfig(
+    config = _neo4j_config(
         neo4j=Neo4jSettings(database="memory_prod"),
         sources={"neo4j.database": "runtime.local.yaml"},
     )
@@ -195,7 +199,7 @@ def test_doctor_reports_sqlite_backend_and_path_without_neo4j_probes(
     assert "neo4j_connectivity" not in by_check
 
 
-def test_doctor_sqlite_profile_check_does_not_probe_placeholder_index(
+def test_doctor_sqlite_profile_check_does_not_collect_neo4j_index_coverage(
     tmp_path: Path,
 ) -> None:
     from memorable.runtime.doctor import run_diagnostics
@@ -205,7 +209,7 @@ def test_doctor_sqlite_profile_check_does_not_probe_placeholder_index(
     profile_path.write_text("valid profile", encoding="utf-8")
 
     def must_not_collect_coverage(_config: RuntimeConfig, _space: str) -> object:
-        raise AssertionError("SQLite uses a placeholder RetrievalIndex in PRD A")
+        raise AssertionError("SQLite diagnostics must not run Neo4j index coverage")
 
     config = RuntimeConfig(
         storage=StorageSettings(backend="sqlite"),
@@ -231,7 +235,7 @@ def test_doctor_sqlite_profile_check_does_not_probe_placeholder_index(
 def test_doctor_reports_schema_constraints_pass() -> None:
     from memorable.runtime.doctor import run_diagnostics
 
-    results = run_diagnostics(RuntimeConfig(), probes=_probes())
+    results = run_diagnostics(_neo4j_config(), probes=_probes())
 
     assert _by_check(results)["schema_constraints"] == {
         "check": "schema_constraints",
@@ -249,7 +253,7 @@ def test_doctor_reports_schema_constraints_pass_with_generated_names() -> None:
     ]
 
     results = run_diagnostics(
-        RuntimeConfig(),
+        _neo4j_config(),
         probes=_probes(
             list_schema_constraints=lambda _config: generated_name_constraints
         ),
@@ -266,7 +270,7 @@ def test_doctor_reports_schema_constraints_failure_with_hint() -> None:
     from memorable.runtime.doctor import run_diagnostics
 
     results = run_diagnostics(
-        RuntimeConfig(),
+        _neo4j_config(),
         probes=_probes(
             list_schema_constraints=lambda _config: [
                 constraint
@@ -294,7 +298,7 @@ def test_doctor_reports_schema_constraints_failure_when_name_has_wrong_shape() -
     ]
 
     results = run_diagnostics(
-        RuntimeConfig(),
+        _neo4j_config(),
         probes=_probes(list_schema_constraints=lambda _config: malformed_constraints),
     )
 
@@ -311,7 +315,7 @@ def test_doctor_reports_neo4j_connectivity_failure_with_hint() -> None:
     def fail(_config: RuntimeConfig) -> None:
         raise ConnectionError("unreachable")
 
-    results = run_diagnostics(RuntimeConfig(), probes=_probes(ping_neo4j=fail))
+    results = run_diagnostics(_neo4j_config(), probes=_probes(ping_neo4j=fail))
 
     assert _by_check(results)["neo4j_connectivity"] == {
         "check": "neo4j_connectivity",
@@ -333,7 +337,7 @@ def test_doctor_connectivity_failure_short_circuits_schema_and_vector() -> None:
         raise AssertionError("SHOW query ran despite connectivity failure")
 
     results = run_diagnostics(
-        RuntimeConfig(),
+        _neo4j_config(),
         probes=_probes(
             ping_neo4j=fail,
             list_schema_constraints=must_not_run,
@@ -364,7 +368,7 @@ def test_doctor_schema_show_query_error_is_not_init_hint() -> None:
         raise RuntimeError("SHOW CONSTRAINTS failed")
 
     results = run_diagnostics(
-        RuntimeConfig(),
+        _neo4j_config(),
         probes=_probes(list_schema_constraints=raises),
     )
 
@@ -385,7 +389,7 @@ def test_doctor_vector_show_query_error_is_not_init_hint() -> None:
         raise RuntimeError("SHOW INDEXES failed")
 
     results = run_diagnostics(
-        RuntimeConfig(),
+        _neo4j_config(),
         probes=_probes(list_vector_indexes=raises),
     )
 
@@ -403,7 +407,7 @@ def test_doctor_connected_with_empty_schema_yields_init_hint() -> None:
     from memorable.runtime.doctor import run_diagnostics
 
     results = run_diagnostics(
-        RuntimeConfig(),
+        _neo4j_config(),
         probes=_probes(
             list_schema_constraints=lambda _config: [],
             list_vector_indexes=lambda _config: [],
@@ -426,7 +430,7 @@ def test_doctor_connected_with_empty_schema_yields_init_hint() -> None:
 def test_doctor_reports_vector_index_pass() -> None:
     from memorable.runtime.doctor import run_diagnostics
 
-    results = run_diagnostics(RuntimeConfig(), probes=_probes())
+    results = run_diagnostics(_neo4j_config(), probes=_probes())
 
     assert _by_check(results)["vector_index"] == {
         "check": "vector_index",
@@ -439,7 +443,7 @@ def test_doctor_reports_vector_index_failure_with_hint() -> None:
     from memorable.runtime.doctor import run_diagnostics
 
     results = run_diagnostics(
-        RuntimeConfig(),
+        _neo4j_config(),
         probes=_probes(list_vector_indexes=lambda _config: []),
     )
 
@@ -454,7 +458,7 @@ def test_doctor_reports_vector_index_failure_for_unrelated_vector_index() -> Non
     from memorable.runtime.doctor import run_diagnostics
 
     results = run_diagnostics(
-        RuntimeConfig(),
+        _neo4j_config(),
         probes=_probes(
             list_vector_indexes=lambda _config: [
                 {
@@ -477,7 +481,7 @@ def test_doctor_reports_vector_index_failure_for_unrelated_vector_index() -> Non
 def test_doctor_reports_vector_index_dimensions_pass() -> None:
     from memorable.runtime.doctor import run_diagnostics
 
-    results = run_diagnostics(RuntimeConfig(), probes=_probes())
+    results = run_diagnostics(_neo4j_config(), probes=_probes())
 
     assert _by_check(results)["vector_index_dimensions"] == {
         "check": "vector_index_dimensions",
@@ -489,7 +493,7 @@ def test_doctor_reports_vector_index_dimensions_pass() -> None:
 def test_doctor_fails_when_index_dimension_differs_from_config() -> None:
     from memorable.runtime.doctor import run_diagnostics
 
-    config = RuntimeConfig(
+    config = _neo4j_config(
         embeddings=EmbeddingSettings(
             provider="openrouter",
             model="google/gemini-embedding-2-preview",
@@ -533,7 +537,7 @@ def test_doctor_vector_index_dimensions_hint_recommends_reindex() -> None:
     """
     from memorable.runtime.doctor import run_diagnostics
 
-    config = RuntimeConfig(
+    config = _neo4j_config(
         embeddings=EmbeddingSettings(
             provider="openrouter",
             model="google/gemini-embedding-2-preview",
@@ -578,7 +582,7 @@ def test_doctor_vector_index_dimensions_soft_pass_when_options_absent() -> None:
     from memorable.runtime.doctor import run_diagnostics
 
     results = run_diagnostics(
-        RuntimeConfig(),
+        _neo4j_config(),
         probes=_probes(
             list_vector_indexes=lambda _config: [
                 {
@@ -769,7 +773,7 @@ def test_doctor_reports_embedding_index_coverage_failure_with_reindex_hint(
         )
 
     results = run_diagnostics(
-        RuntimeConfig(),
+        _neo4j_config(),
         probes=_probes(
             profile_path=profile_path,
             load_profile_from_yaml=lambda _yaml_text: SimpleNamespace(
@@ -887,8 +891,15 @@ def test_run_diagnostics_constructs_default_probes_when_omitted(monkeypatch) -> 
 
     results = doctor.run_diagnostics(RuntimeConfig())
 
+    by_check = _by_check(results)
     assert constructed == [True]
-    assert _by_check(results)["neo4j_connectivity"]["ok"] is True
+    assert by_check["storage_backend"] == {
+        "check": "storage_backend",
+        "ok": True,
+        "hint": "Active storage backend: sqlite (source: built-in).",
+    }
+    assert "sqlite_path" in by_check
+    assert "neo4j_connectivity" not in by_check
 
 
 def test_doctor_aggregate_all_pass_logic() -> None:

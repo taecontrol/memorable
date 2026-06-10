@@ -12,6 +12,8 @@ node_modules/
 .memorable/runtime.local.yaml
 .memorable/.env
 .memorable/docker-compose.yml
+.memorable/*.db
+.memorable/*.db-*
 
 # Pi local secrets and runtime state
 .pi/.env

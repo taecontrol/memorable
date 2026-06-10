@@ -11,7 +11,7 @@ from unittest.mock import MagicMock, patch
 
 import pytest
 
-from memorable.config import EmbeddingSettings, RuntimeConfig
+from memorable.config import EmbeddingSettings, RuntimeConfig, StorageSettings
 from memorable.core.application import (
     RememberDecisionService,
     RememberEntityService,
@@ -3166,7 +3166,9 @@ def test_production_context_wires_neo4j_retrieval_index() -> None:
         "memorable.storage.neo4j.connection.GraphDatabase.driver",
         return_value=driver,
     ):
-        ctx, returned_driver = build_production_context(RuntimeConfig())
+        ctx, returned_driver = build_production_context(
+            RuntimeConfig(storage=StorageSettings(backend="neo4j"))
+        )
 
     returned_driver.close()
     driver.close.assert_called_once()

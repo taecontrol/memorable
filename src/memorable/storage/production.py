@@ -11,7 +11,6 @@ from typing import Protocol
 
 from memorable.config import RuntimeConfig
 from memorable.core.context import ApplicationContext
-from memorable.retrieval.index import InMemoryEmbeddingIndex
 from memorable.storage.neo4j.connection import Neo4jDriver, connect
 from memorable.storage.neo4j.repository import (
     Neo4jAboutRepository,
@@ -48,7 +47,7 @@ def build_production_context(
     """Create an ApplicationContext from resolved runtime storage config.
 
     The caller owns the returned resource lifecycle and must close it on exit.
-    Neo4j remains the default path for this PRD slice; SQLite is selectable.
+    SQLite is the embedded default; Neo4j remains explicitly selectable.
     """
     if config.storage.backend == "neo4j":
         return _build_neo4j_context(config)
@@ -78,17 +77,24 @@ def _build_neo4j_context(
 def _build_sqlite_context(
     config: RuntimeConfig,
 ) -> tuple[ApplicationContext, SQLiteHandle]:
+    from memorable.storage.sqlite.retrieval_index import SqliteVecRetrievalIndex
+
     handle = connect_sqlite(config)
-    ctx = ApplicationContext(
-        entity_repo=SQLiteEntityRepository(handle),
-        decision_repo=SQLiteDecisionRepository(handle),
-        task_repo=SQLiteTaskRepository(handle),
-        observation_repo=SQLiteObservationRepository(handle),
-        relation_repo=SQLiteRelationRepository(handle),
-        about_repo=SQLiteAboutRepository(handle),
-        forget_repo=SQLiteForgetRepository(handle),
-        memory_space_repo=SQLiteMemorySpaceRepository(handle),
-        # PRD B replaces this documented placeholder with sqlite-vec.
-        retrieval_index=InMemoryEmbeddingIndex(),
-    )
+    try:
+        ctx = ApplicationContext(
+            entity_repo=SQLiteEntityRepository(handle),
+            decision_repo=SQLiteDecisionRepository(handle),
+            task_repo=SQLiteTaskRepository(handle),
+            observation_repo=SQLiteObservationRepository(handle),
+            relation_repo=SQLiteRelationRepository(handle),
+            about_repo=SQLiteAboutRepository(handle),
+            forget_repo=SQLiteForgetRepository(handle),
+            memory_space_repo=SQLiteMemorySpaceRepository(handle),
+            retrieval_index=SqliteVecRetrievalIndex(handle),
+            atomic_write=handle.atomic_write,
+            atomic_write_rolls_back_on_failure=True,
+        )
+    except Exception:
+        handle.close()
+        raise
     return ctx, handle

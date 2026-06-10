@@ -4,10 +4,11 @@ import argparse
 import json
 import sys
 from collections.abc import Callable, Sequence
+from dataclasses import replace
 from pathlib import Path
 from typing import TYPE_CHECKING, Literal, cast
 
-from memorable.config import RuntimeConfig, load_runtime_config
+from memorable.config import RuntimeConfig, StorageSettings, load_runtime_config
 from memorable.core.application import (
     CompleteTaskService,
     CorrectService,
@@ -48,6 +49,7 @@ from memorable.runtime.docker import is_remote_uri
 from memorable.runtime.docker import start as docker_start
 from memorable.runtime.docker import stop as docker_stop
 from memorable.runtime.doctor import all_checks_passed, run_diagnostics
+from memorable.storage.migrate import migrate_memory_space
 from memorable.storage.neo4j.repository import ensure_all_constraints
 from memorable.storage.production import build_production_context
 
@@ -354,7 +356,23 @@ def _build_embedding_indexer(
     )
 
 
-def _index_after_canonical_write(
+class _EmbeddingMaintenanceFailure(RuntimeError):
+    def __init__(
+        self,
+        *,
+        space: str,
+        source_id: str,
+        source_kind: str,
+        cause: Exception,
+    ) -> None:
+        super().__init__(str(cause))
+        self.space = space
+        self.source_id = source_id
+        self.source_kind = source_kind
+        self.cause = cause
+
+
+def _upsert_after_canonical_write(
     *,
     ctx: ApplicationContext,
     config: RuntimeConfig,
@@ -362,20 +380,40 @@ def _index_after_canonical_write(
     source_id: str,
     source_kind: str,
     upsert: Callable[[EmbeddingIndexer], None],
-) -> bool:
-    """Upsert a derived Embedding after canonical memory was written."""
+) -> None:
+    """Upsert a derived Embedding or raise with write-path context."""
     try:
         upsert(_build_embedding_indexer(ctx, config))
     except Exception as exc:
-        print(
-            "Error: Canonical memory was written, but derived Embedding index "
-            f"maintenance failed for {source_kind} '{source_id}' in "
-            f"MemorySpace '{space}'. Run `memorable reindex --space {space}` "
-            f"to repair search. Original error: {exc}",
-            file=sys.stderr,
+        raise _EmbeddingMaintenanceFailure(
+            space=space,
+            source_id=source_id,
+            source_kind=source_kind,
+            cause=exc,
+        ) from exc
+
+
+def _print_embedding_maintenance_failure(
+    ctx: ApplicationContext,
+    failure: _EmbeddingMaintenanceFailure,
+) -> None:
+    if ctx.atomic_write_rolls_back_on_failure:
+        message = (
+            "Error: Canonical memory was rolled back because derived Embedding "
+            f"index maintenance failed for {failure.source_kind} "
+            f"'{failure.source_id}' in MemorySpace '{failure.space}'. Fix "
+            "Embedding settings or index compatibility, then retry the write. "
+            f"Original error: {failure.cause}"
         )
-        return False
-    return True
+    else:
+        message = (
+            "Error: Canonical memory was written, but derived Embedding index "
+            f"maintenance failed for {failure.source_kind} "
+            f"'{failure.source_id}' in MemorySpace '{failure.space}'. Run "
+            f"`memorable reindex --space {failure.space}` to repair search. "
+            f"Original error: {failure.cause}"
+        )
+    print(message, file=sys.stderr)
 
 
 def _delete_after_canonical_forget(
@@ -476,32 +514,34 @@ def _cmd_remember_entity(
     )
 
     try:
-        result = service.remember(
-            space=space,
-            entity_id=args.id,
-            entity_type=args.type,
-            name=args.name,
-            source_id=args.source,
-            at=at,
-            writer=getattr(args, "writer", "agent:memorable"),
-            reason=getattr(args, "reason", ""),
-            attributes=_parse_attribute_flags(
-                getattr(args, "attr", None),
-                declared_attributes,
-            ),
-        )
+        with ctx.atomic_write():
+            result = service.remember(
+                space=space,
+                entity_id=args.id,
+                entity_type=args.type,
+                name=args.name,
+                source_id=args.source,
+                at=at,
+                writer=getattr(args, "writer", "agent:memorable"),
+                reason=getattr(args, "reason", ""),
+                attributes=_parse_attribute_flags(
+                    getattr(args, "attr", None),
+                    declared_attributes,
+                ),
+            )
+            _upsert_after_canonical_write(
+                ctx=ctx,
+                config=config,
+                space=space,
+                source_id=result.entity.id,
+                source_kind="Entity",
+                upsert=lambda indexer: indexer.upsert_entity(result.entity),
+            )
+    except _EmbeddingMaintenanceFailure as failure:
+        _print_embedding_maintenance_failure(ctx, failure)
+        return 1
     except ValueError as e:
         print(f"Error: {e}", file=sys.stderr)
-        return 1
-
-    if not _index_after_canonical_write(
-        ctx=ctx,
-        config=config,
-        space=space,
-        source_id=result.entity.id,
-        source_kind="Entity",
-        upsert=lambda indexer: indexer.upsert_entity(result.entity),
-    ):
         return 1
 
     print(
@@ -580,37 +620,40 @@ def _cmd_remember_decision(
     supersedes = getattr(args, "supersedes", None)
 
     try:
-        result = service.remember(
-            space=space,
-            decision_id=args.id,
-            statement=args.statement,
-            source_id=args.source,
-            at=at,
-            writer=getattr(args, "writer", "agent:memorable"),
-            reason=getattr(args, "reason", ""),
-            supersedes=supersedes,
-            about=getattr(args, "about", None),
-            record_type=getattr(args, "record_type", None),
-        )
+        with ctx.atomic_write():
+            result = service.remember(
+                space=space,
+                decision_id=args.id,
+                statement=args.statement,
+                source_id=args.source,
+                at=at,
+                writer=getattr(args, "writer", "agent:memorable"),
+                reason=getattr(args, "reason", ""),
+                supersedes=supersedes,
+                about=getattr(args, "about", None),
+                record_type=getattr(args, "record_type", None),
+            )
+
+            def upsert_decision_embeddings(indexer: EmbeddingIndexer) -> None:
+                indexer.upsert_decision(result.decision)
+                if supersedes is not None:
+                    superseded_decision = ctx.decision_repo.get(space, supersedes)
+                    if superseded_decision is not None:
+                        indexer.upsert_decision(superseded_decision)
+
+            _upsert_after_canonical_write(
+                ctx=ctx,
+                config=config,
+                space=space,
+                source_id=result.decision.id,
+                source_kind="Decision",
+                upsert=upsert_decision_embeddings,
+            )
+    except _EmbeddingMaintenanceFailure as failure:
+        _print_embedding_maintenance_failure(ctx, failure)
+        return 1
     except ValueError as e:
         print(f"Error: {e}", file=sys.stderr)
-        return 1
-
-    def upsert_decision_embeddings(indexer: EmbeddingIndexer) -> None:
-        indexer.upsert_decision(result.decision)
-        if supersedes is not None:
-            superseded_decision = ctx.decision_repo.get(space, supersedes)
-            if superseded_decision is not None:
-                indexer.upsert_decision(superseded_decision)
-
-    if not _index_after_canonical_write(
-        ctx=ctx,
-        config=config,
-        space=space,
-        source_id=result.decision.id,
-        source_kind="Decision",
-        upsert=upsert_decision_embeddings,
-    ):
         return 1
 
     print(
@@ -659,37 +702,40 @@ def _cmd_remember_observation(
     supersedes = getattr(args, "supersedes", None)
 
     try:
-        result = service.remember(
-            space=space,
-            observation_id=args.id,
-            statement=args.statement,
-            source_id=args.source,
-            at=at,
-            writer=getattr(args, "writer", "agent:memorable"),
-            reason=getattr(args, "reason", ""),
-            supersedes=supersedes,
-            about=getattr(args, "about", None),
-            record_type=getattr(args, "record_type", None),
-        )
+        with ctx.atomic_write():
+            result = service.remember(
+                space=space,
+                observation_id=args.id,
+                statement=args.statement,
+                source_id=args.source,
+                at=at,
+                writer=getattr(args, "writer", "agent:memorable"),
+                reason=getattr(args, "reason", ""),
+                supersedes=supersedes,
+                about=getattr(args, "about", None),
+                record_type=getattr(args, "record_type", None),
+            )
+
+            def upsert_observation_embeddings(indexer: EmbeddingIndexer) -> None:
+                indexer.upsert_observation(result.observation)
+                if supersedes is not None:
+                    superseded_observation = ctx.observation_repo.get(space, supersedes)
+                    if superseded_observation is not None:
+                        indexer.upsert_observation(superseded_observation)
+
+            _upsert_after_canonical_write(
+                ctx=ctx,
+                config=config,
+                space=space,
+                source_id=result.observation.id,
+                source_kind="Observation",
+                upsert=upsert_observation_embeddings,
+            )
+    except _EmbeddingMaintenanceFailure as failure:
+        _print_embedding_maintenance_failure(ctx, failure)
+        return 1
     except ValueError as e:
         print(f"Error: {e}", file=sys.stderr)
-        return 1
-
-    def upsert_observation_embeddings(indexer: EmbeddingIndexer) -> None:
-        indexer.upsert_observation(result.observation)
-        if supersedes is not None:
-            superseded_observation = ctx.observation_repo.get(space, supersedes)
-            if superseded_observation is not None:
-                indexer.upsert_observation(superseded_observation)
-
-    if not _index_after_canonical_write(
-        ctx=ctx,
-        config=config,
-        space=space,
-        source_id=result.observation.id,
-        source_kind="Observation",
-        upsert=upsert_observation_embeddings,
-    ):
         return 1
 
     print(
@@ -738,38 +784,41 @@ def _cmd_remember_relation(
     supersedes = getattr(args, "supersedes", None)
 
     try:
-        result = service.remember(
-            space=space,
-            relation_id=args.id,
-            source_entity_id=args.source_entity_id,
-            target_entity_id=args.target_entity_id,
-            relation_type=args.relation_type,
-            statement=args.statement,
-            source_id=args.source,
-            at=at,
-            writer=getattr(args, "writer", "agent:memorable"),
-            reason=getattr(args, "reason", ""),
-            supersedes=supersedes,
-        )
+        with ctx.atomic_write():
+            result = service.remember(
+                space=space,
+                relation_id=args.id,
+                source_entity_id=args.source_entity_id,
+                target_entity_id=args.target_entity_id,
+                relation_type=args.relation_type,
+                statement=args.statement,
+                source_id=args.source,
+                at=at,
+                writer=getattr(args, "writer", "agent:memorable"),
+                reason=getattr(args, "reason", ""),
+                supersedes=supersedes,
+            )
+
+            def upsert_relation_embeddings(indexer: EmbeddingIndexer) -> None:
+                indexer.upsert_relation(result.relation)
+                if supersedes is not None:
+                    superseded_relation = ctx.relation_repo.get(space, supersedes)
+                    if superseded_relation is not None:
+                        indexer.upsert_relation(superseded_relation)
+
+            _upsert_after_canonical_write(
+                ctx=ctx,
+                config=config,
+                space=space,
+                source_id=result.relation.id,
+                source_kind="Relation",
+                upsert=upsert_relation_embeddings,
+            )
+    except _EmbeddingMaintenanceFailure as failure:
+        _print_embedding_maintenance_failure(ctx, failure)
+        return 1
     except ValueError as e:
         print(f"Error: {e}", file=sys.stderr)
-        return 1
-
-    def upsert_relation_embeddings(indexer: EmbeddingIndexer) -> None:
-        indexer.upsert_relation(result.relation)
-        if supersedes is not None:
-            superseded_relation = ctx.relation_repo.get(space, supersedes)
-            if superseded_relation is not None:
-                indexer.upsert_relation(superseded_relation)
-
-    if not _index_after_canonical_write(
-        ctx=ctx,
-        config=config,
-        space=space,
-        source_id=result.relation.id,
-        source_kind="Relation",
-        upsert=upsert_relation_embeddings,
-    ):
         return 1
 
     print(
@@ -947,29 +996,31 @@ def _cmd_remember_task(
     at = parse_iso_timestamp(args.at)
 
     try:
-        result = service.remember(
-            space=space,
-            task_id=args.id,
-            title=args.title,
-            source_id=args.source,
-            at=at,
-            writer=getattr(args, "writer", "agent:memorable"),
-            reason=getattr(args, "reason", ""),
-            about=getattr(args, "about", None),
-            record_type=getattr(args, "record_type", None),
-        )
+        with ctx.atomic_write():
+            result = service.remember(
+                space=space,
+                task_id=args.id,
+                title=args.title,
+                source_id=args.source,
+                at=at,
+                writer=getattr(args, "writer", "agent:memorable"),
+                reason=getattr(args, "reason", ""),
+                about=getattr(args, "about", None),
+                record_type=getattr(args, "record_type", None),
+            )
+            _upsert_after_canonical_write(
+                ctx=ctx,
+                config=config,
+                space=space,
+                source_id=result.task.id,
+                source_kind="Task",
+                upsert=lambda indexer: indexer.upsert_task(result.task),
+            )
+    except _EmbeddingMaintenanceFailure as failure:
+        _print_embedding_maintenance_failure(ctx, failure)
+        return 1
     except ValueError as e:
         print(f"Error: {e}", file=sys.stderr)
-        return 1
-
-    if not _index_after_canonical_write(
-        ctx=ctx,
-        config=config,
-        space=space,
-        source_id=result.task.id,
-        source_kind="Task",
-        upsert=lambda indexer: indexer.upsert_task(result.task),
-    ):
         return 1
 
     print(
@@ -1006,23 +1057,25 @@ def _cmd_complete_task(
     at = parse_iso_timestamp(args.at)
 
     try:
-        result = service.complete(
-            space=space,
-            task_id=args.id,
-            at=at,
-        )
+        with ctx.atomic_write():
+            result = service.complete(
+                space=space,
+                task_id=args.id,
+                at=at,
+            )
+            _upsert_after_canonical_write(
+                ctx=ctx,
+                config=config,
+                space=space,
+                source_id=result.task.id,
+                source_kind="Task",
+                upsert=lambda indexer: indexer.upsert_task(result.task),
+            )
+    except _EmbeddingMaintenanceFailure as failure:
+        _print_embedding_maintenance_failure(ctx, failure)
+        return 1
     except ValueError as e:
         print(f"Error: {e}", file=sys.stderr)
-        return 1
-
-    if not _index_after_canonical_write(
-        ctx=ctx,
-        config=config,
-        space=space,
-        source_id=result.task.id,
-        source_kind="Task",
-        upsert=lambda indexer: indexer.upsert_task(result.task),
-    ):
         return 1
 
     print(
@@ -1298,51 +1351,55 @@ def _cmd_invalidate(
     at = parse_iso_timestamp(args.at)
 
     try:
-        result = service.invalidate(
-            space=space,
-            record_id=args.id,
-            at=at,
-        )
+        with ctx.atomic_write():
+            result = service.invalidate(
+                space=space,
+                record_id=args.id,
+                at=at,
+            )
+
+            if record_kind == "decision":
+                invalidated_decision = ctx.decision_repo.get(space, result.record_id)
+                if invalidated_decision is None:
+                    raise ValueError(
+                        f"Invalidated Decision '{result.record_id}' not found "
+                        f"in MemorySpace '{space}'."
+                    )
+                _upsert_after_canonical_write(
+                    ctx=ctx,
+                    config=config,
+                    space=space,
+                    source_id=result.record_id,
+                    source_kind="Decision",
+                    upsert=lambda indexer: indexer.upsert_decision(
+                        invalidated_decision
+                    ),
+                )
+            elif record_kind == "observation":
+                invalidated_observation = ctx.observation_repo.get(
+                    space, result.record_id
+                )
+                if invalidated_observation is None:
+                    raise ValueError(
+                        f"Invalidated Observation '{result.record_id}' not found "
+                        f"in MemorySpace '{space}'."
+                    )
+                _upsert_after_canonical_write(
+                    ctx=ctx,
+                    config=config,
+                    space=space,
+                    source_id=result.record_id,
+                    source_kind="Observation",
+                    upsert=lambda indexer: indexer.upsert_observation(
+                        invalidated_observation
+                    ),
+                )
+    except _EmbeddingMaintenanceFailure as failure:
+        _print_embedding_maintenance_failure(ctx, failure)
+        return 1
     except ValueError as e:
         print(f"Error: {e}", file=sys.stderr)
         return 1
-
-    if record_kind == "decision":
-        invalidated_decision = ctx.decision_repo.get(space, result.record_id)
-        if invalidated_decision is None:
-            print(
-                f"Error: Invalidated Decision '{result.record_id}' not found "
-                f"in MemorySpace '{space}'.",
-                file=sys.stderr,
-            )
-            return 1
-        if not _index_after_canonical_write(
-            ctx=ctx,
-            config=config,
-            space=space,
-            source_id=result.record_id,
-            source_kind="Decision",
-            upsert=lambda indexer: indexer.upsert_decision(invalidated_decision),
-        ):
-            return 1
-    elif record_kind == "observation":
-        invalidated_observation = ctx.observation_repo.get(space, result.record_id)
-        if invalidated_observation is None:
-            print(
-                f"Error: Invalidated Observation '{result.record_id}' not found "
-                f"in MemorySpace '{space}'.",
-                file=sys.stderr,
-            )
-            return 1
-        if not _index_after_canonical_write(
-            ctx=ctx,
-            config=config,
-            space=space,
-            source_id=result.record_id,
-            source_kind="Observation",
-            upsert=lambda indexer: indexer.upsert_observation(invalidated_observation),
-        ):
-            return 1
 
     print(
         json.dumps(
@@ -1388,57 +1445,59 @@ def _cmd_correct(
     at = parse_iso_timestamp(args.at)
 
     try:
-        result = service.correct(
-            space=space,
-            record_id=args.id,
-            new_statement=args.new_statement,
-            record_kind=record_kind,
-            source=args.source,
-            writer=getattr(args, "writer", "agent:memorable"),
-            at=at,
-            reason=getattr(args, "reason", "") or "",
-            about=about_targets,
-        )
+        with ctx.atomic_write():
+            result = service.correct(
+                space=space,
+                record_id=args.id,
+                new_statement=args.new_statement,
+                record_kind=record_kind,
+                source=args.source,
+                writer=getattr(args, "writer", "agent:memorable"),
+                at=at,
+                reason=getattr(args, "reason", "") or "",
+                about=about_targets,
+            )
+
+            if record_kind == "decision":
+                corrected_decision = ctx.decision_repo.get(space, result.record_id)
+                if corrected_decision is None:
+                    raise ValueError(
+                        f"Corrected Decision '{result.record_id}' not found "
+                        f"in MemorySpace '{space}'."
+                    )
+                _upsert_after_canonical_write(
+                    ctx=ctx,
+                    config=config,
+                    space=space,
+                    source_id=result.record_id,
+                    source_kind="Decision",
+                    upsert=lambda indexer: indexer.upsert_decision(corrected_decision),
+                )
+            elif record_kind == "observation":
+                corrected_observation = ctx.observation_repo.get(
+                    space, result.record_id
+                )
+                if corrected_observation is None:
+                    raise ValueError(
+                        f"Corrected Observation '{result.record_id}' not found "
+                        f"in MemorySpace '{space}'."
+                    )
+                _upsert_after_canonical_write(
+                    ctx=ctx,
+                    config=config,
+                    space=space,
+                    source_id=result.record_id,
+                    source_kind="Observation",
+                    upsert=lambda indexer: indexer.upsert_observation(
+                        corrected_observation
+                    ),
+                )
+    except _EmbeddingMaintenanceFailure as failure:
+        _print_embedding_maintenance_failure(ctx, failure)
+        return 1
     except ValueError as e:
         print(f"Error: {e}", file=sys.stderr)
         return 1
-
-    if record_kind == "decision":
-        corrected_decision = ctx.decision_repo.get(space, result.record_id)
-        if corrected_decision is None:
-            print(
-                f"Error: Corrected Decision '{result.record_id}' not found "
-                f"in MemorySpace '{space}'.",
-                file=sys.stderr,
-            )
-            return 1
-        if not _index_after_canonical_write(
-            ctx=ctx,
-            config=config,
-            space=space,
-            source_id=result.record_id,
-            source_kind="Decision",
-            upsert=lambda indexer: indexer.upsert_decision(corrected_decision),
-        ):
-            return 1
-    elif record_kind == "observation":
-        corrected_observation = ctx.observation_repo.get(space, result.record_id)
-        if corrected_observation is None:
-            print(
-                f"Error: Corrected Observation '{result.record_id}' not found "
-                f"in MemorySpace '{space}'.",
-                file=sys.stderr,
-            )
-            return 1
-        if not _index_after_canonical_write(
-            ctx=ctx,
-            config=config,
-            space=space,
-            source_id=result.record_id,
-            source_kind="Observation",
-            upsert=lambda indexer: indexer.upsert_observation(corrected_observation),
-        ):
-            return 1
 
     print(
         json.dumps(
@@ -1500,6 +1559,72 @@ def _cmd_forget(
                 "record_id": result.record_id,
                 "record_kind": result.record_kind,
                 "space": result.space,
+            },
+            sort_keys=True,
+        )
+    )
+    return 0
+
+
+MigrationBackend = Literal["neo4j", "sqlite"]
+
+
+def _build_migration_context(
+    config: RuntimeConfig,
+    backend: MigrationBackend,
+) -> tuple[ApplicationContext, object]:
+    backend_config = replace(
+        config,
+        storage=StorageSettings(
+            backend=backend,
+        ),
+    )
+    return build_production_context(backend_config)
+
+
+def _cmd_migrate(args: argparse.Namespace) -> int:
+    """Copy one MemorySpace between selected storage backends."""
+    space = resolve_space(getattr(args, "space", None))
+    config = load_runtime_config(include_environment_overrides=True)
+    source_resource: object | None = None
+    target_resource: object | None = None
+
+    try:
+        source_ctx, source_resource = _build_migration_context(
+            config,
+            args.from_backend,
+        )
+        target_ctx, target_resource = _build_migration_context(
+            config,
+            args.to_backend,
+        )
+    except ConnectionError as e:
+        print(f"Error: {e}", file=sys.stderr)
+        return 1
+    finally:
+        if target_resource is None and source_resource is not None:
+            source_resource.close()
+
+    try:
+        summary = migrate_memory_space(
+            source=source_ctx,
+            target=target_ctx,
+            space=space,
+        )
+    except (ProvenanceIntegrityError, ValueError) as e:
+        print(f"Error: {e}", file=sys.stderr)
+        return 1
+    finally:
+        target_resource.close()
+        source_resource.close()
+
+    print(
+        json.dumps(
+            {
+                "from": args.from_backend,
+                "to": args.to_backend,
+                "space": space,
+                **summary.as_dict(),
             },
             sort_keys=True,
         )
@@ -1651,6 +1776,26 @@ def main(argv: list[str] | None = None) -> int:
         default=None,
         help="Base directory containing .memorable/memory.yaml (default: cwd).",
     )
+
+    migrate_parser = subparsers.add_parser(
+        "migrate",
+        help="Copy a MemorySpace between storage backends.",
+    )
+    migrate_parser.add_argument(
+        "--from",
+        dest="from_backend",
+        required=True,
+        choices=["neo4j", "sqlite"],
+        help="Source backend to read from.",
+    )
+    migrate_parser.add_argument(
+        "--to",
+        dest="to_backend",
+        required=True,
+        choices=["neo4j", "sqlite"],
+        help="Target backend to write to.",
+    )
+    migrate_parser.add_argument("--space", default=None)
 
     # remember entity subcommand
     remember_parser = subparsers.add_parser(
@@ -1963,6 +2108,8 @@ def main(argv: list[str] | None = None) -> int:
         if args.profile_type == "show":
             return _cmd_profile_show(args)
         raise AssertionError(f"unhandled profile command: {args.profile_type}")
+    elif args.command == "migrate":
+        return _cmd_migrate(args)
     elif args.command == "tracer":
         if args.tracer_type == "run":
             return _cmd_tracer_run(args)

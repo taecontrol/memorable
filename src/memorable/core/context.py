@@ -12,6 +12,8 @@ MemoryProfile Resolution amendment).
 
 from __future__ import annotations
 
+from collections.abc import Callable
+from contextlib import AbstractContextManager, nullcontext
 from pathlib import Path
 from typing import TYPE_CHECKING
 
@@ -91,6 +93,8 @@ class ApplicationContext:
         forget_repo: ForgetRepository | None = None,
         memory_space_repo: MemorySpaceRepository | None = None,
         retrieval_index: RetrievalIndex | None = None,
+        atomic_write: Callable[[], AbstractContextManager[None]] | None = None,
+        atomic_write_rolls_back_on_failure: bool = False,
     ) -> None:
         record_keys: set[tuple[str, str]] = set()
         self.entity_repo = entity_repo or InMemoryEntityRepository()
@@ -111,6 +115,12 @@ class ApplicationContext:
         )
         self.memory_space_repo = memory_space_repo or InMemoryMemorySpaceRepository()
         self.retrieval_index = retrieval_index or InMemoryEmbeddingIndex()
+        self._atomic_write = atomic_write or nullcontext
+        self.atomic_write_rolls_back_on_failure = atomic_write_rolls_back_on_failure
+
+    def atomic_write(self) -> AbstractContextManager[None]:
+        """Return the write scope for one canonical memory plus Embedding update."""
+        return self._atomic_write()
 
     def about_linker(self) -> AboutLinker:
         """Return the AboutLinker wired to this context's repositories."""
@@ -167,6 +177,8 @@ class ApplicationContext:
         )
         self.memory_space_repo = InMemoryMemorySpaceRepository()
         self.retrieval_index = InMemoryEmbeddingIndex()
+        self._atomic_write = nullcontext
+        self.atomic_write_rolls_back_on_failure = False
 
 
 # Process-wide default context. Both CLI and MCP import this.

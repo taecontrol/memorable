@@ -62,7 +62,11 @@ This turns "the ports are backend-neutral" from an assertion into a tested invar
 
 ### Cross-backend migration
 
-Provide a cross-backend copy command, `memorable migrate --from <backend> --to <backend>`, implemented generically over the storage ports rather than as backend-specific code, so it works for any source/target pair (including in-memory). Migration:
+Provide a cross-backend copy operation implemented generically over the storage ports rather than as backend-specific code. The migrator accepts source and target port sets, so tests and adapter conformance checks can exercise any source/target pair directly, including in-memory contexts.
+
+Expose that operation through the user-facing command `memorable migrate --from <backend> --to <backend>` for persistent runtime backends only: `sqlite` and `neo4j`. The CLI resolves each selected backend through runtime configuration and does not expose the in-memory test adapter as a selectable backend.
+
+Migration:
 
 - reads every record in every lifecycle state via `list_by_space` and writes via `save`, preserving identity and temporal fields;
 - copies About links and provenance;
@@ -70,7 +74,7 @@ Provide a cross-backend copy command, `memorable migrate --from <backend> --to <
 - replays Task completion via `complete()` after `save`, because completion is an append-first event, not a stored field mutation;
 - writes in referential order (spaces → entities → records → relations → About → embeddings).
 
-Migration is never forced: existing Neo4j users keep selecting Neo4j. The command exists for users who choose to move data between backends, and its fidelity rests on the round-trip contract the conformance suite guards.
+Migration is never forced: existing Neo4j users keep selecting Neo4j. The command exists for users who choose to move data between persistent runtime backends, and its fidelity rests on the round-trip contract the conformance suite guards.
 
 ## Consequences
 

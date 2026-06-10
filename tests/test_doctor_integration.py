@@ -19,7 +19,7 @@ from live_neo4j import (
     resolve_live_neo4j_settings,
 )
 
-from memorable.config import EmbeddingSettings, RuntimeConfig
+from memorable.config import EmbeddingSettings, RuntimeConfig, StorageSettings
 from memorable.storage.neo4j.schema import create_vector_index_cypher
 
 INDEX_NAME = "memorable_embeddings_vector"
@@ -47,6 +47,7 @@ class _FakeProvider:
 def _runtime_config(dimensions: int) -> RuntimeConfig:
     """RuntimeConfig with live Neo4j from env and a stubbed embedding model."""
     return RuntimeConfig(
+        storage=StorageSettings(backend="neo4j"),
         neo4j=resolve_live_neo4j_settings(),
         embeddings=EmbeddingSettings(
             provider="fake", model="hash-based", dimensions=dimensions
