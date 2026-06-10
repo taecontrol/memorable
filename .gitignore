@@ -15,6 +15,7 @@ node_modules/
 .memorable/*.db
 .memorable/*.db-*
 
-# Pi AgentRoom runtime state
+# Pi local secrets and runtime state
+.pi/.env
 .pi/agent-room/runs/
 .pi/agent-room/worktrees/
