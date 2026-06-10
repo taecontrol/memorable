@@ -2,7 +2,7 @@
 
 Date: 2026-06-08
 Status: Accepted
-Refines: ADR 0020, ADR 0022
+Refines: ADR 0020, ADR 0026
 
 ## Context
 
@@ -11,7 +11,7 @@ fail-loud. A write that changes Indexable Text must update the derived
 Embedding before the write path reports success; silent staleness is repaired by
 explicit `reindex`, not hidden read-time rebuilding.
 
-ADR 0022 further requires the SQLite backend's canonical memory and derived
+ADR 0026 further requires the SQLite backend's canonical memory and derived
 Embedding to live in the same database and the same transaction. That is what
 keeps the embedded store honest: an Agent should not observe a canonical record
 without its vector, or a vector without its canonical record.
@@ -27,7 +27,7 @@ write returned. That ordering left two failure modes:
   write failed, leaving an orphan vector.
 
 Embeddings remain derived and rebuildable, so a missing Embedding is
-recoverable. Atomicity is still required because ADR 0022 promises the SQLite
+recoverable. Atomicity is still required because ADR 0026 promises the SQLite
 backend commits the canonical record and its Embedding together.
 
 ## Decision

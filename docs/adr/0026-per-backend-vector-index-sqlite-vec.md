@@ -1,4 +1,6 @@
-# ADR 0022: Per-Backend Vector Index — sqlite-vec For The SQLite Backend
+# ADR 0026: Per-Backend Vector Index — sqlite-vec For The SQLite Backend
+
+> Renumbered from a duplicate "ADR 0022" — that number belongs to Typed Durable Attributes On Types.
 
 Date: 2026-06-07
 Status: Accepted
@@ -8,7 +10,7 @@ Refines: ADR 0020
 
 ADR 0020 established a persistent Embedding index behind a retrieval-owned port (`RetrievalIndex`), so search embeds the query once and reads candidates from a durable index instead of re-embedding the whole MemorySpace. Its production adapter stored Embeddings in Neo4j's `memorable_embeddings_vector` index, and it explicitly rejected an external vector store while Neo4j was the only runtime.
 
-ADR 0021 adds a co-equal SQLite backend and makes it the default. SQLite has no built-in vector index, so the SQLite backend needs its own `RetrievalIndex` implementation. The port already isolates this choice: it is the cheapest thing in the system to replace, and Embeddings are derived — regenerable from Indexable Text via `recreate_index` — so changing the vector index is a reindex, never a canonical-data migration.
+ADR 0025 adds a co-equal SQLite backend and makes it the default. SQLite has no built-in vector index, so the SQLite backend needs its own `RetrievalIndex` implementation. The port already isolates this choice: it is the cheapest thing in the system to replace, and Embeddings are derived — regenerable from Indexable Text via `recreate_index` — so changing the vector index is a reindex, never a canonical-data migration.
 
 Two facts bound the decision:
 
@@ -72,13 +74,13 @@ Rejected for V1: `pysqlite3-binary` ships Linux-x86_64 wheels only (no macOS / W
 
 ### External / separate vector store (revisiting ADR 0020's rejection)
 
-Still rejected: it reintroduces an out-of-process dependency, against the embedded-default goal of ADR 0021, and Memorable already owns Embedding generation (ADR 0013). Keeping the vector index inside the same embedded database preserves single-file portability and atomic record+Embedding writes.
+Still rejected: it reintroduces an out-of-process dependency, against the embedded-default goal of ADR 0025, and Memorable already owns Embedding generation (ADR 0013). Keeping the vector index inside the same embedded database preserves single-file portability and atomic record+Embedding writes.
 
 ## Reconsideration Trigger
 
 Revisit if:
 
-- per-MemorySpace size grows beyond brute-force KNN's comfortable range, requiring ANN (consider `sqlite-vec` ANN when stable, or a graph-native engine per ADR 0021's trigger);
+- per-MemorySpace size grows beyond brute-force KNN's comfortable range, requiring ANN (consider `sqlite-vec` ANN when stable, or a graph-native engine per ADR 0025's trigger);
 - `sqlite-vec` stalls, breaks its on-disk format across versions, or its load failures on common interpreters become frequent — fall back to the documented numpy/BLOB adapter via reindex;
 - the install-environment picture changes (e.g. python.org-macOS enables extension loading, or a portable cross-platform SQLite bundle with Python 3.14 coverage appears);
 - multiple Embeddings per source item (chunking / multimodal) change the index shape.

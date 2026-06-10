@@ -1,4 +1,6 @@
-# ADR 0021: SQLite Embedded Storage Backend, Co-Equal With Neo4j
+# ADR 0025: SQLite Embedded Storage Backend, Co-Equal With Neo4j
+
+> Renumbered from a duplicate "ADR 0021" — that number belongs to Record Subtype As Optional On-Record Label.
 
 Date: 2026-06-07
 Status: Accepted
@@ -109,7 +111,7 @@ Rejected after research. KùzuDB is archived; CozoDB is effectively unmaintained
 
 ### A separate embedded vector store as the canonical backend (e.g. Chroma)
 
-Rejected: a vector store is not a graph/relational store. As a canonical backend it forces dummy-vector junction rows for About, sentinel epochs because it cannot query NULL (breaking Point-In-Time Truth), a non-atomic Forget cascade, and application-side ordering for Memory Review — and its one strength is moot because Memorable owns Embedding generation (ADR 0013). The vector-index decision is made separately in ADR 0022.
+Rejected: a vector store is not a graph/relational store. As a canonical backend it forces dummy-vector junction rows for About, sentinel epochs because it cannot query NULL (breaking Point-In-Time Truth), a non-atomic Forget cascade, and application-side ordering for Memory Review — and its one strength is moot because Memorable owns Embedding generation (ADR 0013). The vector-index decision is made separately in ADR 0026.
 
 ## Reconsideration Trigger
 

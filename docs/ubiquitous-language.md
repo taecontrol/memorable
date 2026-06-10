@@ -588,13 +588,13 @@ Duplicate MemoryRecord write errors should name the record id and MemorySpace, a
 
 ### Storage Adapters
 
-Memorable has co-equal storage adapters behind the storage ports. SQLite is the embedded default storage runtime; Neo4j is a co-equal, selectable backend (ADR 0021). The in-memory adapter exists for tests.
+Memorable has co-equal storage adapters behind the storage ports. SQLite is the embedded default storage runtime; Neo4j is a co-equal, selectable backend (ADR 0025). The in-memory adapter exists for tests.
 
 ### SQLite
 
-SQLite is the default, embedded storage adapter (ADR 0021). A single `.db` file holds a MemorySpace's Entities, MemoryRecords, Relations, About links, provenance, and derived Embeddings, with no server or daemon.
+SQLite is the default, embedded storage adapter (ADR 0025). A single `.db` file holds a MemorySpace's Entities, MemoryRecords, Relations, About links, provenance, and derived Embeddings, with no server or daemon.
 
-SQLite tables, columns, foreign keys, and the `sqlite-vec` vector index (ADR 0022) are storage vocabulary, not Memorable Core language.
+SQLite tables, columns, foreign keys, and the `sqlite-vec` vector index (ADR 0026) are storage vocabulary, not Memorable Core language.
 
 ### Neo4j
 

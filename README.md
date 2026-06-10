@@ -110,7 +110,9 @@ to start — they're there for when you want to teach Memorable about your
 specific domain:
 
 - **`entities`** — the *things* in your project worth remembering, like a
-  service, an API, or a person.
+  service, an API, or a person. A declared entity type can also declare typed
+  durable **`attributes`** (string, number, date, list[string]) that are
+  validated at write time and filterable in search via `--attr name=value`.
 - **`relations`** — how those things connect, like "service A depends on
   service B."
 - **`records`** — your own kinds of memory, when the built-in ones aren't
@@ -209,6 +211,12 @@ SQLite is the embedded default storage backend. With no runtime config,
 Memorable stores memory in `.memorable/memory.db` and uses no database server.
 To use Neo4j, select Neo4j explicitly with `storage.backend: neo4j` in
 runtime config.
+
+To move an existing MemorySpace between backends, copy it with
+`memorable migrate --from sqlite --to neo4j` (or the reverse). Migration
+copies canonical memory and its derived Embeddings into the target — which
+must not already contain a MemorySpace with that name — and never deletes
+the source.
 
 ### MemorySpace vs Neo4j database
 
@@ -341,19 +349,23 @@ Setup & diagnostics:
 | `memorable status` | Print the diagnostic status payload. |
 | `memorable db start\|stop\|status\|eject` | Manage / inspect the local Neo4j runtime when `storage.backend: neo4j` is selected. |
 | `memorable profile show` | Show the loaded MemoryProfile. |
+| `memorable migrate --from --to` | Copy a MemorySpace between storage backends (`sqlite` ↔ `neo4j`). |
+| `memorable reindex` | Rebuild persistent Embeddings for a MemorySpace from canonical memory. |
 
 Writing memory (`remember`):
 
 | Command | Writes |
 |---|---|
-| `memorable remember entity` | An Entity (`--id --type --name --source --at`). |
-| `memorable remember decision` | A Decision (`--id --statement --source --at`, optional `--supersedes`). |
+| `memorable remember entity` | An Entity (`--id --type --name --source --at`, repeatable `--attr name=value` for declared Attributes). |
+| `memorable remember decision` | A Decision (`--id --statement --source --at`, optional `--supersedes`, `--type`, `--about`). |
 | `memorable remember observation` | An Observation (same shape as decision). |
-| `memorable remember task` | A Task (`--id --title --source --at`). |
+| `memorable remember task` | A Task (`--id --title --source --at`, optional `--type`, `--about`). |
 | `memorable remember relation` | A Relation between two entities (`--id --source-entity-id --target-entity-id --relation-type --statement --source --at`). |
 
 Most write commands also accept `--space`, `--writer` (default
-`agent:memorable`), and `--reason`.
+`agent:memorable`), and `--reason`. On record writes, `--type` selects a
+custom Record Subtype declared in `memory.yaml`, and `--about` (repeatable)
+links the record to existing Entities it concerns.
 
 Lifecycle, truth & history:
 
@@ -365,8 +377,8 @@ Lifecycle, truth & history:
 | `memorable truth as-of --id --at` | Point-in-time truth. |
 | `memorable inspect history --id` | Full supersession chain with lifecycle states. |
 | `memorable inspect provenance --id` | Source, writer, reason, validity times. |
-| `memorable invalidate --id --record-type --at` | Mark a record invalidated (no successor). |
-| `memorable correct --id --record-type --new-statement --source --at` | Append a corrected statement. |
+| `memorable invalidate --id --record-kind --at` | Mark a record invalidated (no successor). |
+| `memorable correct --id --record-kind --new-statement --source --at` | Append a corrected statement (optional `--about`). |
 
 Erasure (escape hatch):
 
@@ -380,11 +392,12 @@ Forgetting an Entity cascades to its provenance and the relations that hang off
 it. Reach for it only when the answer is "this should never have been written" —
 not to retire stale truth.
 
-Search:
+Search & review:
 
 | Command | Purpose |
 |---|---|
-| `memorable search --query [--mode current\|as-of] [--as-of]` | Hybrid GraphRAG retrieval. |
+| `memorable search --query [--mode current\|as-of] [--as-of] [--type] [--attr]` | Hybrid GraphRAG retrieval; filter by Record Subtype or Entity Attribute. |
+| `memorable list [--record-kind] [--type] [--state] [--since] [--until] [--about]` | List MemoryRecords for Memory Review — complete enumeration, no semantic ranking. |
 
 Run any command with `--help` for its full option list.
 
