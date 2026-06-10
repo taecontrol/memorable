@@ -1191,6 +1191,28 @@ def test_full_memory_space_round_trip_with_neo4j_when_fixture_is_available(
     assert _full_memory_space_snapshot(source, space=space) == source_snapshot
 
 
+def test_cli_migrate_exposes_only_persistent_runtime_backends(capsys) -> None:
+    """The migrate command is user-selectable only for runtime backends."""
+    from memorable.cli import main
+
+    with pytest.raises(SystemExit) as help_exit:
+        main(["migrate", "--help"])
+
+    help_output = capsys.readouterr().out
+    assert help_exit.value.code == 0
+    assert "{neo4j,sqlite}" in help_output
+    assert "{neo4j,sqlite,memory}" not in help_output
+
+    with pytest.raises(SystemExit) as invalid_exit:
+        main(["migrate", "--from", "memory", "--to", "sqlite", "--space", SPACE])
+
+    invalid_output = capsys.readouterr()
+    assert invalid_exit.value.code == 2
+    assert invalid_output.out == ""
+    assert "invalid choice: 'memory'" in invalid_output.err
+    assert "{neo4j,sqlite}" in invalid_output.err
+
+
 def test_cli_migrate_rejects_existing_target_space_without_changing_either_side(
     capsys,
 ) -> None:

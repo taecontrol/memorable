@@ -1566,25 +1566,17 @@ def _cmd_forget(
     return 0
 
 
-MigrationBackend = Literal["neo4j", "sqlite", "memory"]
-RuntimeStorageBackend = Literal["neo4j", "sqlite"]
-
-
-class _NoopMigrationResource:
-    def close(self) -> None:
-        return None
+MigrationBackend = Literal["neo4j", "sqlite"]
 
 
 def _build_migration_context(
     config: RuntimeConfig,
     backend: MigrationBackend,
 ) -> tuple[ApplicationContext, object]:
-    if backend == "memory":
-        return ApplicationContext(), _NoopMigrationResource()
     backend_config = replace(
         config,
         storage=StorageSettings(
-            backend=cast(RuntimeStorageBackend, backend),
+            backend=backend,
         ),
     )
     return build_production_context(backend_config)
@@ -1793,14 +1785,14 @@ def main(argv: list[str] | None = None) -> int:
         "--from",
         dest="from_backend",
         required=True,
-        choices=["neo4j", "sqlite", "memory"],
+        choices=["neo4j", "sqlite"],
         help="Source backend to read from.",
     )
     migrate_parser.add_argument(
         "--to",
         dest="to_backend",
         required=True,
-        choices=["neo4j", "sqlite", "memory"],
+        choices=["neo4j", "sqlite"],
         help="Target backend to write to.",
     )
     migrate_parser.add_argument("--space", default=None)
