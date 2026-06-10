@@ -12,6 +12,7 @@
       "Bash(git -C * diff)"
     ]
   },
+  "agent": "architect",
   "autoCompactWindow": 160000,
   "autoMemoryEnabled": false,
   "env": {
